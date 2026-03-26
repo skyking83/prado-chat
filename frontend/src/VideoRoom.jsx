@@ -7,7 +7,7 @@ const STUN_SERVERS = {
   ]
 };
 
-const PeerVideo = ({ stream, username }) => {
+const PeerVideo = ({ stream, username, first_name, last_name }) => {
   const videoRef = useRef();
 
   useEffect(() => {
@@ -19,7 +19,7 @@ const PeerVideo = ({ stream, username }) => {
   return (
     <div className="video-box">
       <video ref={videoRef} autoPlay playsInline />
-      <span className="video-name">{username}</span>
+      <span className="video-name">{first_name ? `${first_name} ${last_name || ''}`.trim() : username}</span>
     </div>
   );
 };
@@ -82,7 +82,7 @@ const VideoRoom = ({ socket, spaceId, onClose }) => {
   useEffect(() => {
     if (!localStream) return;
 
-    const createPeerConnection = (userId, username) => {
+    const createPeerConnection = (userId, username, first_name, last_name) => {
       const pc = new RTCPeerConnection(STUN_SERVERS);
       peerConnections.current[userId] = pc;
 
@@ -93,7 +93,7 @@ const VideoRoom = ({ socket, spaceId, onClose }) => {
       pc.ontrack = (event) => {
         setPeers(prev => ({
           ...prev,
-          [userId]: { stream: event.streams[0], username }
+          [userId]: { stream: event.streams[0], username, first_name, last_name }
         }));
       };
 
@@ -107,9 +107,9 @@ const VideoRoom = ({ socket, spaceId, onClose }) => {
       return pc;
     };
 
-    const handleUserJoined = async ({ userId, username }) => {
-      console.log(`User joined: ${username}`);
-      const pc = createPeerConnection(userId, username);
+    const handleUserJoined = async ({ userId, username, first_name, last_name }) => {
+      console.log(`User joined: ${first_name ? first_name : username}`);
+      const pc = createPeerConnection(userId, username, first_name, last_name);
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -119,9 +119,9 @@ const VideoRoom = ({ socket, spaceId, onClose }) => {
       }
     };
 
-    const handleVideoOffer = async ({ senderId, offer, username }) => {
-      console.log(`Received offer from ${username}`);
-      const pc = createPeerConnection(senderId, username);
+    const handleVideoOffer = async ({ senderId, offer, username, first_name, last_name }) => {
+      console.log(`Received offer from ${first_name ? first_name : username}`);
+      const pc = createPeerConnection(senderId, username, first_name, last_name);
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await pc.createAnswer();
@@ -211,7 +211,7 @@ const VideoRoom = ({ socket, spaceId, onClose }) => {
               <span className="video-name local-name">You {isMuted && '(Muted)'}</span>
             </div>
             {Object.entries(peers).map(([userId, peer]) => (
-              <PeerVideo key={userId} stream={peer.stream} username={peer.username} />
+              <PeerVideo key={userId} stream={peer.stream} username={peer.username} first_name={peer.first_name} last_name={peer.last_name} />
             ))}
           </div>
 

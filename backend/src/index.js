@@ -137,6 +137,12 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
       )`);
+      db.run(`CREATE TABLE IF NOT EXISTS read_receipts (
+        space_id INTEGER,
+        username TEXT,
+        message_id INTEGER,
+        PRIMARY KEY (space_id, username)
+      )`);
     });
   }
 });
@@ -919,14 +925,24 @@ io.on('connection', (socket) => {
   console.log(`A user connected: ${username} (${socket.id})`);
 
   // Track active sessions per user
-  activeUsers.set(username, (activeUsers.get(username) || 0) + 1);
-  io.emit('presence', Array.from(activeUsers.keys()));
+  db.get('SELECT username, first_name, last_name, avatar FROM users WHERE username = ?', [username], (err, row) => {
+    if (!err && row) {
+      socket.userProfile = row;
+      const current = activeUsers.get(username);
+      if (current) {
+        current.count += 1;
+        current.user = row;
+      } else {
+        activeUsers.set(username, { count: 1, user: row });
+      }
+      io.emit('presence', Array.from(activeUsers.values()).map(v => v.user));
+    }
+  });
 
-  // Active Typing Telemetry
   socket.on('typing', (data) => {
     const spaceId = data.spaceId || data;
     const avatar = data.avatar || null;
-    socket.to(spaceId.toString()).emit('user typing', { username, spaceId, avatar });
+    socket.to(spaceId.toString()).emit('user typing', { username, spaceId, avatar, first_name: socket.userProfile?.first_name });
   });
 
   socket.on('stop typing', (data) => {
@@ -960,6 +976,14 @@ io.on('connection', (socket) => {
               text: row.text, id: row.id, sender: row.sender, avatar: row.avatar, spaceId, asset: row.asset, edited: row.edited, is_pinned: row.is_pinned, reactions: row.reactions, first_name: row.first_name, last_name: row.last_name
             })));
           }
+          
+          db.all('SELECT username, message_id FROM read_receipts WHERE space_id = ?', [spaceId], (err, receipts) => {
+            if (!err) {
+               const receiptMap = {};
+               receipts.forEach(r => receiptMap[r.username] = r.message_id);
+               socket.emit('read_receipts_init', receiptMap);
+            }
+          });
         });
       };
 
@@ -973,6 +997,24 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('mark_read', (data) => {
+    const { space_id, message_id } = data;
+    if (!space_id || !message_id) return;
+    
+    db.run(
+      'INSERT INTO read_receipts (space_id, username, message_id) VALUES (?, ?, ?) ON CONFLICT(space_id, username) DO UPDATE SET message_id = excluded.message_id',
+      [space_id, socket.user.username, message_id],
+      (err) => {
+        if (!err) {
+          io.to(space_id.toString()).emit('read_receipt_update', {
+            space_id,
+            username: socket.user.username,
+            message_id
+          });
+        }
+      }
+    );
+  });
   socket.on('chat message', async (msg) => {
     const sender = socket.user.username;
     const spaceId = msg.spaceId || 1;
@@ -1089,7 +1131,9 @@ io.on('connection', (socket) => {
     socket.to(room).emit('user-joined-video', {
       userId: socket.id,
       username: socket.user.username,
-      avatar: socket.user.avatar
+      first_name: socket.userProfile?.first_name,
+      last_name: socket.userProfile?.last_name,
+      avatar: socket.userProfile?.avatar || socket.user.avatar
     });
   });
 
@@ -1097,7 +1141,9 @@ io.on('connection', (socket) => {
     io.to(data.targetUserId).emit('video-offer', {
       senderId: socket.id,
       offer: data.offer,
-      username: socket.user.username
+      username: socket.user.username,
+      first_name: socket.userProfile?.first_name,
+      last_name: socket.userProfile?.last_name
     });
   });
 
@@ -1128,13 +1174,15 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
 
     // Decrement session count and update Global Presence
-    const count = activeUsers.get(username) || 0;
-    if (count <= 1) {
-      activeUsers.delete(username);
-    } else {
-      activeUsers.set(username, count - 1);
+    const current = activeUsers.get(username);
+    if (current) {
+      if (current.count <= 1) {
+        activeUsers.delete(username);
+      } else {
+        current.count -= 1;
+      }
+      io.emit('presence', Array.from(activeUsers.values()).map(v => v.user));
     }
-    io.emit('presence', Array.from(activeUsers.keys()));
   });
 });
 

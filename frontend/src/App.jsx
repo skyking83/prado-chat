@@ -447,7 +447,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
   const handleAdminResetPassword = async () => {
     if (!adminResetPw) return;
-    if (!window.confirm(`Reset password for ${editingUser.username}?`)) return;
+    if (!window.confirm(`Reset password for ${editingUser.first_name ? editingUser.first_name + ' ' + (editingUser.last_name || '') : editingUser.username}?`)) return;
     const res = await fetch(`${socketUrl}/api/admin/users/${editingUser.id}/password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -878,7 +878,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
             <div className="auth-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
               <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete User?</h2>
-              <p>Are you sure you want to delete <strong>{userToDelete.username}</strong>? This action cannot be undone.</p>
+              <p>Are you sure you want to delete <strong>{userToDelete.first_name ? `${userToDelete.first_name} ${userToDelete.last_name || ''}`.trim() : userToDelete.username}</strong>? This action cannot be undone.</p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                 <button type="button" className="btn-secondary" onClick={() => setUserToDelete(null)} style={{ flex: 1 }}>Cancel</button>
                 <button type="button" className="btn-primary" onClick={() => deleteUser(userToDelete.id)} style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}>Delete</button>
@@ -939,6 +939,7 @@ function App() {
   const debounceRef = useRef(null);
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [readReceipts, setReadReceipts] = useState({});
 
   // Phase 9: Media Integrations
   const [showMediaMenu, setShowMediaMenu] = useState(false);
@@ -1233,10 +1234,10 @@ function App() {
       setOnlineUsers(users);
     });
 
-    newSocket.on('user typing', ({ username: typer, avatar }) => {
+    newSocket.on('user typing', ({ username: typer, avatar, first_name }) => {
       setTypingUsers(prev => {
         if (prev.find(u => u.username === typer)) return prev;
-        return [...prev, { username: typer, avatar }];
+        return [...prev, { username: typer, avatar, first_name }];
       });
     });
 
@@ -1311,6 +1312,14 @@ function App() {
         .catch(err => console.error('Failed to sync spaces after leave sync', err));
     });
 
+    newSocket.on('read_receipts_init', (map) => {
+      setReadReceipts(map || {});
+    });
+
+    newSocket.on('read_receipt_update', ({ username: rUser, message_id: rMsgId }) => {
+      setReadReceipts(prev => ({ ...prev, [rUser]: rMsgId }));
+    });
+
     return () => {
       newSocket.off('connect');
       newSocket.off('disconnect');
@@ -1323,9 +1332,19 @@ function App() {
       newSocket.off('space created');
       newSocket.off('space invited');
       newSocket.off('space deleted');
+      newSocket.off('read_receipts_init');
+      newSocket.off('read_receipt_update');
       newSocket.disconnect();
     };
   }, [token]);
+
+  // Handle Mark Read
+  useEffect(() => {
+    if (messages.length > 0 && socket && isConnected) {
+      const lastMsg = messages[messages.length - 1];
+      socket.emit('mark_read', { space_id: lastMsg.spaceId || currentSpace.id, message_id: lastMsg.id });
+    }
+  }, [messages, socket, isConnected, currentSpace.id]);
 
   // Handle Socket Room Joining
   useEffect(() => {
@@ -2131,12 +2150,14 @@ function App() {
         <div className="sidebar-header" style={{ marginTop: 'auto', borderTop: '1px solid var(--md-sys-color-surface-variant)', padding: '1rem 1.5rem 0.5rem 1.5rem' }}>
           <h2 style={{ fontSize: '1rem', opacity: 0.8 }}>Online ({onlineUsers.length})</h2>
         </div>
-        <div className="space-list" style={{ flex: 'none', maxHeight: '150px' }}>
+        <div className="space-list" style={{ flex: 'none', maxHeight: '150px', overflowY: 'auto' }}>
           {onlineUsers.map(u => (
-            <div key={u} className="space-item" style={{ cursor: 'default', padding: '0.5rem 1.5rem' }}>
+            <div key={u.username} className="space-item" style={{ cursor: 'default', padding: '0.5rem 1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4CAF50', boxShadow: '0 0 4px #4CAF50' }} />
-                <span>{u}</span>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4CAF50', boxShadow: '0 0 4px #4CAF50', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.95rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--md-sys-color-on-surface)' }}>
+                  {u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}
+                </span>
               </div>
             </div>
           ))}
@@ -2235,6 +2256,26 @@ function App() {
                 )
               )}
               <div className={`message ${isMe ? 'sent' : 'received'}`}>
+                {Object.entries(readReceipts).filter(([u, id]) => id === msg.id && u !== username).length > 0 && (
+                  <div style={{ position: 'absolute', top: '-6px', right: '-6px', display: 'flex', gap: '2px', zIndex: 10 }}>
+                    {Object.entries(readReceipts)
+                      .filter(([u, id]) => id === msg.id && u !== username)
+                      .map(([u]) => {
+                         let av = null;
+                         const ou = onlineUsers.find(o => o.username === u);
+                         if (ou && ou.avatar) av = ou.avatar;
+                         else {
+                           for (let i = messages.length - 1; i >= 0; i--) {
+                             if (messages[i].sender === u && messages[i].avatar) { av = messages[i].avatar; break; }
+                           }
+                         }
+                         if (av) {
+                           return <img key={u} src={av} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${u}`} />;
+                         }
+                         return <div key={u} style={{ width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${u}`}>{u.charAt(0).toUpperCase()}</div>;
+                      })}
+                  </div>
+                )}
                 {!isMe && <div className="sender-name">{msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}</div>}
                 <div className="message-actions" style={{ display: 'flex', gap: '4px', opacity: reactingToMsgId === msg.id ? 1 : '' }}>
                   <button onClick={() => setReactingToMsgId(reactingToMsgId === msg.id ? null : msg.id)} title="React">
@@ -2344,7 +2385,7 @@ function App() {
               <img src={typer.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: '2px' }} alt={typer.username} />
             ) : (
               <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-background)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 'bold', flexShrink: 0, marginBottom: '2px' }}>
-                {typer.username.charAt(0).toUpperCase()}
+                {typer.first_name ? typer.first_name.charAt(0).toUpperCase() : typer.username.charAt(0).toUpperCase()}
               </div>
             )}
             <div className="message received typing-bubble" style={{ padding: '12px 14px', display: 'flex', gap: '6px', alignItems: 'center', minHeight: '40px', boxSizing: 'border-box' }}>
@@ -2833,8 +2874,8 @@ function App() {
                               style={{ width: '16px', height: '16px', cursor: isInvited ? 'default' : 'pointer' }}
                             />
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.username[0].toUpperCase()}</div>}
-                              <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)', textDecoration: isInvited ? 'line-through' : 'none' }}>{u.username}</span>
+                              {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}</div>}
+                              <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)', textDecoration: isInvited ? 'line-through' : 'none' }}>{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
                             </div>
                           </label>
                           {isInvited && (role === 'admin' || username === currentSpace.created_by) && (
@@ -2937,8 +2978,8 @@ function App() {
                           style={{ width: '16px', height: '16px' }}
                         />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.username[0].toUpperCase()}</div>}
-                          <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)' }}>{u.username}</span>
+                          {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}</div>}
+                          <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)' }}>{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
                         </div>
                       </label>
                     ))}
