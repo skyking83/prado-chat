@@ -11,8 +11,8 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3001
-      - RESEND_API_KEY=re_Azu1B4JC_3FnsaUF6w8xWVnnrSS4FZun2
-      - GIPHY_API_KEY=G2784PRkgY5M4cC4A9AOrMY1AxGnxFr6
+      - RESEND_API_KEY=${RESEND_API_KEY:-your_resend_api_key_here}
+      - GIPHY_API_KEY=${GIPHY_API_KEY:-your_giphy_api_key_here}
     volumes:
       # Map the local Windows directory to the container for hot-reloading
       - ./backend:/app

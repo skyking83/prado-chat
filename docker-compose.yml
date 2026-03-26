@@ -13,8 +13,8 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-      - RESEND_API_KEY=re_Azu1B4JC_3FnsaUF6w8xWVnnrSS4FZun2
-      - GIPHY_API_KEY=G2784PRkgY5M4cC4A9AOrMY1AxGnxFr6
+      - RESEND_API_KEY=${RESEND_API_KEY:-your_resend_api_key_here}
+      - GIPHY_API_KEY=${GIPHY_API_KEY:-your_giphy_api_key_here}
     volumes:
       # Bind mounts to TrueNAS datasets — survives image updates
       - /mnt/pool1/app_data/prado-chat-data:/app/data
