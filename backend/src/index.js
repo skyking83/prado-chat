@@ -769,6 +769,67 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
   });
 });
 
+app.get('/api/spaces/:id/messages', authenticateToken, (req, res) => {
+  const spaceId = parseInt(req.params.id, 10);
+  const beforeId = parseInt(req.query.before_id, 10);
+  if (!spaceId || isNaN(beforeId)) return res.status(400).json({ error: 'Invalid parameters' });
+
+  const fetchMessages = () => {
+    db.all(`
+      SELECT m.id, m.text, m.sender, m.timestamp, u.avatar, m.asset, m.edited, m.is_pinned, m.reactions, u.first_name, u.last_name
+      FROM messages m 
+      LEFT JOIN users u ON m.sender = u.username 
+      WHERE m.space_id = ? AND m.id < ? 
+      ORDER BY m.id DESC LIMIT 50
+    `, [spaceId, beforeId], (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      res.json(rows.reverse());
+    });
+  };
+
+  db.get('SELECT * FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+    if (err || !space) return res.status(404).json({ error: 'Space not found' });
+    if (space.is_private === 1 && req.user.role !== 'admin') {
+      db.get('SELECT * FROM space_members WHERE space_id = ? AND user_id = ?', [spaceId, req.user.userId], (err, member) => {
+        if (member) fetchMessages();
+        else res.status(403).json({ error: 'Forbidden' });
+      });
+    } else {
+      fetchMessages();
+    }
+  });
+});
+
+app.get('/api/spaces/:id/pinned', authenticateToken, (req, res) => {
+  const spaceId = parseInt(req.params.id, 10);
+  if (!spaceId) return res.status(400).json({ error: 'Invalid parameters' });
+
+  const fetchPinned = () => {
+    db.all(`
+      SELECT m.id, m.text, m.sender, m.timestamp, u.avatar, m.asset, m.edited, m.is_pinned, m.reactions, u.first_name, u.last_name
+      FROM messages m 
+      LEFT JOIN users u ON m.sender = u.username 
+      WHERE m.space_id = ? AND m.is_pinned = 1 
+      ORDER BY m.id DESC
+    `, [spaceId], (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      res.json(rows);
+    });
+  };
+
+  db.get('SELECT * FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+    if (err || !space) return res.status(404).json({ error: 'Space not found' });
+    if (space.is_private === 1 && req.user.role !== 'admin') {
+      db.get('SELECT * FROM space_members WHERE space_id = ? AND user_id = ?', [spaceId, req.user.userId], (err, member) => {
+        if (member) fetchPinned();
+        else res.status(403).json({ error: 'Forbidden' });
+      });
+    } else {
+      fetchPinned();
+    }
+  });
+});
+
 app.post('/api/spaces/:id/remove', authenticateToken, (req, res) => {
   const spaceId = parseInt(req.params.id, 10);
   const { userId } = req.body;

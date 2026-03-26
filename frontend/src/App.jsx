@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import Cropper from 'react-easy-crop'
 import EmojiPicker from 'emoji-picker-react'
@@ -940,12 +940,19 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [readReceipts, setReadReceipts] = useState({});
+  const topAnchorRef = useRef(null);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
   // Phase 9: Media Integrations
   const [showMediaMenu, setShowMediaMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
+  
+  // Phase 12: Pinned Messages Board
+  const [showPinnedBoard, setShowPinnedBoard] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
   const [gifs, setGifs] = useState([]);
   const [reactingToMsgId, setReactingToMsgId] = useState(null);
 
@@ -1268,6 +1275,8 @@ function App() {
 
     newSocket.on('message pinned', ({ id, is_pinned }) => {
       setMessages(prev => prev.map(m => m.id === id ? { ...m, is_pinned } : m));
+      // Re-hydrate the absolute Pinned Drawer ensuring fresh display data seamlessly overrides
+      fetchPinnedMessages();
     });
 
     newSocket.on('message reacted', ({ id, reactions }) => {
@@ -1346,7 +1355,60 @@ function App() {
     }
   }, [messages, socket, isConnected, currentSpace.id]);
 
+  // Phase 12: Pinned Messages Fetching
+  const fetchPinnedMessages = useCallback(() => {
+    if (!currentSpace) return;
+    fetch(`${socketUrl}/api/spaces/${currentSpace.id}/pinned`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    .then(res => res.json())
+    .then(data => setPinnedMessages(data))
+    .catch(err => console.error('Failed fetching pinned messages:', err));
+  }, [currentSpace, token]);
+
+  useEffect(() => {
+    if (showPinnedBoard) fetchPinnedMessages();
+  }, [showPinnedBoard, fetchPinnedMessages]);
+
   // Handle Socket Room Joining
+  useEffect(() => {
+    setHasMoreHistory(true);
+    setShowPinnedBoard(false); // Close pin board when switching rooms
+  }, [currentSpace]);
+
+  // Infinite Scroll Intersection
+  useEffect(() => {
+    if (!topAnchorRef.current || !hasMoreHistory || isFetchingHistory || messages.length === 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setIsFetchingHistory(true);
+        const oldestId = messages[0].id;
+        const container = topAnchorRef.current.parentElement;
+        const previousScrollHeight = container.scrollHeight;
+
+        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/messages?before_id=${oldestId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => res.json())
+        .then(olderMessages => {
+          if (olderMessages.length < 50) setHasMoreHistory(false);
+          if (olderMessages.length > 0) {
+            setMessages(prev => [...olderMessages, ...prev]);
+            requestAnimationFrame(() => {
+              if (container) container.scrollTop = container.scrollHeight - previousScrollHeight;
+            });
+          }
+        })
+        .catch(err => console.error('History fetch failed:', err))
+        .finally(() => setIsFetchingHistory(false));
+      }
+    }, { root: null, rootMargin: '100px' });
+
+    observer.observe(topAnchorRef.current);
+    return () => observer.disconnect();
+  }, [messages, hasMoreHistory, isFetchingHistory, currentSpace.id, token]);
+
   useEffect(() => {
     if (socket && isConnected) {
       isInitialLoad.current = true;
@@ -2188,6 +2250,22 @@ function App() {
               </div>
 
               <div className="space-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 {isConnected && (
+                   <button
+                     onClick={() => setShowPinnedBoard(prev => !prev)}
+                     title="Pinned Messages"
+                     style={{ background: showPinnedBoard ? 'var(--md-sys-color-primary-container)' : 'none', border: 'none', color: showPinnedBoard ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
+                     onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary-container)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary-container)'; }}
+                     onMouseLeave={(e) => { 
+                       if (!showPinnedBoard) {
+                         e.currentTarget.style.color = 'var(--md-sys-color-outline)'; 
+                         e.currentTarget.style.backgroundColor = 'transparent'; 
+                       }
+                     }}
+                   >
+                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M12 17v5"/><path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z"/></svg>
+                   </button>
+                 )}
                  {isConnected && !showVideoRoom && (
                    <button 
                      onClick={() => setShowVideoRoom(true)}
@@ -2219,29 +2297,18 @@ function App() {
             </header>
 
       <main className="chat-window">
-        {messages.filter(m => m.is_pinned === 1).length > 0 && (
-          <div className="pinned-messages" style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'var(--md-sys-color-surface)', borderBottom: '1px solid var(--md-sys-color-outline-variant)', borderLeft: '4px solid var(--md-sys-color-primary)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--md-sys-color-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17v5M9 10.5 15 10.5M10.4 6 13.6 6A2 2 0 0115 8l1.4 4.3a2 2 0 01-1.9 2.7H9.5a2 2 0 01-1.9-2.7L9 8A2 2 0 0110.4 6z"/></svg> 
-              Pinned Messages
-            </div>
-            {messages.filter(m => m.is_pinned === 1).map(msg => (
-              <div key={`pin-${msg.id}`} onClick={() => {
-                const el = document.getElementById(`msg-${msg.id}`);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }} style={{ cursor: 'pointer', fontSize: '0.85rem', color: 'var(--md-sys-color-on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                <span style={{ fontWeight: 600, marginRight: '6px' }}>{msg.first_name || msg.sender}:</span>
-                {msg.text || 'Media Attachment'}
-              </div>
-            ))}
-          </div>
-        )}
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8, color: 'var(--md-sys-color-outline)' }}>
             No messages in #{currentSpace.name} yet.
           </div>
         )}
         <div style={{ flex: 1 }}></div> {/* Pushes messages to bottom if few */}
+        <div ref={topAnchorRef} style={{ width: '100%', height: '1px', flexShrink: 0 }}></div>
+        {isFetchingHistory && (
+          <div style={{ textAlign: 'center', padding: '1rem', opacity: 0.8 }}>
+            <div className="spinner" style={{ width: '24px', height: '24px', margin: '0 auto', borderColor: 'var(--md-sys-color-outline)' }}></div>
+          </div>
+        )}
         {messages.map((msg, idx) => {
           const isMe = msg.sender === username;
           return (
@@ -2283,7 +2350,7 @@ function App() {
                   </button>
                   {((role === 'admin' || (currentSpace && currentSpace.created_by === username)) && !msg.asset) && (
                     <button onClick={() => pinMessage(msg.id, msg.is_pinned === 1 ? 0 : 1)} title={msg.is_pinned ? "Unpin Message" : "Pin Message"}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill={msg.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M12 17v5M9 10.5 15 10.5M10.4 6 13.6 6A2 2 0 0115 8l1.4 4.3a2 2 0 01-1.9 2.7H9.5a2 2 0 01-1.9-2.7L9 8A2 2 0 0110.4 6z"/></svg> 
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill={msg.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M12 17v5"/><path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z"/></svg> 
                     </button>
                   )}
                   {isMe && !msg.asset && (
@@ -2397,6 +2464,44 @@ function App() {
         ))}
         <div ref={chatEndRef} />
       </main>
+
+      {/* Absolute Slide-in Pinned Board Drawer */}
+      {showPinnedBoard && (
+        <div style={{
+          position: 'absolute', top: '70px', right: 0, bottom: 0, width: '320px', backgroundColor: 'var(--md-sys-color-surface)',
+          borderLeft: '1px solid var(--md-sys-color-surface-variant)', zIndex: 100, display: 'flex', flexDirection: 'column',
+          boxShadow: '-4px 0 16px rgba(0,0,0,0.1)', animation: 'slideInRight 0.2s ease-out'
+        }}>
+          <div style={{ padding: '1rem', borderBottom: '1px solid var(--md-sys-color-surface-variant)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--md-sys-color-on-surface)' }}>Pinned Messages</h3>
+            <button onClick={() => setShowPinnedBoard(false)} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {pinnedMessages.length === 0 ? (
+              <div style={{ textAlign: 'center', opacity: 0.6, marginTop: '2rem' }}>No pinned messages yet.</div>
+            ) : pinnedMessages.map(pm => (
+              <div key={`pin-${pm.id}`} className="pinned-card" style={{ backgroundColor: 'var(--md-sys-color-surface-variant)', borderRadius: '12px', padding: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  {pm.avatar ? <img src={pm.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{pm.first_name ? pm.first_name.charAt(0).toUpperCase() : pm.sender.charAt(0).toUpperCase()}</div>}
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{pm.first_name ? `${pm.first_name} ${pm.last_name || ''}`.trim() : pm.sender}</span>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: 'auto' }}>{new Date(pm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                {pm.asset && pm.asset.endsWith('.mp4') ? (
+                  <video src={pm.asset} controls style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }}></video>
+                ) : pm.asset ? (
+                  <img src={pm.asset} style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} alt="Pinned asset" />
+                ) : null}
+                <div style={{ fontSize: '0.9rem', marginBottom: '10px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{pm.text}</div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={() => socket.emit('pin message', { id: pm.id, spaceId: currentSpace.id, is_pinned: 0 })} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-error)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>Unpin</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
     <div style={{ position: 'relative' }}>
         {isUploadingMedia && (
