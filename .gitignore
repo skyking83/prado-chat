@@ -1,0 +1,10 @@
+﻿node_modules/
+.env
+dist/
+build/
+postgres-data/
+database.sqlite
+*.db
+*.sqlite
+uploads/
+

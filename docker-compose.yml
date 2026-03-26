@@ -1,0 +1,39 @@
+# Production docker-compose for TrueNAS / Docker Hub deployment
+# Images: skyking83/prado-chat-backend and skyking83/prado-chat-frontend
+
+version: '3.8'
+
+services:
+  backend:
+    image: skyking83/prado-chat-backend:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - RESEND_API_KEY=re_Azu1B4JC_3FnsaUF6w8xWVnnrSS4FZun2
+      - GIPHY_API_KEY=G2784PRkgY5M4cC4A9AOrMY1AxGnxFr6
+    volumes:
+      # Bind mounts to TrueNAS datasets — survives image updates
+      - /mnt/pool1/app_data/prado-chat-data:/app/data
+      - /mnt/pool1/app_data/prado-chat-uploads:/app/src/uploads
+
+  frontend:
+    image: skyking83/prado-chat-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "30099:80"
+    depends_on:
+      - backend
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=3600
+    restart: unless-stopped
+
