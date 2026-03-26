@@ -977,6 +977,7 @@ function App() {
   const [showVideoRoom, setShowVideoRoom] = useState(false);
   const [globalFont, setGlobalFont] = useState('Roboto');
   const dropdownRef = useRef(null);
+  const mediaMenuRef = useRef(null);
   const [pwChange, setPwChange] = useState({ current: '', next: '', confirm: '', msg: null });
 
   // Expanded Profile State
@@ -1125,6 +1126,11 @@ function App() {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowDropdown(false);
+      }
+      if (mediaMenuRef.current && !mediaMenuRef.current.contains(event.target)) {
+        setShowMediaMenu(false);
+        setShowEmojiPicker(false);
+        setShowGifPicker(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -1785,6 +1791,17 @@ function App() {
     } catch(err) { console.error('Giphy error', err); }
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (showGifPicker && gifSearch.trim().length >= 2) {
+        searchGiphy();
+      } else if (!gifSearch.trim()) {
+        setGifs([]);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [gifSearch, showGifPicker]);
+
   const sendGif = (url) => {
     if (socket && isConnected) {
       socket.emit('chat message', { text: '', spaceId: currentSpace.id, asset: url });
@@ -2362,7 +2379,7 @@ function App() {
           </div>
         )}
         <form className="input-area" onSubmit={sendMessage} style={{ overflow: 'visible' }}>
-          <div className="media-menu-container" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <div className="media-menu-container" ref={mediaMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <button
               type="button"
               className="icon-btn"
@@ -2437,9 +2454,9 @@ function App() {
                         style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }} 
                       />
                    ))}
-                   {gifs.length === 0 && gifSearch && (
+                   {gifs.length === 0 && gifSearch.trim() && (
                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '1rem', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.85rem' }}>
-                       Press Enter to Search
+                       {gifSearch.trim().length < 2 ? 'Type to search...' : 'Searching...'}
                      </div>
                    )}
                  </div>
