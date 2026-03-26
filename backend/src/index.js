@@ -66,11 +66,34 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         created_by TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         is_private BOOLEAN DEFAULT 0,
-        invite_key TEXT
+        invite_key TEXT,
+        is_dm INTEGER DEFAULT 0
       )`, () => {
-        db.run(`INSERT OR IGNORE INTO spaces (id, name, created_by) VALUES (1, 'General', 'system')`);
         db.run(`ALTER TABLE spaces ADD COLUMN is_private BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE spaces ADD COLUMN invite_key TEXT`, () => {});
+        db.run(`ALTER TABLE spaces ADD COLUMN is_dm INTEGER DEFAULT 0`, () => {});
+        
+        // Phase 13: Purge 'General' space completely
+        db.run(`DELETE FROM messages WHERE space_id = 1`);
+        db.run(`DELETE FROM space_members WHERE space_id = 1`);
+        db.run(`DELETE FROM spaces WHERE id = 1`);
+
+        // Phase 13: Guarantee "Notes to Self" for all existing users
+        db.all(`SELECT id, username FROM users`, [], (err, usersList) => {
+          if (!err && usersList) {
+            usersList.forEach(u => {
+              db.get(`SELECT s.id FROM spaces s JOIN space_members sm ON s.id = sm.space_id WHERE s.is_dm = 1 AND sm.user_id = ? GROUP BY s.id HAVING COUNT(sm.user_id) = 1`, [u.id], (err, row) => {
+                if (!row) {
+                  db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`self_${u.id}_${Date.now()}`, u.username], function(err) {
+                    if (!err && this.lastID) {
+                      db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [this.lastID, u.id]);
+                    }
+                  });
+                }
+              });
+            });
+          }
+        });
       });
 
       db.run(`CREATE TABLE IF NOT EXISTS space_members (
@@ -384,7 +407,7 @@ app.get('/api/profile', authenticateToken, (req, res) => {
 });
 
 app.get('/api/users', authenticateToken, (req, res) => {
-  db.all('SELECT id, username, avatar FROM users ORDER BY username ASC', [], (err, rows) => {
+  db.all('SELECT id, username, avatar, first_name, last_name FROM users ORDER BY username ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -620,24 +643,43 @@ app.delete('/api/admin/spaces/:id', authenticateToken, requireAdmin, (req, res) 
 });
 
 app.get('/api/spaces', authenticateToken, (req, res) => {
-  if (req.user.role === 'admin') {
-    db.all('SELECT * FROM spaces ORDER BY id ASC', [], (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      res.json(rows);
-    });
-  } else {
-    const query = `
-      SELECT * FROM spaces 
-      WHERE (is_private != 1 AND is_private != '1' AND is_private != 'true')
-      OR is_private IS NULL
-      OR id IN (SELECT space_id FROM space_members WHERE user_id = ?)
-      ORDER BY id ASC
+  const userId = req.user.userId;
+  const isAdmin = req.user.role === 'admin';
+  
+  const selectClause = `
+    SELECT s.*, 
+    u.first_name as dm_first, 
+    u.last_name as dm_last, 
+    u.username as dm_username,
+    u.avatar as dm_avatar
+    FROM spaces s
+    LEFT JOIN space_members sm ON s.id = sm.space_id AND s.is_dm = 1 AND sm.user_id != ?
+    LEFT JOIN users u ON sm.user_id = u.id
+  `;
+
+  let query = '';
+  if (isAdmin) {
+    query = `
+      ${selectClause}
+      WHERE s.is_dm = 0
+      OR (s.is_dm = 1 AND s.id IN (SELECT space_id FROM space_members WHERE user_id = ?))
+      GROUP BY s.id
+      ORDER BY s.id ASC
     `;
-    db.all(query, [req.user.userId], (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      res.json(rows);
-    });
+  } else {
+    query = `
+      ${selectClause}
+      WHERE (s.is_dm = 0 AND (s.is_private != 1 AND s.is_private != '1' AND s.is_private != 'true' OR s.is_private IS NULL))
+      OR s.id IN (SELECT space_id FROM space_members WHERE user_id = ?)
+      GROUP BY s.id
+      ORDER BY s.id ASC
+    `;
   }
+  
+  db.all(query, [userId, userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json(rows);
+  });
 });
 
 app.post('/api/spaces', authenticateToken, (req, res) => {
@@ -769,6 +811,53 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
   });
 });
 
+app.post('/api/dms', authenticateToken, (req, res) => {
+  const targetUserId = parseInt(req.body.targetUserId, 10);
+  const myUserId = parseInt(req.user.userId, 10);
+  
+  if (!targetUserId || !myUserId) return res.status(400).json({ error: 'Invalid parameters' });
+
+  const isSelf = targetUserId === myUserId;
+
+  if (isSelf) {
+    db.get(`SELECT id FROM spaces WHERE is_dm = 1 AND name LIKE ? LIMIT 1`, [`self_${myUserId}_%`], (err, row) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (row) return res.json({ spaceId: row.id });
+      
+      db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`self_${myUserId}_${Date.now()}`, req.user.username], function(err) {
+        if (err) return res.status(500).json({ error: 'Failed to create DM' });
+        const newId = this.lastID;
+        db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, myUserId]);
+        io.emit('space created', { id: newId, name: `self_${myUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
+        res.json({ spaceId: newId });
+      });
+    });
+  } else {
+    // Find identical 2-user DM
+    db.get(`
+      SELECT s.id FROM spaces s 
+      JOIN space_members sm1 ON s.id = sm1.space_id AND sm1.user_id = ?
+      JOIN space_members sm2 ON s.id = sm2.space_id AND sm2.user_id = ?
+      WHERE s.is_dm = 1 LIMIT 1
+    `, [myUserId, targetUserId], (err, row) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (row) return res.json({ spaceId: row.id });
+
+      // Build new 2-user DM space
+      db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`dm_${myUserId}_${targetUserId}_${Date.now()}`, req.user.username], function(err) {
+        if (err) return res.status(500).json({ error: 'Failed to create DM' });
+        const newId = this.lastID;
+        db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, myUserId], () => {
+          db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, targetUserId], () => {
+            io.emit('space created', { id: newId, name: `dm_${myUserId}_${targetUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
+            res.json({ spaceId: newId });
+          });
+        });
+      });
+    });
+  }
+});
+
 app.get('/api/spaces/:id/messages', authenticateToken, (req, res) => {
   const spaceId = parseInt(req.params.id, 10);
   const beforeId = parseInt(req.query.before_id, 10);
@@ -783,7 +872,7 @@ app.get('/api/spaces/:id/messages', authenticateToken, (req, res) => {
       ORDER BY m.id DESC LIMIT 50
     `, [spaceId, beforeId], (err, rows) => {
       if (err) return res.status(500).json({ error: 'Database error' });
-      res.json(rows.reverse());
+      res.json(rows.reverse().map(r => ({ ...r, timestamp: r.timestamp ? r.timestamp + 'Z' : null })));
     });
   };
 
@@ -1000,6 +1089,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Automatically subscribe sockets to all authorized background Spaces for unread badge dispatches
+  db.all('SELECT id FROM spaces WHERE is_private = 0', [], (err, publicRows) => {
+    if (!err && publicRows) publicRows.forEach(r => socket.join(r.id.toString()));
+  });
+
+  db.all('SELECT space_id FROM space_members WHERE user_id = ?', [user.userId], (err, privateRows) => {
+    if (!err && privateRows) privateRows.forEach(r => socket.join(r.space_id.toString()));
+  });
+
   socket.on('typing', (data) => {
     const spaceId = data.spaceId || data;
     const avatar = data.avatar || null;
@@ -1017,9 +1115,6 @@ io.on('connection', (socket) => {
       if (err || !space) return; // Room does not exist
 
       const proceedWithJoin = () => {
-        if (socket.currentSpace) {
-          socket.leave(socket.currentSpace.toString());
-        }
         socket.currentSpace = spaceId;
         socket.join(spaceId.toString());
 
@@ -1034,7 +1129,7 @@ io.on('connection', (socket) => {
           if (!err) {
             const history = rows.reverse();
             socket.emit('space history', history.map(row => ({
-              text: row.text, id: row.id, sender: row.sender, avatar: row.avatar, spaceId, asset: row.asset, edited: row.edited, is_pinned: row.is_pinned, reactions: row.reactions, first_name: row.first_name, last_name: row.last_name
+              text: row.text, id: row.id, sender: row.sender, avatar: row.avatar, spaceId, asset: row.asset, edited: row.edited, is_pinned: row.is_pinned, reactions: row.reactions, first_name: row.first_name, last_name: row.last_name, timestamp: row.timestamp ? row.timestamp + 'Z' : null
             })));
           }
           
@@ -1090,7 +1185,7 @@ io.on('connection', (socket) => {
       // Save to db FIRST
       db.run('INSERT INTO messages (text, sender, space_id, asset) VALUES (?, ?, ?, ?)', [msg.text, sender, spaceId, assetPath], function(err) {
         if (!err) {
-          const outgoingMsg = { text: msg.text, id: this.lastID, sender, avatar, spaceId, asset: assetPath, edited: 0, is_pinned: 0, reactions: '{}', first_name: firstName, last_name: lastName };
+          const outgoingMsg = { text: msg.text, id: this.lastID, sender, avatar, spaceId, asset: assetPath, edited: 0, is_pinned: 0, reactions: '{}', first_name: firstName, last_name: lastName, timestamp: new Date().toISOString() };
           
           // Broadcast the DB-authorized message globally
           io.to(spaceId.toString()).emit('chat message', outgoingMsg);

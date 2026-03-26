@@ -120,6 +120,23 @@ body {
   letter-spacing: -0.5px;
 }
 
+.modal-compact {
+  padding: 1.25rem 1.5rem !important;
+  border-radius: 16px !important;
+}
+
+.modal-compact h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem !important;
+}
+
+.modal-compact p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
 .input-group {
   display: flex;
   flex-direction: column;
@@ -259,6 +276,34 @@ button {
 
 .form-group input:focus {
   border-color: var(--md-sys-color-primary);
+}
+
+.color-picker-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 50%;
+  cursor: pointer;
+  background-color: var(--md-sys-color-surface);
+  overflow: hidden;
+}
+
+.color-picker-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.color-picker-input::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
 }
 
 /* Cropper Modal */
@@ -641,8 +686,7 @@ button {
 }
 
 .text-input:focus {
-  border-color: var(--md-sys-color-primary);
-  box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+  outline: none;
 }
 
 .send-fab {
