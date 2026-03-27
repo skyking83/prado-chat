@@ -24,6 +24,7 @@
   - Drag-and-drop secure file sharing
   - Custom Emoji Picker built-in
   - Auto-searching, debounced integrated GIF engine (via Giphy)
+- **Slack-Style Rich Text Editor**: ContentEditable input with live inline formatting — type `**bold**`, `*italic*`, `` `code` ``, or `~~strike~~` and watch the syntax markers vanish as formatting appears in-place. Includes a floating format toolbar (Bold, Italic, Strikethrough, Code) on text selection. Sent messages render full Markdown (tables, blockquotes, lists, headings) via `marked` + `DOMPurify`.
 - **Admin Dashboard**: Full internal control panel to manage user roles, delete spaces, audit chat logs, and orchestrate global app settings.
 - **Progressive Web App (PWA)**: Installable as a native app on iOS, Android, macOS, and Windows.
 - **Customizable Theming & Typography**: Dynamically updates UI accents, features a partitioned subset of the 1,500+ Google Fonts natively, and ships with a real-time UI Scaling slider leveraging continuous CSS `rem` ratios natively across the client.
@@ -39,6 +40,7 @@
 - **WebCrypto API Native** (AES-GCM / RSA-OAEP Asymmetric Keys)
 - `Simple-Peer` for WebRTC Video/Audio
 - `emoji-picker-react`
+- `marked` + `DOMPurify` (Markdown rendering & XSS sanitization)
 
 **Backend**
 - Node.js & Express

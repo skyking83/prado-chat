@@ -26,12 +26,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config();
+
+// VAPID keys are set up below from data/vapid.json (persistent across restarts)
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+app.get('/api/ping', (req, res) => res.json({ message: 'pong' }));
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -141,6 +146,14 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         FOREIGN KEY (space_id) REFERENCES spaces(id),
         FOREIGN KEY (user_id) REFERENCES users(id)
       )`);
+      db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        endpoint TEXT UNIQUE,
+        keys_p256dh TEXT,
+        keys_auth TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`);
       db.run(`CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         text TEXT,
@@ -181,13 +194,6 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
           }
         });
       });
-      db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        subscription TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      )`);
       db.run(`CREATE TABLE IF NOT EXISTS read_receipts (
         space_id INTEGER,
         username TEXT,
@@ -215,17 +221,23 @@ webpush.setVapidDetails(
 );
 
 const sendPushNotification = (userId, payload) => {
-  db.all('SELECT subscription FROM push_subscriptions WHERE user_id = ?', [userId], (err, rows) => {
+  db.all('SELECT endpoint, keys_p256dh, keys_auth FROM push_subscriptions WHERE user_id = ?', [userId], (err, rows) => {
     if (err || !rows) return;
     rows.forEach(row => {
       try {
-        const subscription = JSON.parse(row.subscription);
+        const subscription = {
+          endpoint: row.endpoint,
+          keys: {
+            p256dh: row.keys_p256dh,
+            auth: row.keys_auth
+          }
+        };
         webpush.sendNotification(subscription, JSON.stringify(payload))
           .then(() => console.log(`Push sent to user ${userId}`))
           .catch(err => {
             console.error(`Push failed for user ${userId}:`, err.statusCode, err.body);
             if (err.statusCode === 404 || err.statusCode === 410) {
-              db.run('DELETE FROM push_subscriptions WHERE subscription = ?', [row.subscription]);
+              db.run('DELETE FROM push_subscriptions WHERE endpoint = ?', [row.endpoint]);
             }
           });
       } catch (e) {
@@ -234,6 +246,57 @@ const sendPushNotification = (userId, payload) => {
     });
   });
 };
+
+// -- Push Notification API Routes --
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-key');
+    const userId = decoded.userId;
+    const sub = req.body;
+    if (!sub || !sub.endpoint || !sub.keys) {
+      return res.status(400).json({ error: 'Invalid subscription object' });
+    }
+    // Atomic upsert using INSERT OR REPLACE
+    db.run(
+      'INSERT OR REPLACE INTO push_subscriptions (user_id, endpoint, keys_p256dh, keys_auth) VALUES (?, ?, ?, ?)',
+      [userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth],
+      (err) => {
+        if (err) {
+          console.error('Push subscribe DB error:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+        console.log(`Push subscription saved for user ${userId}`);
+        res.json({ success: true });
+      }
+    );
+  } catch (e) {
+    console.error('Push subscribe JWT error:', e.message);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+app.delete('/api/push/subscribe', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-key');
+    const userId = decoded.userId;
+    db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId], (err) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      res.json({ success: true });
+    });
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+});
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
@@ -823,6 +886,7 @@ app.post('/api/spaces/join/:invite_key', authenticateToken, (req, res) => {
 app.post('/api/spaces/:id/invite', authenticateToken, (req, res) => {
   const spaceId = req.params.id;
   const { invited_users, keyShares } = req.body;
+  console.log(`[DEBUG INVITE] Hit invite route for spaceId=${spaceId}. Body:`, JSON.stringify(req.body));
   if (!Array.isArray(invited_users) || invited_users.length === 0) return res.status(400).json({ error: 'No users provided' });
 
   db.get('SELECT * FROM spaces WHERE id = ?', [spaceId], (err, space) => {
@@ -834,6 +898,7 @@ app.post('/api/spaces/:id/invite', authenticateToken, (req, res) => {
     invited_users.forEach(uid => { values.push(spaceId, uid); });
     
     db.run(`INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES ${placeholders}`, values, function(err) {
+      console.log(`[DEBUG INVITE] space_members insertion err:`, err);
       if (err) return res.status(500).json({ error: 'Failed to invite users' });
       
       // Upsert PKI Key Shares dynamically extending access to newly invited participants natively blindly.
@@ -845,7 +910,8 @@ app.post('/api/spaces/:id/invite', authenticateToken, (req, res) => {
           shareUserIds.forEach(uId => {
              kv.push(spaceId, Number(uId), keyShares[uId]);
           });
-          db.run(`INSERT OR IGNORE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES ${kp}`, kv, (keyErr) => {
+          db.run(`INSERT OR IGNORE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES ${kp}`, kv, function(keyErr) {
+             console.log(`[DEBUG INVITE] space_keys insertion completed. changes=${this.changes}, err=`, keyErr);
              if (keyErr) console.error('Failed to insert space_keys for invites', keyErr);
           });
         }
@@ -889,6 +955,41 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
   db.all('SELECT user_id FROM space_members WHERE space_id = ?', [spaceId], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows.map(r => r.user_id));
+  });
+});
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', authenticateToken, (req, res) => {
+  const subscription = req.body;
+  const userId = req.user.userId;
+  if (!subscription || !subscription.endpoint || !subscription.keys) {
+    return res.status(400).json({ error: 'Invalid subscription' });
+  }
+  
+  db.run(`
+    INSERT INTO push_subscriptions (user_id, endpoint, keys_p256dh, keys_auth)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET 
+      user_id=excluded.user_id,
+      keys_p256dh=excluded.keys_p256dh,
+      keys_auth=excluded.keys_auth
+  `, [userId, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth], (err) => {
+    if (err) return res.status(500).json({ error: 'Failed to save subscription' });
+    res.status(201).json({ success: true });
+  });
+});
+
+app.delete('/api/push/unsubscribe', authenticateToken, (req, res) => {
+  const endpoint = req.query.endpoint;
+  const userId = req.user.userId;
+  if (!endpoint) return res.status(400).json({ error: 'Endpoint required' });
+  
+  db.run(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?`, [userId, endpoint], (err) => {
+    if (err) return res.status(500).json({ error: 'Failed to remove subscription' });
+    res.json({ success: true });
   });
 });
 
@@ -1279,6 +1380,35 @@ io.on('connection', (socket) => {
       }
     );
   });
+
+  // E2EE key distribution: relay key requests to online space members
+  socket.on('request_room_key', (data) => {
+    const { spaceId, requesterId, requesterPublicKey } = data;
+    if (!spaceId || !requesterId || !requesterPublicKey) return;
+    // Relay to all other sockets in this space room
+    socket.to(spaceId.toString()).emit('request_room_key', {
+      spaceId,
+      requesterId,
+      requesterPublicKey,
+      requesterSocketId: socket.id
+    });
+  });
+
+  // E2EE key distribution: relay granted key back to requester and persist
+  socket.on('grant_room_key', (data) => {
+    const { spaceId, requesterId, encryptedRoomKey, requesterSocketId } = data;
+    if (!spaceId || !requesterId || !encryptedRoomKey) return;
+    // Persist the key share in the database
+    db.run('INSERT OR REPLACE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES (?, ?, ?)',
+      [spaceId, requesterId, encryptedRoomKey], (err) => {
+        if (err) console.error('Failed to persist granted key share', err);
+      });
+    // Deliver to the requester's socket
+    if (requesterSocketId) {
+      io.to(requesterSocketId).emit('grant_room_key', { spaceId, encryptedRoomKey });
+    }
+  });
+
   socket.on('chat message', async (msg) => {
     if (!msg.spaceId) return; // Drop invalid or legacy un-routed payloads
     const sender = socket.user.username;
@@ -1299,17 +1429,43 @@ io.on('connection', (socket) => {
           // Broadcast the DB-authorized message globally
           io.to(spaceId.toString()).emit('chat message', outgoingMsg);
           
-          // Send push notifications to all users except sender
-          db.all('SELECT id, username FROM users WHERE username != ?', [sender], (err, users) => {
-            if (!err && users) {
-              const pushPayload = {
-                title: `New message from ${sender}`,
-                body: (outgoingMsg.text || (outgoingMsg.asset ? 'Sent an attachment' : '')).substring(0, 200),
-                icon: (outgoingMsg.avatar && !outgoingMsg.avatar.startsWith('data:')) ? outgoingMsg.avatar : '/icon.png',
-                data: { spaceId }
-              };
-              users.forEach(u => sendPushNotification(u.id, pushPayload));
+          // Send push notifications to space members (except sender)
+          db.get('SELECT name, is_dm FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+            if (err || !space) return;
+            const displayName = firstName ? `${firstName} ${lastName || ''}`.trim() : sender;
+            const spaceName = space.name;
+            const isDm = space.is_dm === 1;
+            
+            // Build context-aware title
+            let title;
+            if (isDm) {
+              title = displayName;
+            } else {
+              title = `${displayName} in #${spaceName}`;
             }
+
+            const pushPayload = {
+              title,
+              body: (outgoingMsg.text || (outgoingMsg.asset ? '📎 Sent an attachment' : '')).substring(0, 200),
+              icon: (outgoingMsg.avatar && !outgoingMsg.avatar.startsWith('data:')) ? outgoingMsg.avatar : '/icon.png',
+              data: {
+                spaceId,
+                spaceName,
+                isDm,
+                senderUsername: sender,
+                senderDisplayName: displayName,
+                timestamp: Date.now()
+              }
+            };
+
+            // Only notify members of this space who aren't the sender
+            db.all(`SELECT u.id FROM users u 
+                    JOIN space_members sm ON u.id = sm.user_id 
+                    WHERE sm.space_id = ? AND u.username != ?`, [spaceId, sender], (err, members) => {
+              if (!err && members) {
+                members.forEach(m => sendPushNotification(m.id, pushPayload));
+              }
+            });
           });
         }
       });

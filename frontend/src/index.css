@@ -579,6 +579,11 @@ button {
   outline: none;
   font-family: inherit;
   font-size: inherit;
+  min-height: 1.5em;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .edit-btns {
@@ -638,6 +643,106 @@ button {
   border-bottom-left-radius: 4px;
 }
 
+/* ─── Markdown Styles Inside Chat Bubbles ─── */
+.message-text {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.message-text p {
+  margin: 0;
+}
+
+.message-text p + p {
+  margin-top: 0.5em;
+}
+
+.message-text strong {
+  font-weight: 700;
+}
+
+.message-text em {
+  font-style: italic;
+}
+
+.message-text del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.message-text code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  background-color: rgba(0, 0, 0, 0.15);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+[data-theme="light"] .message-text code {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.message-text pre {
+  margin: 0.5em 0;
+  padding: 0.75em 1em;
+  border-radius: 8px;
+  background-color: rgba(0, 0, 0, 0.25);
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+[data-theme="light"] .message-text pre {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.message-text pre code {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.message-text blockquote {
+  margin: 0.5em 0;
+  padding: 0.25em 0.75em;
+  border-left: 3px solid var(--md-sys-color-primary);
+  opacity: 0.85;
+  font-style: italic;
+}
+
+.message-text ul, .message-text ol {
+  margin: 0.35em 0;
+  padding-left: 1.5em;
+}
+
+.message-text li {
+  margin-bottom: 0.15em;
+}
+
+.message-text table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+  width: 100%;
+}
+
+.message-text th, .message-text td {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+
+.message-text th {
+  background-color: rgba(0, 0, 0, 0.1);
+  font-weight: 600;
+}
+
+.message-text hr {
+  border: none;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  margin: 0.5em 0;
+}
+
 .sender-name {
   font-size: 0.75rem;
   font-weight: 500;
@@ -659,6 +764,26 @@ button {
   align-items: center;
 }
 
+.markdown-preview-panel {
+  margin: 0 20% 0 20%;
+  padding: 10px 16px;
+  background-color: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: slideInUp 0.15s ease-out;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1200px) {
+  .markdown-preview-panel { margin: 0 15% 0 15%; }
+}
+
+@media (max-width: 800px) {
+  .markdown-preview-panel { margin: 0 5% 0 5%; }
+}
+
 @media (max-width: 1200px) {
   .input-area {
     margin: 0 15% 1.5rem 15%;
@@ -673,20 +798,87 @@ button {
   }
 }
 
-.text-input {
+/* ─── ContentEditable Rich Input ─── */
+.rich-input {
   flex: 1;
+  min-width: 0;
   background-color: transparent;
   border: none;
   color: var(--md-sys-color-on-background);
   padding: 0.5rem 0.25rem;
   outline: none;
   font-size: 1rem;
-  transition: all 0.25s ease;
+  line-height: 1.5;
   font-family: inherit;
+  max-height: 150px;
+  overflow-y: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  cursor: text;
 }
 
-.text-input:focus {
+.rich-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--md-sys-color-outline);
+  pointer-events: none;
+}
+
+.rich-input:focus {
   outline: none;
+}
+
+/* Inline formatting styles inside contentEditable inputs */
+.rich-input strong, .rich-input b, .edit-input strong, .edit-input b { font-weight: 700; }
+.rich-input em, .rich-input i, .edit-input em, .edit-input i { font-style: italic; }
+.rich-input del, .rich-input s, .rich-input strike, .edit-input del, .edit-input s, .edit-input strike { text-decoration: line-through; opacity: 0.7; }
+.rich-input code, .edit-input code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  background-color: rgba(0, 0, 0, 0.12);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+[data-theme="light"] .rich-input code, [data-theme="light"] .edit-input code {
+  background-color: rgba(0, 0, 0, 0.07);
+}
+
+/* Floating formatting toolbar */
+.format-toolbar {
+  z-index: 200;
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  background-color: var(--md-sys-color-inverse-surface, #2e2e2e);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  animation: toolbarFadeIn 0.12s ease-out;
+}
+
+.format-toolbar button {
+  background: transparent;
+  border: none;
+  color: var(--md-sys-color-inverse-on-surface, #f0f0f0);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  transition: background-color 0.15s;
+}
+
+.format-toolbar button:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes toolbarFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .send-fab {

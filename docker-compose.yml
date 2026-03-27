@@ -15,6 +15,8 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - RESEND_API_KEY=${RESEND_API_KEY:-your_resend_api_key_here}
       - GIPHY_API_KEY=${GIPHY_API_KEY:-your_giphy_api_key_here}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-BHN8Vik38ScfBP8IaE8jRS8Tbk9SG-tcBVMCBgMkxFOKkHHHCbhAphJhbqG5-1T_rcVMbg-75WRNUR39gn38hVQ}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-uy6VBze_TTongVazJwtAfCQg5TrVyR0OdEXJcnXL8Tc}
     volumes:
       # Bind mounts to TrueNAS datasets — survives image updates
       - /mnt/pool1/app_data/prado-chat-data:/app/data

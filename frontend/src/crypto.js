@@ -112,3 +112,61 @@ function base64ToArrayBuffer(base64) {
   for (let i = 0; i < len; i++) bytes[i] = binary_string.charCodeAt(i);
   return bytes.buffer;
 }
+
+// ==========================================
+// IndexedDB Synchronizer for Service Workers
+// ==========================================
+function initCryptoDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('prado_crypto_db', 1);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains('identities')) {
+        db.createObjectStore('identities', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('room_keys')) {
+        db.createObjectStore('room_keys', { keyPath: 'spaceId' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function syncPrivateKeyToIDB(jwkString) {
+  try {
+    const db = await initCryptoDB();
+    const tx = db.transaction('identities', 'readwrite');
+    const store = tx.objectStore('identities');
+    store.put({ id: 'primary_private_key', jwk: jwkString });
+    return new Promise(resolve => { tx.oncomplete = resolve; });
+  } catch (e) {
+    console.error("Failed to sync Private Key to IDB", e);
+  }
+}
+
+export async function syncRoomKeyToIDB(spaceId, importedAesKey) {
+  try {
+    // Export the CryptoKey (AES-GCM) back to JWK so we can store it cleanly
+    const jwk = await window.crypto.subtle.exportKey("jwk", importedAesKey);
+    const db = await initCryptoDB();
+    const tx = db.transaction('room_keys', 'readwrite');
+    const store = tx.objectStore('room_keys');
+    store.put({ spaceId: String(spaceId), jwk: jwk });
+    return new Promise(resolve => { tx.oncomplete = resolve; });
+  } catch (e) {
+    console.error("Failed to sync Room Key to IDB", e);
+  }
+}
+
+export async function purgeCryptoIDB() {
+  try {
+    const db = await initCryptoDB();
+    const tx = db.transaction(['identities', 'room_keys'], 'readwrite');
+    tx.objectStore('identities').clear();
+    tx.objectStore('room_keys').clear();
+    return new Promise(resolve => { tx.oncomplete = resolve; });
+  } catch (e) {
+    console.error("Failed to purge IDB", e);
+  }
+}

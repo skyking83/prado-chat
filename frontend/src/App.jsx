@@ -7,11 +7,27 @@ import { googleFonts } from './googleFontsList'
 import { 
   generateIdentityKeyPair, exportPublicKey, wrapPrivateKey, unwrapPrivateKey, 
   generateRoomKey, encryptRoomKeyWithPublicKey, decryptRoomKeyWithPrivateKey, 
-  encryptMessage, decryptMessage, importPrivateKey, importPublicKey 
+  encryptMessage, decryptMessage, importPrivateKey,
+  syncPrivateKeyToIDB, syncRoomKeyToIDB, purgeCryptoIDB
 } from './crypto'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const devDomain = window.location.hostname;
 const socketUrl = import.meta.env.MODE === 'production' ? '' : `http://${devDomain}:3001`;
+
+// ─── E2EE Helpers ───────────────────────────────────────────
+const isEncryptedSpace = (space) => space && space.name !== 'General';
+
+async function tryDecryptMsg(text, aesKey) {
+  if (!text || typeof text !== 'string') return { text, raw_text: null };
+  if (!aesKey) return { text: '🔒 [Encrypted Message]', raw_text: text };
+  try {
+    return { text: await decryptMessage(text, aesKey), raw_text: null };
+  } catch (e) {
+    return { text: '🔒 [Decryption Failed]', raw_text: null };
+  }
+}
 
 // Utility functions for dynamic modern material coloring
 function getContrastColor(hex) {
@@ -31,15 +47,149 @@ function hexToRgb(hex) {
   return `${r}, ${g}, ${b}`;
 }
 
-const linkify = (text) => {
-  if (!text) return text;
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  return text.split(urlRegex).map((part, i) => {
-    if (part.match(urlRegex)) {
-      return <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--md-sys-color-primary)', textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</a>;
+// ─── Markdown Renderer ─────────────────────────────────────
+
+// Configure marked for chat-style rendering
+marked.setOptions({
+  breaks: true,        // Convert \n to <br>
+  gfm: true,           // GitHub Flavored Markdown (tables, strikethrough, etc.)
+});
+
+// Custom renderer to open links in new tabs
+const renderer = new marked.Renderer();
+renderer.link = ({ href, title, text }) => {
+  const titleAttr = title ? ` title="${title}"` : '';
+  return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer" style="color:var(--md-sys-color-primary);text-decoration:underline;word-break:break-all">${text}</a>`;
+};
+
+const renderMarkdown = (text) => {
+  if (!text) return '';
+  const rawHtml = marked.parse(text, { renderer });
+  // Strip wrapping <p> tags for single-line messages to keep chat bubbles compact
+  const trimmed = rawHtml.trim();
+  const unwrapped = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') && trimmed.indexOf('<p>', 1) === -1
+    ? trimmed.slice(3, -4)
+    : trimmed;
+  return DOMPurify.sanitize(unwrapped, { ADD_ATTR: ['target'] });
+};
+
+// ─── ContentEditable Helpers ────────────────────────────────
+
+// Serialize a contentEditable DOM tree back to markdown text
+const serializeToMarkdown = (el) => {
+  let out = '';
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = node.tagName.toLowerCase();
+      const inner = serializeToMarkdown(node);
+      if (tag === 'strong' || tag === 'b') out += `**${inner}**`;
+      else if (tag === 'em' || tag === 'i') out += `*${inner}*`;
+      else if (tag === 'del' || tag === 's' || tag === 'strike') out += `~~${inner}~~`;
+      else if (tag === 'code') out += '`' + inner + '`';
+      else if (tag === 'br') out += '\n';
+      else if (tag === 'div' || tag === 'p') {
+        if (out && !out.endsWith('\n')) out += '\n';
+        out += inner;
+      } else out += inner;
     }
-    return part;
-  });
+  }
+  return out;
+};
+
+// Auto-detect completed markdown patterns and replace with DOM formatting
+const processMarkdownShortcuts = (el) => {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+  const textNode = range.startContainer;
+  if (textNode.nodeType !== Node.TEXT_NODE) return false;
+  const text = textNode.textContent;
+  const cursor = range.startOffset;
+  const before = text.slice(0, cursor);
+
+  const patterns = [
+    { re: /\*\*(.+?)\*\*$/, tag: 'strong' },
+    { re: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*$/, tag: 'em' },
+    { re: /~~(.+?)~~$/, tag: 'del' },
+    { re: /`([^`]+)`$/, tag: 'code' },
+  ];
+
+  for (const { re, tag } of patterns) {
+    const m = before.match(re);
+    if (m) {
+      const fullMatch = m[0];
+      const innerText = m[1];
+      const matchStart = m.index;
+      const matchEnd = matchStart + fullMatch.length;
+      const afterCursor = text.slice(cursor);
+
+      // Split the text node: [before-match] [formatted] [after-cursor]
+      const beforeText = text.slice(0, matchStart);
+      const formatted = document.createElement(tag);
+      formatted.textContent = innerText;
+
+      const parent = textNode.parentNode;
+      if (beforeText) parent.insertBefore(document.createTextNode(beforeText), textNode);
+      parent.insertBefore(formatted, textNode);
+      // Insert a zero-width space after so caret can leave the element
+      const afterNode = document.createTextNode(afterCursor || '\u200B');
+      parent.insertBefore(afterNode, textNode);
+      parent.removeChild(textNode);
+
+      // Place cursor after the formatted element
+      const newRange = document.createRange();
+      newRange.setStart(afterNode, afterCursor ? 0 : 1);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      return true;
+    }
+  }
+  return false;
+};
+
+// Process ALL text nodes for markdown patterns (used after paste)
+const processAllMarkdownInNode = (el) => {
+  const patterns = [
+    { re: /\*\*(.+?)\*\*/, tag: 'strong' },
+    { re: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/, tag: 'em' },
+    { re: /~~(.+?)~~/, tag: 'del' },
+    { re: /`([^`]+)`/, tag: 'code' },
+  ];
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations < 50) {
+    changed = false;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node;
+    while (node = walker.nextNode()) {
+      // Skip nodes inside already-formatted elements
+      if (node.parentNode !== el && ['STRONG','B','EM','I','DEL','S','CODE'].includes(node.parentNode.tagName)) continue;
+      const text = node.textContent;
+      for (const { re, tag } of patterns) {
+        const m = text.match(re);
+        if (m) {
+          const matchStart = m.index;
+          const beforeText = text.slice(0, matchStart);
+          const afterText = text.slice(matchStart + m[0].length);
+          const formatted = document.createElement(tag);
+          formatted.textContent = m[1];
+          const parent = node.parentNode;
+          if (beforeText) parent.insertBefore(document.createTextNode(beforeText), node);
+          parent.insertBefore(formatted, node);
+          if (afterText) parent.insertBefore(document.createTextNode(afterText), node);
+          parent.removeChild(node);
+          changed = true;
+          break;
+        }
+      }
+      if (changed) break; // restart walker since DOM changed
+    }
+    iterations++;
+  }
 };
 
 function urlBase64ToUint8Array(base64String) {
@@ -994,6 +1144,7 @@ function App() {
   useEffect(() => {
     const rawJwkStr = localStorage.getItem('prado_decryption_key');
     if (rawJwkStr) {
+      syncPrivateKeyToIDB(rawJwkStr);
       importPrivateKey(rawJwkStr)
         .then(key => { privateKeyRef.current = key; })
         .catch(err => console.error("Failed to import cached private key", err));
@@ -1035,6 +1186,8 @@ function App() {
     location: '',
     font_family: 'Roboto'
   });
+  const profileDataRef = useRef(null);
+  useEffect(() => { profileDataRef.current = profileData; }, [profileData]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const weather = useWeather(profileData.location);
   const [tempAvatar, setTempAvatar] = useState(null);
@@ -1102,7 +1255,6 @@ function App() {
   const spacesRef = useRef([]);
   useEffect(() => { spacesRef.current = spaces; }, [spaces]);
   const [showE2EEPrompt, setShowE2EEPrompt] = useState(null);
-  const [e2eePromptPasskey, setE2eePromptPasskey] = useState('');
   const [e2eeDecryptError, setE2eeDecryptError] = useState(false);
   const [showDMModal, setShowDMModal] = useState(false);
   const [showStartChatMenu, setShowStartChatMenu] = useState(false);
@@ -1121,15 +1273,51 @@ function App() {
   const [appReady, setAppReady] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editInput, setEditInput] = useState('');
+  const editInputRef = useRef(null);
   const [msgToDelete, setMsgToDelete] = useState(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [showTimestampId, setShowTimestampId] = useState(null);
+  const [formatToolbar, setFormatToolbar] = useState(null); // { top, left }
+  const richInputRef = useRef(null);
+
+  const applyFormat = (command) => {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const anchor = sel.anchorNode;
+    const el = anchor?.nodeType === Node.TEXT_NODE ? anchor.parentElement?.closest('[contenteditable]') : anchor?.closest?.('[contenteditable]');
+    if (!el) return;
+    el.focus();
+    if (command === 'code') {
+      if (!sel.isCollapsed) {
+        const selectedText = sel.toString();
+        document.execCommand('insertHTML', false, `<code>${selectedText}</code>\u200B`);
+      }
+    } else {
+      document.execCommand(command, false, null);
+    }
+    setFormatToolbar(null);
+    // Sync the correct state
+    if (el === richInputRef.current) setInput(serializeToMarkdown(el));
+    else if (el === editInputRef.current) setEditInput(serializeToMarkdown(el));
+  };
+
+  const handleTextSelect = () => {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed || !sel.toString().trim()) {
+      setFormatToolbar(null);
+      return;
+    }
+    // Position the toolbar above the selection
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    setFormatToolbar({ top: rect.top - 44, left: rect.left + (rect.width / 2) });
+  };
 
   const handleSpaceSelect = async (space) => {
     if (space.id === currentSpace?.id) return;
     setMessages([]);
     setHistoryLoaded(false);
-    if (space.id !== 1 && !activeKeys[space.id] && privateKeyRef.current) {
+    if (isEncryptedSpace(space) && !activeKeys[space.id] && privateKeyRef.current) {
       try {
         const keysRes = await fetch(`${socketUrl}/api/spaces/keys`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
         if (keysRes.ok) {
@@ -1138,6 +1326,10 @@ function App() {
           if (targetKeyObj) {
             const roomKey = await decryptRoomKeyWithPrivateKey(targetKeyObj.encrypted_room_key, privateKeyRef.current);
             setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
+            await syncRoomKeyToIDB(space.id, roomKey);
+          } else if (socket) {
+            // No key found — request it from online members who already have access
+            socket.emit('request_room_key', { spaceId: space.id, requesterId: profileData.id, requesterPublicKey: profileData.public_key });
           }
         }
       } catch (e) {
@@ -1168,7 +1360,7 @@ function App() {
       const registration = await navigator.serviceWorker.ready;
       
       // Get VAPID public key
-      const keyRes = await fetch(`${socketUrl}/api/push/key`);
+      const keyRes = await fetch(`${socketUrl}/api/push/vapid-public-key`);
       const { publicKey } = await keyRes.json();
       
       const subscription = await registration.pushManager.subscribe({
@@ -1217,11 +1409,50 @@ function App() {
         .then(reg => {
           reg.pushManager.getSubscription().then(sub => {
             setPushEnabled(!!sub);
+            if (sub) {
+              fetch(`${socketUrl}/api/push/subscribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(sub)
+              }).catch(e => console.error("Silent Re-sync failed", e));
+            } else if ('Notification' in window && Notification.permission === 'default') {
+              setPromptNotification(true);
+            }
           });
         })
         .catch(err => console.error('SW Registration Failed', err));
     }
-  }, [token]);
+  }, [token, socketUrl]);
+
+  // Listen for Service Worker messages (click-to-open, inline reply)
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (event) => {
+      const { type, spaceId, text, focusInput } = event.data || {};
+      
+      if (type === 'NAVIGATE_TO_SPACE' && spaceId) {
+        const target = spaces.find(s => Number(s.id) === Number(spaceId));
+        if (target) {
+          setCurrentSpace(target);
+          setMobileView('chat');
+          setShowSidebar(false);
+          // Auto-focus the message input when Reply is clicked
+          if (focusInput) {
+            setTimeout(() => {
+              const input = document.querySelector('.rich-input');
+              if (input) input.focus();
+            }, 300);
+          }
+        }
+      }
+      
+      if (type === 'PUSH_REPLY' && spaceId && text && socket) {
+        socket.emit('chat message', { text, spaceId: Number(spaceId) });
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [spaces, socket]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1318,31 +1549,32 @@ function App() {
         ]);
 
         if (spacesRes.status === 401 || spacesRes.status === 403) {
-          logout();
+          handleLogout();
           return;
         }
 
         if (spacesRes.ok) {
           const spacesData = await spacesRes.json();
-          setSpaces(spacesData);
 
+          let newActiveKeys = {};
           if (keysRes.ok) {
              const keysData = await keysRes.json();
              let pKey = privateKeyRef.current;
              if (!pKey) {
                 const jwkString = localStorage.getItem('prado_decryption_key');
                 if (jwkString) {
+                   syncPrivateKeyToIDB(jwkString);
                    pKey = await importPrivateKey(jwkString);
                    privateKeyRef.current = pKey;
                 }
              }
 
              if (pKey && keysData.length > 0) {
-               const newActiveKeys = {};
                await Promise.all(keysData.map(async (kd) => {
                  try {
                    const roomKey = await decryptRoomKeyWithPrivateKey(kd.encrypted_room_key, pKey);
                    newActiveKeys[kd.space_id] = roomKey;
+                   await syncRoomKeyToIDB(kd.space_id, roomKey);
                  } catch (e) {
                    console.error(`Failed to silently decrypt room key for space ${kd.space_id}`, e);
                  }
@@ -1350,6 +1582,11 @@ function App() {
                setActiveKeys(prev => ({ ...prev, ...newActiveKeys }));
              }
           }
+
+          // Force React DOM to delay mapping spaces until activeKeys have completely synced Cyphers synchronously
+          setSpaces(spacesData);
+
+          // Legacy hardcoded detached Auto-Provision Removed Here
 
           if (spacesData.length > 0) {
             const lastSpaceId = localStorage.getItem('lastSpaceId');
@@ -1363,61 +1600,58 @@ function App() {
     fetchSpaces();
   }, [token]);
 
-  // Auto-Provision Keys for Notes to Self
+  // Auto-Provision Keys for Notes to Self robustly deferred until component mounts completely
   useEffect(() => {
-    if (!profileData?.public_key || spaces.length === 0 || !isConnected) return;
+    if (!profileData?.id || !profileData?.public_key || spaces.length === 0 || !isConnected) return;
     const selfDm = spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
-    if (selfDm && !activeKeys[selfDm.id] && !provisioningLocksRef.current.has(selfDm.id)) {
-      provisioningLocksRef.current.add(selfDm.id);
-      const provisionKey = async () => {
-        try {
-          // Guarantee cryptographic references exist inside the explicit effect
-          let localPrivKey = privateKeyRef.current;
-          if (!localPrivKey) {
-             const jwkString = localStorage.getItem('prado_decryption_key');
-             if (jwkString) {
-                localPrivKey = await importPrivateKey(jwkString);
-                privateKeyRef.current = localPrivKey;
-             } else {
-                setIsUpdatingRoom(false);
-                return;
-             }
-          }
-
-          let exactUserId = profileData.id;
-          try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
-          
-          const roomKey = await generateRoomKey();
-          const peerEnc = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
-          
-          const res = await fetch(`${socketUrl}/api/spaces/${selfDm.id}/invite`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ invited_users: [exactUserId], keyShares: { [exactUserId]: peerEnc } })
-          });
-          if (res.ok) {
-            setActiveKeys(prev => ({ ...prev, [selfDm.id]: roomKey }));
-          } else {
-            provisioningLocksRef.current.delete(selfDm.id);
-          }
-        } catch (e) {
-          console.error("Failed auto-provisioning Notes to Self", e);
+    if (!selfDm || activeKeys[selfDm.id] || provisioningLocksRef.current.has(selfDm.id)) return;
+    
+    provisioningLocksRef.current.add(selfDm.id);
+    const provisionKey = async () => {
+      try {
+        let localPrivKey = privateKeyRef.current;
+        if (!localPrivKey) {
+           const jwkString = localStorage.getItem('prado_decryption_key');
+           if (jwkString) {
+              localPrivKey = await importPrivateKey(jwkString);
+              privateKeyRef.current = localPrivKey;
+           } else {
+              return;
+           }
+        }
+        const roomKey = await generateRoomKey();
+        const peerEnc = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
+        const res = await fetch(`${socketUrl}/api/spaces/${selfDm.id}/invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ invited_users: [profileData.id], keyShares: { [profileData.id]: peerEnc } })
+        });
+        if (res.ok) {
+          setActiveKeys(prev => ({ ...prev, [selfDm.id]: roomKey }));
+          await syncRoomKeyToIDB(selfDm.id, roomKey);
+        } else {
           provisioningLocksRef.current.delete(selfDm.id);
         }
-      };
-      provisionKey();
-    }
+      } catch (e) {
+        console.error("Failed auto-provisioning Notes to Self", e);
+        provisioningLocksRef.current.delete(selfDm.id);
+      }
+    };
+    provisionKey();
   }, [spaces, activeKeys, profileData, token, socketUrl, isConnected]);
 
-  // Retroactive Sweeper for Late-Arriving Keys
+  // Retroactive Sweeper for Late-Arriving Keys (with re-entry guard)
+  const isDecryptingRef = useRef(false);
   useEffect(() => {
+    if (isDecryptingRef.current) return;
     if (!activeKeys[currentSpace?.id] || messages.length === 0) return;
     const key = activeKeys[currentSpace.id];
-    let needsUpdate = false;
+    const hasEncrypted = messages.some(m => m.raw_text && m.text === '🔒 [Encrypted Message]');
+    if (!hasEncrypted) return;
     
+    isDecryptingRef.current = true;
     Promise.all(messages.map(async (msg) => {
       if (msg.raw_text && msg.text === '🔒 [Encrypted Message]') {
-        needsUpdate = true;
         try {
           const dec = await decryptMessage(msg.raw_text, key);
           return { ...msg, text: dec, raw_text: null };
@@ -1427,7 +1661,8 @@ function App() {
       }
       return msg;
     })).then(newMsgs => {
-      if (needsUpdate) setMessages(newMsgs);
+      setMessages(newMsgs);
+      isDecryptingRef.current = false;
     });
   }, [messages, activeKeys, currentSpace?.id]);
 
@@ -1445,7 +1680,7 @@ function App() {
     newSocket.on('disconnect', () => setIsConnected(false));
     newSocket.on('connect_error', (err) => {
       if (err.message && err.message.startsWith('Authentication error')) {
-        logout();
+        handleLogout();
       }
     });
 
@@ -1470,16 +1705,8 @@ function App() {
 
       processedHistory = await Promise.all(history.map(async (msg) => {
          if (!msg.text || typeof msg.text !== 'string') return msg;
-         if (activeKeysRef.current[spaceId]) {
-            try {
-              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[spaceId]);
-              return { ...msg, text: decrypted };
-            } catch(e) {
-              return { ...msg, text: '🔒 [Decryption Failed]' };
-            }
-         } else {
-            return { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
-         }
+         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
+         return { ...msg, ...d };
       }));
       setMessages(processedHistory);
       setHistoryLoaded(true);
@@ -1490,16 +1717,8 @@ function App() {
       let processedMsg = msg;
 
       if (msg.text && typeof msg.text === 'string') {
-         if (activeKeysRef.current[spaceId]) {
-            try {
-              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[spaceId]);
-              processedMsg = { ...msg, text: decrypted };
-            } catch(e) {
-              processedMsg = { ...msg, text: '🔒 [Decryption Failed]' };
-            }
-         } else {
-            processedMsg = { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
-         }
+         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
+         processedMsg = { ...msg, ...d };
       }
 
       if (Number(currentSpaceRef.current) === spaceId) {
@@ -1514,21 +1733,17 @@ function App() {
     });
 
     newSocket.on('message updated', async ({ id, text, edited, spaceId }) => {
-      let processedText = text;
-
       if (text && typeof text === 'string') {
-         if (activeKeysRef.current[spaceId]) {
-            try {
-              processedText = await decryptMessage(text, activeKeysRef.current[spaceId]);
-            } catch(e) {
-              processedText = '🔒 [Decryption Failed]';
-            }
-         } else {
-            processedText = '🔒 [Encrypted Message]';
-         }
+        const d = await tryDecryptMsg(text, activeKeysRef.current[spaceId]);
+        if (d.raw_text) {
+          // Key not available — preserve raw_text for retroactive sweeper
+          setMessages(prev => prev.map(m => m.id === id ? { ...m, text: d.text, raw_text: d.raw_text, edited } : m));
+          return;
+        }
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, text: d.text, edited } : m));
+      } else {
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, text, edited } : m));
       }
-
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, text: processedText, edited } : m));
     });
 
     newSocket.on('message deleted', ({ id }) => {
@@ -1554,6 +1769,37 @@ function App() {
     newSocket.on('settings-updated', (settings) => {
       if (settings.global_font) {
         setGlobalFont(settings.global_font);
+      }
+    });
+
+    // Auto-grant room keys to members who request them
+    newSocket.on('request_room_key', async (data) => {
+      const { spaceId, requesterId, requesterPublicKey, requesterSocketId } = data;
+      const myKey = activeKeysRef.current[spaceId];
+      if (!myKey || !requesterPublicKey) return;
+      try {
+        const encryptedForRequester = await encryptRoomKeyWithPublicKey(myKey, requesterPublicKey);
+        newSocket.emit('grant_room_key', {
+          spaceId,
+          requesterId,
+          encryptedRoomKey: encryptedForRequester,
+          requesterSocketId
+        });
+      } catch (e) {
+        console.error('Failed to grant room key', e);
+      }
+    });
+
+    // Receive a granted room key
+    newSocket.on('grant_room_key', async (data) => {
+      const { spaceId, encryptedRoomKey } = data;
+      if (!encryptedRoomKey || !privateKeyRef.current || activeKeysRef.current[spaceId]) return;
+      try {
+        const roomKey = await decryptRoomKeyWithPrivateKey(encryptedRoomKey, privateKeyRef.current);
+        setActiveKeys(prev => ({ ...prev, [spaceId]: roomKey }));
+        await syncRoomKeyToIDB(spaceId, roomKey);
+      } catch (e) {
+        console.error('Failed to import granted room key', e);
       }
     });
 
@@ -1642,17 +1888,9 @@ function App() {
       let processedData = data;
 
       processedData = await Promise.all(data.map(async (msg) => {
-         if (!msg.text || typeof msg.text !== 'string' || !msg.text.startsWith('{"iv":')) return msg;
-         if (activeKeysRef.current[currentSpace.id]) {
-            try {
-              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[currentSpace.id]);
-              return { ...msg, text: decrypted };
-            } catch(e) {
-              return { ...msg, text: '🔒 [Decryption Failed]' };
-            }
-         } else {
-            return { ...msg, text: '🔒 [Encrypted Message]' };
-         }
+         if (!msg.text || typeof msg.text !== 'string') return msg;
+         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[currentSpace.id]);
+         return { ...msg, ...d };
       }));
       setPinnedMessages(processedData);
     } catch(err) {
@@ -1690,16 +1928,8 @@ function App() {
           if (olderMessages.length > 0) {
             const processedOlder = await Promise.all(olderMessages.map(async (msg) => {
               if (!msg.text || typeof msg.text !== 'string') return msg;
-              if (activeKeys[currentSpace.id]) {
-                try {
-                  const decrypted = await decryptMessage(msg.text, activeKeys[currentSpace.id]);
-                  return { ...msg, text: decrypted };
-                } catch(e) {
-                  return { ...msg, text: '🔒 [Decryption Failed]' };
-                }
-              } else {
-                return { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
-              }
+              const d = await tryDecryptMsg(msg.text, activeKeys[currentSpace.id]);
+              return { ...msg, ...d };
             }));
             setMessages(prev => [...processedOlder, ...prev]);
             requestAnimationFrame(() => {
@@ -1755,8 +1985,7 @@ function App() {
         for (const uId of roomSettingsInvitedUsers) {
            const userObj = allUsers.find(u => u.id === Number(uId));
            if (userObj && userObj.public_key) {
-             const peerPk = await importPublicKey(userObj.public_key);
-             const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, peerPk);
+             const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
              keyShares[uId] = peerEnc;
            }
         }
@@ -1844,7 +2073,9 @@ function App() {
           try {
             const privateKey = await unwrapPrivateKey(data.wrapped_private_key, authPassword, authEmail);
             const exportedPrivateJwk = await window.crypto.subtle.exportKey("jwk", privateKey);
-            localStorage.setItem('prado_decryption_key', JSON.stringify(exportedPrivateJwk));
+            const jwkStr = JSON.stringify(exportedPrivateJwk);
+            localStorage.setItem('prado_decryption_key', jwkStr);
+            syncPrivateKeyToIDB(jwkStr);
             privateKeyRef.current = privateKey;
           } catch (unwrapErr) {
             console.error('Failed to unwrap private key', unwrapErr);
@@ -1903,6 +2134,7 @@ function App() {
         setAvatar(data.avatar || null);
         setRole(data.role || 'user');
         setProfileData({
+          id: data.id || null,
           first_name: data.first_name || '',
           last_name: data.last_name || '',
           email: data.email || '',
@@ -1953,7 +2185,26 @@ function App() {
       setResetToken(verifyToken);
       window.history.replaceState({}, document.title, '/');
     }
+
+    // Deep-link from push notification: ?space=ID
+    const deepSpaceId = params.get('space');
+    if (deepSpaceId) {
+      window._pendingDeepSpaceId = Number(deepSpaceId);
+      window.history.replaceState({}, document.title, '/');
+    }
   }, []);
+
+  // Consume deep-link once spaces are loaded
+  useEffect(() => {
+    if (window._pendingDeepSpaceId && spaces.length > 0) {
+      const target = spaces.find(s => Number(s.id) === Number(window._pendingDeepSpaceId));
+      if (target) {
+        setCurrentSpace(target);
+        setMobileView('chat');
+      }
+      delete window._pendingDeepSpaceId;
+    }
+  }, [spaces]);
 
   useEffect(() => {
     const checkJoinLink = async () => {
@@ -2121,8 +2372,7 @@ function App() {
           throw new Error('Creator ID lookup failed in allUsers list.');
         }
         
-        const ourPublicKey = await importPublicKey(profileData.public_key);
-        const ourEncrypted = await encryptRoomKeyWithPublicKey(roomKeyObj, ourPublicKey);
+        const ourEncrypted = await encryptRoomKeyWithPublicKey(roomKeyObj, profileData.public_key);
         keyShares[creatorId] = ourEncrypted;
 
         // 2. Generate encrypted shares for all invited users
@@ -2130,8 +2380,7 @@ function App() {
           for (const uId of invitedUsers) {
             const userObj = allUsers.find(u => u.id === Number(uId));
             if (userObj && userObj.public_key) {
-               const peerPk = await importPublicKey(userObj.public_key);
-               const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, peerPk);
+               const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
                keyShares[uId] = peerEnc;
             }
           }
@@ -2159,6 +2408,7 @@ function App() {
         
         if (roomKeyObj) {
           setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKeyObj }));
+          await syncRoomKeyToIDB(newSpace.id, roomKeyObj);
         }
 
         setSpaces(prev => {
@@ -2241,11 +2491,13 @@ function App() {
     } catch (err) { console.error('Failed to remove user', err); }
   };
 
-  function logout() {
+  const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     localStorage.removeItem('avatar');
     localStorage.removeItem('role');
+    localStorage.removeItem('prado_decryption_key');
+    purgeCryptoIDB();
     setRole('user');
     setToken(null);
     setUsername('');
@@ -2290,18 +2542,21 @@ function App() {
   const sendMessage = async (e) => {
     e.preventDefault();
     if ((input.trim() || pendingAsset) && socket && isConnected) {
-      let payloadText = input;
+      const el = richInputRef.current;
+      let payloadText = el ? serializeToMarkdown(el) : input;
       
       const spaceObj = currentSpace;
       if (!spaceObj || !spaceObj.id) return;
       
-      if (!activeKeys[spaceObj.id]) {
+      if (isEncryptedSpace(spaceObj) && !activeKeys[spaceObj.id]) {
          alert("Encryption Key missing. Security context unavailable. Message blocked.");
          return;
       }
       if (payloadText.trim()) {
          try {
-           payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+           if (isEncryptedSpace(spaceObj)) {
+             payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+           }
          } catch (err) {
            console.error("Encryption failed:", err);
            alert("Failed to encrypt message natively. Aborting transmission.");
@@ -2311,6 +2566,7 @@ function App() {
 
       socket.emit('chat message', { text: payloadText, spaceId: spaceObj.id, asset: pendingAsset });
       setInput('');
+      if (el) { el.innerHTML = ''; el.style.height = 'auto'; }
       setPendingAsset(null);
       socket.emit('stop typing', spaceObj.id);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -2326,8 +2582,12 @@ function App() {
     socket.emit('pin message', { id: msgId, spaceId: currentSpace.id, is_pinned: isPinnedValue });
   };
 
-  const handleTyping = (e) => {
-    setInput(e.target.value);
+  const handleTyping = () => {
+    const el = richInputRef.current;
+    if (!el) return;
+    // Auto-detect markdown shortcuts (e.g., **bold** → <strong>bold</strong>)
+    processMarkdownShortcuts(el);
+    setInput(serializeToMarkdown(el));
     if (!socket || !isConnected) return;
     
     socket.emit('typing', { spaceId: currentSpace.id, avatar });
@@ -2341,17 +2601,35 @@ function App() {
   const startEditing = (msg) => {
     setEditingId(msg.id);
     setEditInput(msg.text);
+    // Populate the contentEditable edit div after it mounts
+    requestAnimationFrame(() => {
+      const el = editInputRef.current;
+      if (el) {
+        el.innerHTML = renderMarkdown(msg.text);
+        processAllMarkdownInNode(el);
+        el.focus();
+        // Place cursor at end
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    });
   };
 
   const saveEdit = async (e) => {
     e.preventDefault();
-    if (editInput.trim() && socket && isConnected) {
-      let payloadText = editInput;
+    const el = editInputRef.current;
+    const editText = el ? serializeToMarkdown(el) : editInput;
+    if (editText.trim() && socket && isConnected) {
+      let payloadText = editText;
       const spaceObj = currentSpace;
       
-      if (spaceObj?.is_e2ee === 1 || spaceObj?.is_e2ee === true) {
+      if (isEncryptedSpace(spaceObj)) {
         if (!activeKeys[spaceObj.id]) {
-           alert("Encryption Key missing. Please refresh the page and enter the passkey.");
+           alert("Encryption Key missing. Security context unavailable. Message blocked.");
            return;
         }
         try {
@@ -2377,6 +2655,15 @@ function App() {
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const el = richInputRef.current;
+      const currentText = el ? serializeToMarkdown(el) : input;
+      if ((currentText.trim() || pendingAsset) && socket && isConnected) {
+        sendMessage(e);
+      }
+      return;
+    }
     if (e.key === 'ArrowUp' && input === '' && messages.length > 0) {
       const myMessages = messages.filter(m => m.sender === username);
       if (myMessages.length > 0) {
@@ -2596,6 +2883,16 @@ function App() {
 
       {/* LEFT PANE: Sidebar */}
       <div className={`sidebar ${showSidebar ? 'open' : ''}`}>
+        
+        {promptNotification && (
+          <div style={{ backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem', zIndex: 50, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+            <div style={{ fontWeight: 600 }}>Enable Desktop Notifications?</div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button style={{ background: 'var(--md-sys-color-on-primary)', color: 'var(--md-sys-color-primary)', border: 'none', padding: '4px 12px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }} onClick={async () => { await togglePushNotifications(); setPromptNotification(false); }}>Enable</button>
+              <button style={{ background: 'transparent', border: '1px solid var(--md-sys-color-on-primary)', color: 'inherit', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setPromptNotification(false)}>Dismiss</button>
+            </div>
+          </div>
+        )}
         
         {/* Start Chat Button */}
         <div style={{ padding: '16px 20px 8px 20px', position: 'relative' }} ref={startChatRef}>
@@ -2899,17 +3196,25 @@ function App() {
                       .filter(([u, id]) => id === msg.id && u !== username)
                       .map(([u]) => {
                          let av = null;
+                         let displayName = u;
                          const ou = onlineUsers.find(o => o.username === u);
-                         if (ou && ou.avatar) av = ou.avatar;
-                         else {
+                         if (ou) {
+                           if (ou.avatar) av = ou.avatar;
+                           if (ou.first_name) displayName = `${ou.first_name} ${ou.last_name || ''}`.trim();
+                         }
+                         if (!av || displayName === u) {
                            for (let i = messages.length - 1; i >= 0; i--) {
-                             if (messages[i].sender === u && messages[i].avatar) { av = messages[i].avatar; break; }
+                             if (messages[i].sender === u) {
+                               if (!av && messages[i].avatar) av = messages[i].avatar;
+                               if (displayName === u && messages[i].first_name) displayName = `${messages[i].first_name} ${messages[i].last_name || ''}`.trim();
+                               if (av && displayName !== u) break;
+                             }
                            }
                          }
                          if (av) {
-                           return <img key={u} src={av} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${u}`} />;
+                           return <img key={u} src={av} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${displayName}`} />;
                          }
-                         return <div key={u} style={{ width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${u}`}>{u.charAt(0).toUpperCase()}</div>;
+                         return <div key={u} style={{ width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${displayName}`}>{displayName.charAt(0).toUpperCase()}</div>;
                       })}
                   </div>
                 )}
@@ -2985,11 +3290,17 @@ function App() {
                 <div className="message-content">
                   {editingId === msg.id ? (
                     <form onSubmit={saveEdit} className="edit-form">
-                      <input 
-                        className="edit-input" 
-                        value={editInput} 
-                        onChange={(e) => setEditInput(e.target.value)}
-                        autoFocus
+                      <div
+                        ref={editInputRef}
+                        className="edit-input"
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={() => { const el = editInputRef.current; if (el) { processMarkdownShortcuts(el); setEditInput(serializeToMarkdown(el)); } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(e); } if (e.key === 'Escape') setEditingId(null); }}
+                        onMouseUp={handleTextSelect}
+                        onKeyUp={handleTextSelect}
+                        onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
+                        onPaste={(e) => { e.preventDefault(); const text = e.clipboardData.getData('text/plain'); document.execCommand('insertText', false, text); const el = editInputRef.current; if (el) { processAllMarkdownInNode(el); setEditInput(serializeToMarkdown(el)); } }}
                       />
                       <div className="edit-btns">
                         <button type="submit" className="save-btn">Save</button>
@@ -2998,11 +3309,11 @@ function App() {
                     </form>
                   ) : (
                     <>
-                      {!msg.asset && <div className="message-text">{linkify(msg.text)}{msg.edited === 1 && <span className="edited-badge" style={{ fontSize: '0.7em', marginLeft: '6px', opacity: 0.6 }}>(edited)</span>}</div>}
+                      {!msg.asset && <div className="message-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) + (msg.edited === 1 ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>' : '') }} />}
                       {msg.reactions && msg.reactions !== '{}' && (
                         <div className="message-reactions" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                           {Object.entries(JSON.parse(msg.reactions || '{}')).map(([emoji, usersArr]) => (
-                            <div key={emoji} onClick={() => handleReaction(msg.id, emoji)} title={usersArr.join(', ')} style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: usersArr.includes(username) ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: usersArr.includes(username) ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', padding: '2px 6px', borderRadius: '12px', fontSize: '0.8rem', cursor: 'pointer', border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`, userSelect: 'none' }}>
+                            <div key={emoji} onClick={() => handleReaction(msg.id, emoji)} title={usersArr.map(u => { const m = messages.find(mm => mm.sender === u); return m && m.first_name ? `${m.first_name} ${m.last_name || ''}`.trim() : u; }).join(', ')} style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: usersArr.includes(username) ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: usersArr.includes(username) ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', padding: '2px 6px', borderRadius: '12px', fontSize: '0.8rem', cursor: 'pointer', border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`, userSelect: 'none' }}>
                               <span>{emoji}</span>
                               <span style={{ fontWeight: '600' }}>{usersArr.length}</span>
                             </div>
@@ -3100,6 +3411,7 @@ function App() {
             <button className="cancel-asset" onClick={() => setPendingAsset(null)}>&times;</button>
           </div>
         )}
+
         <form className="input-area" onSubmit={sendMessage} style={{ overflow: 'visible' }}>
           <div className="media-menu-container" ref={mediaMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <button
@@ -3138,7 +3450,8 @@ function App() {
                <div style={{ position: 'absolute', bottom: 'calc(100% + 12px)', left: 0, zIndex: 200, boxShadow: '0 8px 16px rgba(0,0,0,0.5)', borderRadius: '8px' }}>
                  <EmojiPicker 
                    onEmojiClick={(emojiData) => { 
-                     setInput(prev => prev + emojiData.emoji); 
+                     const el = richInputRef.current;
+                     if (el) { el.focus(); document.execCommand('insertText', false, emojiData.emoji); setInput(serializeToMarkdown(el)); }
                      setShowEmojiPicker(false); 
                    }} 
                    theme={theme === 'dark' ? 'dark' : 'light'} 
@@ -3185,14 +3498,29 @@ function App() {
                </div>
             )}
           </div>
-          <input
-            type="text"
-            value={input}
-            onChange={handleTyping}
+          <div
+            ref={richInputRef}
+            className="rich-input"
+            contentEditable
+            role="textbox"
+            aria-multiline="true"
+            data-placeholder={`Message ${currentSpace.is_dm === 1 ? '' : '#'}${getSpaceDisplayName()}...`}
+            onInput={handleTyping}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${currentSpace.is_dm === 1 ? '' : '#'}${getSpaceDisplayName()}...`}
-            className="text-input"
+            onMouseUp={handleTextSelect}
+            onKeyUp={handleTextSelect}
+            onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
+            onPaste={(e) => { e.preventDefault(); const text = e.clipboardData.getData('text/plain'); document.execCommand('insertText', false, text); const el = richInputRef.current; if (el) { processAllMarkdownInNode(el); setInput(serializeToMarkdown(el)); } }}
+            suppressContentEditableWarning
           />
+          {formatToolbar && (
+            <div className="format-toolbar" style={{ position: 'fixed', top: formatToolbar.top, left: formatToolbar.left, transform: 'translateX(-50%)' }}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('bold'); }} title="Bold"><strong>B</strong></button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('italic'); }} title="Italic"><em>I</em></button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('strikeThrough'); }} title="Strikethrough"><s>S</s></button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('code'); }} title="Code" style={{ fontFamily: 'monospace' }}>&lt;/&gt;</button>
+            </div>
+          )}
           <button type="submit" className="send-fab" aria-label="Send">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor" />
