@@ -4,6 +4,11 @@ import Cropper from 'react-easy-crop'
 import EmojiPicker from 'emoji-picker-react'
 import VideoRoom from './VideoRoom'
 import { googleFonts } from './googleFontsList'
+import { 
+  generateIdentityKeyPair, exportPublicKey, wrapPrivateKey, unwrapPrivateKey, 
+  generateRoomKey, encryptRoomKeyWithPublicKey, decryptRoomKeyWithPrivateKey, 
+  encryptMessage, decryptMessage, importPrivateKey, importPublicKey 
+} from './crypto'
 
 const devDomain = window.location.hostname;
 const socketUrl = import.meta.env.MODE === 'production' ? '' : `http://${devDomain}:3001`;
@@ -984,6 +989,17 @@ function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState(localStorage.getItem('role') || 'user');
 
+  // E2EE PKI Identity State
+  const privateKeyRef = useRef(null);
+  useEffect(() => {
+    const rawJwkStr = localStorage.getItem('prado_decryption_key');
+    if (rawJwkStr) {
+      importPrivateKey(rawJwkStr)
+        .then(key => { privateKeyRef.current = key; })
+        .catch(err => console.error("Failed to import cached private key", err));
+    }
+  }, []);
+
   // Theming & Profile State
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [colorPalette, setColorPalette] = useState(() => {
@@ -1060,10 +1076,11 @@ function App() {
   const [spaces, setSpaces] = useState([]);
   const [currentSpace, setCurrentSpace] = useState(() => {
     const saved = localStorage.getItem('lastSpaceId');
-    return { id: saved ? Number(saved) : 1, name: 'Loading...' };
+    return { id: saved ? Number(saved) : null, name: 'Loading...' };
   });
   const [unreadCounts, setUnreadCounts] = useState({});
   const currentSpaceRef = useRef(1);
+  const provisioningLocksRef = useRef(new Set());
 
   useEffect(() => {
     currentSpaceRef.current = currentSpace?.id;
@@ -1078,6 +1095,15 @@ function App() {
   const [newSpaceName, setNewSpaceName] = useState('');
   const [isNewSpacePrivate, setIsNewSpacePrivate] = useState(false);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
+  const [newSpaceE2EE, setNewSpaceE2EE] = useState(false);
+  const [activeKeys, setActiveKeys] = useState({});
+  const activeKeysRef = useRef({});
+  useEffect(() => { activeKeysRef.current = activeKeys; }, [activeKeys]);
+  const spacesRef = useRef([]);
+  useEffect(() => { spacesRef.current = spaces; }, [spaces]);
+  const [showE2EEPrompt, setShowE2EEPrompt] = useState(null);
+  const [e2eePromptPasskey, setE2eePromptPasskey] = useState('');
+  const [e2eeDecryptError, setE2eeDecryptError] = useState(false);
   const [showDMModal, setShowDMModal] = useState(false);
   const [showStartChatMenu, setShowStartChatMenu] = useState(false);
   const [activeSpaceMenu, setActiveSpaceMenu] = useState(null);
@@ -1098,6 +1124,31 @@ function App() {
   const [msgToDelete, setMsgToDelete] = useState(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [showTimestampId, setShowTimestampId] = useState(null);
+
+  const handleSpaceSelect = async (space) => {
+    if (space.id === currentSpace?.id) return;
+    setMessages([]);
+    setHistoryLoaded(false);
+    if (space.id !== 1 && !activeKeys[space.id] && privateKeyRef.current) {
+      try {
+        const keysRes = await fetch(`${socketUrl}/api/spaces/keys`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+        if (keysRes.ok) {
+          const keysData = await keysRes.json();
+          const targetKeyObj = keysData.find(kd => kd.space_id === space.id);
+          if (targetKeyObj) {
+            const roomKey = await decryptRoomKeyWithPrivateKey(targetKeyObj.encrypted_room_key, privateKeyRef.current);
+            setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
+          }
+        }
+      } catch (e) {
+        console.error("Silent key fetch failed for handleSpaceSelect", e);
+      }
+    }
+    
+    setCurrentSpace(space);
+    setShowSidebar(false);
+    setMobileView('chat');
+  };
 
 
   // Location Autocomplete State
@@ -1242,6 +1293,10 @@ function App() {
       const timer = setTimeout(() => setAppReady(true), 1000); 
       return () => clearTimeout(timer);
     }
+    
+    // Failsafe for orphaned DB wipes
+    const failsafe = setTimeout(() => setAppReady(true), 3500);
+    return () => clearTimeout(failsafe);
   }, [token, isConnected, spaces, historyLoaded]);
 
   // Detect currentSpace removal cleanly
@@ -1257,24 +1312,124 @@ function App() {
     if (!token) return;
     const fetchSpaces = async () => {
       try {
-        const res = await fetch(`${socketUrl}/api/spaces`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-          cache: 'no-store'
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setSpaces(data);
-          if (data.length > 0) {
+        const [spacesRes, keysRes] = await Promise.all([
+          fetch(`${socketUrl}/api/spaces`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' }),
+          fetch(`${socketUrl}/api/spaces/keys`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' })
+        ]);
+
+        if (spacesRes.status === 401 || spacesRes.status === 403) {
+          logout();
+          return;
+        }
+
+        if (spacesRes.ok) {
+          const spacesData = await spacesRes.json();
+          setSpaces(spacesData);
+
+          if (keysRes.ok) {
+             const keysData = await keysRes.json();
+             let pKey = privateKeyRef.current;
+             if (!pKey) {
+                const jwkString = localStorage.getItem('prado_decryption_key');
+                if (jwkString) {
+                   pKey = await importPrivateKey(jwkString);
+                   privateKeyRef.current = pKey;
+                }
+             }
+
+             if (pKey && keysData.length > 0) {
+               const newActiveKeys = {};
+               await Promise.all(keysData.map(async (kd) => {
+                 try {
+                   const roomKey = await decryptRoomKeyWithPrivateKey(kd.encrypted_room_key, pKey);
+                   newActiveKeys[kd.space_id] = roomKey;
+                 } catch (e) {
+                   console.error(`Failed to silently decrypt room key for space ${kd.space_id}`, e);
+                 }
+               }));
+               setActiveKeys(prev => ({ ...prev, ...newActiveKeys }));
+             }
+          }
+
+          if (spacesData.length > 0) {
             const lastSpaceId = localStorage.getItem('lastSpaceId');
-            const lastSpace = lastSpaceId ? data.find(s => Number(s.id) === Number(lastSpaceId)) : null;
-            const selfDm = data.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
-            setCurrentSpace(lastSpace || selfDm || data[0]);
+            const lastSpace = lastSpaceId ? spacesData.find(s => Number(s.id) === Number(lastSpaceId)) : null;
+            const selfDm = spacesData.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
+            setCurrentSpace(lastSpace || selfDm || spacesData[0]);
           }
         }
-      } catch (err) { console.error('Failed to load spaces', err) }
+      } catch (err) { console.error('Failed to load spaces or keys', err) }
     };
     fetchSpaces();
   }, [token]);
+
+  // Auto-Provision Keys for Notes to Self
+  useEffect(() => {
+    if (!profileData?.public_key || spaces.length === 0 || !isConnected) return;
+    const selfDm = spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
+    if (selfDm && !activeKeys[selfDm.id] && !provisioningLocksRef.current.has(selfDm.id)) {
+      provisioningLocksRef.current.add(selfDm.id);
+      const provisionKey = async () => {
+        try {
+          // Guarantee cryptographic references exist inside the explicit effect
+          let localPrivKey = privateKeyRef.current;
+          if (!localPrivKey) {
+             const jwkString = localStorage.getItem('prado_decryption_key');
+             if (jwkString) {
+                localPrivKey = await importPrivateKey(jwkString);
+                privateKeyRef.current = localPrivKey;
+             } else {
+                setIsUpdatingRoom(false);
+                return;
+             }
+          }
+
+          let exactUserId = profileData.id;
+          try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
+          
+          const roomKey = await generateRoomKey();
+          const peerEnc = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
+          
+          const res = await fetch(`${socketUrl}/api/spaces/${selfDm.id}/invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ invited_users: [exactUserId], keyShares: { [exactUserId]: peerEnc } })
+          });
+          if (res.ok) {
+            setActiveKeys(prev => ({ ...prev, [selfDm.id]: roomKey }));
+          } else {
+            provisioningLocksRef.current.delete(selfDm.id);
+          }
+        } catch (e) {
+          console.error("Failed auto-provisioning Notes to Self", e);
+          provisioningLocksRef.current.delete(selfDm.id);
+        }
+      };
+      provisionKey();
+    }
+  }, [spaces, activeKeys, profileData, token, socketUrl, isConnected]);
+
+  // Retroactive Sweeper for Late-Arriving Keys
+  useEffect(() => {
+    if (!activeKeys[currentSpace?.id] || messages.length === 0) return;
+    const key = activeKeys[currentSpace.id];
+    let needsUpdate = false;
+    
+    Promise.all(messages.map(async (msg) => {
+      if (msg.raw_text && msg.text === '🔒 [Encrypted Message]') {
+        needsUpdate = true;
+        try {
+          const dec = await decryptMessage(msg.raw_text, key);
+          return { ...msg, text: dec, raw_text: null };
+        } catch(e) {
+          return { ...msg, text: '🔒 [Decryption Failed]', raw_text: null };
+        }
+      }
+      return msg;
+    })).then(newMsgs => {
+      if (needsUpdate) setMessages(newMsgs);
+    });
+  }, [messages, activeKeys, currentSpace?.id]);
 
   // Connect socket when token changes
   useEffect(() => {
@@ -1288,6 +1443,11 @@ function App() {
 
     newSocket.on('connect', () => setIsConnected(true));
     newSocket.on('disconnect', () => setIsConnected(false));
+    newSocket.on('connect_error', (err) => {
+      if (err.message && err.message.startsWith('Authentication error')) {
+        logout();
+      }
+    });
 
     newSocket.on('presence', (users) => {
       setOnlineUsers(users);
@@ -1304,16 +1464,48 @@ function App() {
       setTypingUsers(prev => prev.filter(u => !(u.username === typer && Number(u.spaceId) === Number(spaceId))));
     });
 
-    newSocket.on('space history', (history) => {
-      setMessages(history);
+    newSocket.on('space history', async (history) => {
+      const spaceId = Number(currentSpaceRef.current);
+      let processedHistory = history;
+
+      processedHistory = await Promise.all(history.map(async (msg) => {
+         if (!msg.text || typeof msg.text !== 'string') return msg;
+         if (activeKeysRef.current[spaceId]) {
+            try {
+              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[spaceId]);
+              return { ...msg, text: decrypted };
+            } catch(e) {
+              return { ...msg, text: '🔒 [Decryption Failed]' };
+            }
+         } else {
+            return { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
+         }
+      }));
+      setMessages(processedHistory);
       setHistoryLoaded(true);
     });
 
-    newSocket.on('chat message', (msg) => {
-      if (Number(currentSpaceRef.current) === Number(msg.spaceId)) {
-        setMessages(prev => [...prev, msg]);
+    newSocket.on('chat message', async (msg) => {
+      const spaceId = Number(msg.spaceId);
+      let processedMsg = msg;
+
+      if (msg.text && typeof msg.text === 'string') {
+         if (activeKeysRef.current[spaceId]) {
+            try {
+              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[spaceId]);
+              processedMsg = { ...msg, text: decrypted };
+            } catch(e) {
+              processedMsg = { ...msg, text: '🔒 [Decryption Failed]' };
+            }
+         } else {
+            processedMsg = { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
+         }
+      }
+
+      if (Number(currentSpaceRef.current) === spaceId) {
+        setMessages(prev => [...prev, processedMsg]);
       } else {
-        setUnreadCounts(prev => ({ ...prev, [msg.spaceId]: (prev[msg.spaceId] || 0) + 1 }));
+        setUnreadCounts(prev => ({ ...prev, [spaceId]: (prev[spaceId] || 0) + 1 }));
       }
     });
 
@@ -1321,8 +1513,22 @@ function App() {
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id } : m));
     });
 
-    newSocket.on('message updated', ({ id, text, edited }) => {
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, text, edited } : m));
+    newSocket.on('message updated', async ({ id, text, edited, spaceId }) => {
+      let processedText = text;
+
+      if (text && typeof text === 'string') {
+         if (activeKeysRef.current[spaceId]) {
+            try {
+              processedText = await decryptMessage(text, activeKeysRef.current[spaceId]);
+            } catch(e) {
+              processedText = '🔒 [Decryption Failed]';
+            }
+         } else {
+            processedText = '🔒 [Encrypted Message]';
+         }
+      }
+
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, text: processedText, edited } : m));
     });
 
     newSocket.on('message deleted', ({ id }) => {
@@ -1379,7 +1585,7 @@ function App() {
     newSocket.on('space deleted', (deletedId) => {
       const id = parseInt(deletedId, 10);
       setSpaces(prev => prev.filter(s => s.id !== id));
-      setCurrentSpace(curr => curr.id === id ? { id: 1, name: 'General', is_private: false } : curr);
+      setCurrentSpace(curr => curr.id === id ? (spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' }) : curr);
     });
 
     newSocket.on('space left', () => {
@@ -1400,6 +1606,7 @@ function App() {
     return () => {
       newSocket.off('connect');
       newSocket.off('disconnect');
+      newSocket.off('connect_error');
       newSocket.off('presence');
       newSocket.off('user typing');
       newSocket.off('user stopped typing');
@@ -1419,19 +1626,38 @@ function App() {
   useEffect(() => {
     if (messages.length > 0 && socket && isConnected) {
       const lastMsg = messages[messages.length - 1];
-      socket.emit('mark_read', { space_id: lastMsg.spaceId || currentSpace.id, message_id: lastMsg.id });
+      socket.emit('mark_read', { space_id: lastMsg.spaceId, message_id: lastMsg.id });
     }
   }, [messages, socket, isConnected, currentSpace.id]);
 
   // Phase 12: Pinned Messages Fetching
-  const fetchPinnedMessages = useCallback(() => {
+  const fetchPinnedMessages = useCallback(async () => {
     if (!currentSpace) return;
-    fetch(`${socketUrl}/api/spaces/${currentSpace.id}/pinned`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    .then(res => res.json())
-    .then(data => setPinnedMessages(data))
-    .catch(err => console.error('Failed fetching pinned messages:', err));
+    try {
+      const res = await fetch(`${socketUrl}/api/spaces/${currentSpace.id}/pinned`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      
+      let processedData = data;
+
+      processedData = await Promise.all(data.map(async (msg) => {
+         if (!msg.text || typeof msg.text !== 'string' || !msg.text.startsWith('{"iv":')) return msg;
+         if (activeKeysRef.current[currentSpace.id]) {
+            try {
+              const decrypted = await decryptMessage(msg.text, activeKeysRef.current[currentSpace.id]);
+              return { ...msg, text: decrypted };
+            } catch(e) {
+              return { ...msg, text: '🔒 [Decryption Failed]' };
+            }
+         } else {
+            return { ...msg, text: '🔒 [Encrypted Message]' };
+         }
+      }));
+      setPinnedMessages(processedData);
+    } catch(err) {
+      console.error('Failed fetching pinned messages:', err);
+    }
   }, [currentSpace, token]);
 
   useEffect(() => {
@@ -1459,10 +1685,23 @@ function App() {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         .then(res => res.json())
-        .then(olderMessages => {
+        .then(async olderMessages => {
           if (olderMessages.length < 50) setHasMoreHistory(false);
           if (olderMessages.length > 0) {
-            setMessages(prev => [...olderMessages, ...prev]);
+            const processedOlder = await Promise.all(olderMessages.map(async (msg) => {
+              if (!msg.text || typeof msg.text !== 'string') return msg;
+              if (activeKeys[currentSpace.id]) {
+                try {
+                  const decrypted = await decryptMessage(msg.text, activeKeys[currentSpace.id]);
+                  return { ...msg, text: decrypted };
+                } catch(e) {
+                  return { ...msg, text: '🔒 [Decryption Failed]' };
+                }
+              } else {
+                return { ...msg, text: '🔒 [Encrypted Message]', raw_text: msg.text };
+              }
+            }));
+            setMessages(prev => [...processedOlder, ...prev]);
             requestAnimationFrame(() => {
               if (container) container.scrollTop = container.scrollHeight - previousScrollHeight;
             });
@@ -1508,11 +1747,32 @@ function App() {
     e.preventDefault();
     if (isUpdatingRoom || roomSettingsInvitedUsers.length === 0) return;
     setIsUpdatingRoom(true);
+
+    let keyShares = {};
+    if (privateKeyRef.current && activeKeysRef.current[currentSpace.id]) {
+      try {
+        const roomKeyObj = activeKeysRef.current[currentSpace.id];
+        for (const uId of roomSettingsInvitedUsers) {
+           const userObj = allUsers.find(u => u.id === Number(uId));
+           if (userObj && userObj.public_key) {
+             const peerPk = await importPublicKey(userObj.public_key);
+             const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, peerPk);
+             keyShares[uId] = peerEnc;
+           }
+        }
+      } catch (keyErr) {
+        console.error("Failed to generate Room Key matrix for invites", keyErr);
+        alert('E2EE Setup Failed for invitations. Ensure all users have valid profiles.');
+        setIsUpdatingRoom(false);
+        return;
+      }
+    }
+
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${currentSpace.id}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ invited_users: roomSettingsInvitedUsers })
+        body: JSON.stringify({ invited_users: roomSettingsInvitedUsers, keyShares })
       });
       if (res.ok) {
         setShowRoomSettingsModal(false);
@@ -1535,10 +1795,19 @@ function App() {
     setAuthError('');
     setAuthSuccess('');
     try {
-      const payload = { ...{ email: authEmail, password: authPassword } };
+      const payload = { email: authEmail, password: authPassword };
       
       let fetchMode = authMode;
-      if (authMode === 'forgot') {
+      if (authMode === 'register') {
+        try {
+          const keyPair = await generateIdentityKeyPair();
+          payload.publicKey = await exportPublicKey(keyPair);
+          payload.wrappedPrivateKey = await wrapPrivateKey(keyPair.privateKey, authPassword, authEmail);
+        } catch (keysErr) {
+          setAuthError('Failed to generate secure encryption keys locally.');
+          return;
+        }
+      } else if (authMode === 'forgot') {
         fetchMode = 'forgot-password';
         delete payload.password;
         payload.email = authEmail;
@@ -1570,6 +1839,17 @@ function App() {
       } else {
         localStorage.setItem('token', data.token);
         localStorage.setItem('username', data.username);
+
+        if (data.wrapped_private_key) {
+          try {
+            const privateKey = await unwrapPrivateKey(data.wrapped_private_key, authPassword, authEmail);
+            const exportedPrivateJwk = await window.crypto.subtle.exportKey("jwk", privateKey);
+            localStorage.setItem('prado_decryption_key', JSON.stringify(exportedPrivateJwk));
+            privateKeyRef.current = privateKey;
+          } catch (unwrapErr) {
+            console.error('Failed to unwrap private key', unwrapErr);
+          }
+        }
 
         const backendTheme = data.theme || 'dark';
         let backendPalette = data.color_palette || '#4CAF50';
@@ -1614,7 +1894,7 @@ function App() {
     if (!t) return;
     try {
       const res = await fetch(`${socketUrl}/api/profile`, {
-        headers: { 'Authorization': `Bearer ${t}` }
+        headers: { 'Authorization': `Bearer ${t}`, 'Cache-Control': 'no-cache' }
       });
       if (res.ok) {
         const data = await res.json();
@@ -1627,7 +1907,8 @@ function App() {
           last_name: data.last_name || '',
           email: data.email || '',
           location: data.location || '',
-          font_family: data.font_family || ''
+          font_family: data.font_family || '',
+          public_key: data.public_key || null
         });
         
         if (!data.first_name || !data.first_name.trim()) {
@@ -1826,14 +2107,60 @@ function App() {
     e.preventDefault();
     if (!newSpaceName.trim() || isCreatingSpace) return;
     setIsCreatingSpace(true);
+
+    let keyShares = {};
+    let roomKeyObj = null;
+
+    if (privateKeyRef.current && profileData.public_key) {
+      try {
+        roomKeyObj = await generateRoomKey();
+
+        // 1. Generate encrypted share for the creator
+        const creatorId = allUsers.find(u => u.username === username)?.id;
+        if (!creatorId) {
+          throw new Error('Creator ID lookup failed in allUsers list.');
+        }
+        
+        const ourPublicKey = await importPublicKey(profileData.public_key);
+        const ourEncrypted = await encryptRoomKeyWithPublicKey(roomKeyObj, ourPublicKey);
+        keyShares[creatorId] = ourEncrypted;
+
+        // 2. Generate encrypted shares for all invited users
+        if (invitedUsers && invitedUsers.length > 0) {
+          for (const uId of invitedUsers) {
+            const userObj = allUsers.find(u => u.id === Number(uId));
+            if (userObj && userObj.public_key) {
+               const peerPk = await importPublicKey(userObj.public_key);
+               const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, peerPk);
+               keyShares[uId] = peerEnc;
+            }
+          }
+        }
+      } catch (keyErr) {
+        console.error("Failed to generate Room Key matrix", keyErr);
+        alert('E2EE Setup Failed: Check console. Make sure user profiles are loaded.');
+        setIsCreatingSpace(false);
+        return;
+      }
+    } else {
+      alert("Your E2EE Identity is missing. Log out and back in to sync it.");
+      setIsCreatingSpace(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${socketUrl}/api/spaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers })
+        body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers, keyShares })
       });
       if (res.ok) {
         const newSpace = await res.json();
+        
+        if (roomKeyObj) {
+          setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKeyObj }));
+        }
+
         setSpaces(prev => {
           if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace];
           return prev;
@@ -1865,7 +2192,7 @@ function App() {
       if (res.ok) {
         setSpaces(prev => prev.filter(s => s.id !== id));
         if (currentSpace.id === id) {
-          setCurrentSpace(spaces.find(s => s.id === 1) || { id: 1, name: 'General' }); // Fallback
+          setCurrentSpace(spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' });
         }
         setSpaceToDelete(null);
       } else {
@@ -1886,7 +2213,7 @@ function App() {
       if (res.ok) {
         setSpaces(prev => prev.filter(s => s.id !== id));
         if (currentSpace.id === id) {
-          setCurrentSpace(spaces.find(s => s.id === 1) || { id: 1, name: 'General' });
+          setCurrentSpace(spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' });
         }
         setSpaceToLeave(null);
       } else {
@@ -1914,7 +2241,7 @@ function App() {
     } catch (err) { console.error('Failed to remove user', err); }
   };
 
-  const logout = () => {
+  function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     localStorage.removeItem('avatar');
@@ -1924,10 +2251,10 @@ function App() {
     setUsername('');
     setAvatar(null);
     setMessages([]);
-    setCurrentSpace({ id: 1, name: 'General' });
+    setCurrentSpace({ id: null, name: 'Loading...' });
     setSpaces([]);
     if (socket) socket.disconnect();
-  };
+  }
 
   const searchGiphy = async () => {
     if (!gifSearch.trim()) return;
@@ -1960,13 +2287,32 @@ function App() {
     }
   };
 
-  const sendMessage = (e) => {
+  const sendMessage = async (e) => {
     e.preventDefault();
     if ((input.trim() || pendingAsset) && socket && isConnected) {
-      socket.emit('chat message', { text: input, spaceId: currentSpace.id, asset: pendingAsset });
+      let payloadText = input;
+      
+      const spaceObj = currentSpace;
+      if (!spaceObj || !spaceObj.id) return;
+      
+      if (!activeKeys[spaceObj.id]) {
+         alert("Encryption Key missing. Security context unavailable. Message blocked.");
+         return;
+      }
+      if (payloadText.trim()) {
+         try {
+           payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+         } catch (err) {
+           console.error("Encryption failed:", err);
+           alert("Failed to encrypt message natively. Aborting transmission.");
+           return;
+         }
+      }
+
+      socket.emit('chat message', { text: payloadText, spaceId: spaceObj.id, asset: pendingAsset });
       setInput('');
       setPendingAsset(null);
-      socket.emit('stop typing', currentSpace.id);
+      socket.emit('stop typing', spaceObj.id);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     }
   };
@@ -1997,10 +2343,27 @@ function App() {
     setEditInput(msg.text);
   };
 
-  const saveEdit = (e) => {
+  const saveEdit = async (e) => {
     e.preventDefault();
     if (editInput.trim() && socket && isConnected) {
-      socket.emit('edit message', { id: editingId, text: editInput, spaceId: currentSpace.id });
+      let payloadText = editInput;
+      const spaceObj = currentSpace;
+      
+      if (spaceObj?.is_e2ee === 1 || spaceObj?.is_e2ee === true) {
+        if (!activeKeys[spaceObj.id]) {
+           alert("Encryption Key missing. Please refresh the page and enter the passkey.");
+           return;
+        }
+        try {
+           payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+        } catch (err) {
+           console.error("Encryption failed:", err);
+           alert("Failed to encrypt message.");
+           return;
+        }
+      }
+
+      socket.emit('edit message', { id: editingId, text: payloadText, spaceId: currentSpace.id });
       setEditingId(null);
       setEditInput('');
     }
@@ -2041,6 +2404,8 @@ function App() {
                     required
                     placeholder=" "
                     id="auth-email"
+                    name="email"
+                    autoComplete="email"
                   />
                   <label htmlFor="auth-email" className="material-label">Email Address</label>
                 </div>
@@ -2055,6 +2420,8 @@ function App() {
                     required
                     placeholder=" "
                     id="auth-pass"
+                    name="password"
+                    autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                     style={{ paddingRight: '44px' }}
                   />
                   <label htmlFor="auth-pass" className="material-label">Password{authMode === 'reset' ? ' (New)' : ''}</label>
@@ -2295,7 +2662,7 @@ function App() {
             <div
               key={space.id}
               className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
-              onClick={() => { setCurrentSpace(space); setShowSidebar(false); setMobileView('chat'); }}
+              onClick={() => handleSpaceSelect(space)}
             >
               <span className="space-name" style={{ display: 'flex', alignItems: 'center' }}>
                 {space.is_private === 1 ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', opacity: 0.7 }}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', opacity: 0.5 }}><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>}
@@ -2358,7 +2725,7 @@ function App() {
               <div
                 key={space.id}
                 className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
-                onClick={() => { setCurrentSpace(space); setShowSidebar(false); setMobileView('chat'); }}
+                onClick={() => handleSpaceSelect(space)}
                 style={{ padding: '8px 20px' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
@@ -3087,6 +3454,45 @@ function App() {
         </div>
       )}
 
+      {showE2EEPrompt && (
+        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowE2EEPrompt(null); }}>
+          <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '400px', margin: 'auto' }}>
+            <h2 style={{ marginTop: 0, color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              Encrypted Space
+            </h2>
+            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+              <strong>#{showE2EEPrompt.name}</strong> is End-to-End Encrypted. Enter the shared passkey to decrypt and read incoming messages.
+            </p>
+             <form onSubmit={async (e) => {
+              e.preventDefault();
+              setE2eeDecryptError(false);
+              try {
+                const derivedKey = await deriveKeyFromPassword(e2eePromptPasskey, showE2EEPrompt.e2ee_salt);
+                setActiveKeys(prev => ({ ...prev, [showE2EEPrompt.id]: derivedKey }));
+                setCurrentSpace(showE2EEPrompt);
+                setShowSidebar(false);
+                setMobileView('chat');
+                setShowE2EEPrompt(null);
+                setE2eePromptPasskey('');
+              } catch(err) {
+                console.error(err);
+                setE2eeDecryptError(true);
+              }
+            }}>
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                 <input type="password" placeholder="Passkey" className="text-input" style={{ width: '100%' }} value={e2eePromptPasskey} onChange={(e) => setE2eePromptPasskey(e.target.value)} required autoFocus />
+                 {e2eeDecryptError && <p style={{ color: 'var(--md-sys-color-error)', fontSize: '0.85rem', marginTop: '0.5rem', fontWeight: 500 }}>Invalid derivation. Check the passkey.</p>}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button type="button" className="btn-secondary" onClick={() => { setShowE2EEPrompt(null); setE2eePromptPasskey(''); setE2eeDecryptError(false); }} style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Unlock Space</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showRoomSettingsModal && (
         <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowRoomSettingsModal(false); }}>
           <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '450px', margin: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -3160,16 +3566,34 @@ function App() {
               e.preventDefault();
               setIsCreatingSpace(true);
               try {
+                let exactUserId = profileData.id;
+                try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
+
+                const roomKey = await generateRoomKey();
+                const keyShares = {};
+                
+                if (profileData && profileData.public_key && exactUserId) {
+                   keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
+                }
+                
+                await Promise.all(invitedUsers.map(async (uId) => {
+                   const uObj = allUsers.find(u => u.id === Number(uId));
+                   if (uObj && uObj.public_key) {
+                      keyShares[uId] = await encryptRoomKeyWithPublicKey(roomKey, uObj.public_key);
+                   }
+                }));
+
                 const response = await fetch(`${socketUrl}/api/spaces`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
                   },
-                  body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers }),
+                  body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers, keyShares }),
                 });
                 const newSpace = await response.json();
                 if (response.ok) {
+                  setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKey }));
                   setSpaces(prev => { if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace]; return prev; });
                   setCurrentSpace(newSpace);
                   setShowSpaceModal(false);
@@ -3204,6 +3628,7 @@ function App() {
                   </span>
                 </div>
               </div>
+
 
               {isNewSpacePrivate && allUsers.length > 0 && (
                 <div className="user-select-list" style={{ marginBottom: '1.5rem' }}>
@@ -3282,16 +3707,29 @@ function App() {
                   onClick={async () => {
                     setIsCreatingDM(true);
                     try {
+                      let exactUserId = profileData.id;
+                      try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
+
+                      const roomKey = await generateRoomKey();
+                      const keyShares = {};
+                      if (profileData && profileData.public_key && exactUserId) {
+                         keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
+                      }
+                      if (u && u.public_key) {
+                         keyShares[u.id] = await encryptRoomKeyWithPublicKey(roomKey, u.public_key);
+                      }
+
                       const response = await fetch(`${socketUrl}/api/dms`, {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
                           'Authorization': `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ targetUserId: u.id }),
+                        body: JSON.stringify({ targetUserId: u.id, keyShares }),
                       });
                       const data = await response.json();
                       if (response.ok) {
+                        setActiveKeys(prev => ({ ...prev, [data.spaceId]: roomKey }));
                         const targetSpace = spaces.find(s => s.id === data.spaceId);
                         if (targetSpace) {
                           setCurrentSpace(targetSpace);

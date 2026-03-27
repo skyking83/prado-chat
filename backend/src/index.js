@@ -72,11 +72,97 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         db.run(`ALTER TABLE spaces ADD COLUMN is_private BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE spaces ADD COLUMN invite_key TEXT`, () => {});
         db.run(`ALTER TABLE spaces ADD COLUMN is_dm INTEGER DEFAULT 0`, () => {});
+      });
+
+      db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password_hash TEXT,
+        theme TEXT DEFAULT 'light',
+        color_palette TEXT DEFAULT '#4CAF50',
+        avatar TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        email TEXT,
+        location TEXT,
+        role TEXT DEFAULT 'user',
+        font_family TEXT,
+        is_verified INTEGER DEFAULT 0,
+        verification_token TEXT,
+        reset_token TEXT,
+        reset_token_expires INTEGER,
+        public_key TEXT,
+        wrapped_private_key TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`, (err) => {
+        if (err) console.error("FATAL SQLITE CREATE ERROR:", err);
+        if (!err) {
+          // Try modifying table to add columns if they don't exist (safe failures)
+          db.run(`ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN color_palette TEXT DEFAULT '#4CAF50'`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN avatar TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN first_name TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN last_name TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN location TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN font_family TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN verification_token TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN reset_token TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN reset_token_expires INTEGER`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN public_key TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN wrapped_private_key TEXT`, () => { });
+        }
+      });
+
+      db.run(`CREATE TABLE IF NOT EXISTS space_members (
+        space_id INTEGER,
+        user_id INTEGER,
+        PRIMARY KEY (space_id, user_id),
+        FOREIGN KEY (space_id) REFERENCES spaces(id),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`, (err) => {
+         if (err) console.error('Failed to create space_members table:', err);
+      });
+
+      db.run(`CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )`, () => {
+        db.run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('global_font', 'Roboto')`);
+      });
+      
+      db.run(`CREATE TABLE IF NOT EXISTS space_keys (
+        space_id INTEGER,
+        user_id INTEGER,
+        encrypted_room_key TEXT,
+        PRIMARY KEY (space_id, user_id),
+        FOREIGN KEY (space_id) REFERENCES spaces(id),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT,
+        sender TEXT,
+        space_id INTEGER DEFAULT 1,
+        asset TEXT,
+        edited INTEGER DEFAULT 0,
+        is_pinned INTEGER DEFAULT 0,
+        reactions TEXT DEFAULT '{}',
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`, () => {
+        db.run(`ALTER TABLE messages ADD COLUMN space_id INTEGER DEFAULT 1`, () => { });
+        db.run(`ALTER TABLE messages ADD COLUMN asset TEXT`, () => { });
+        db.run(`ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0`, () => { });
+        db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => { });
+        db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'`, () => { });
         
         // Phase 13: Purge 'General' space completely
-        db.run(`DELETE FROM messages WHERE space_id = 1`);
-        db.run(`DELETE FROM space_members WHERE space_id = 1`);
-        db.run(`DELETE FROM spaces WHERE id = 1`);
+        // Moved here to guarantee 'messages' table exists before executing DELETE
+        db.run(`DELETE FROM messages WHERE space_id = 1`, (err) => { if(err) console.error('Error deleting General messages:', err.message) });
+        db.run(`DELETE FROM space_members WHERE space_id = 1`, (err) => { if(err) console.error('Error deleting General members:', err.message) });
+        db.run(`DELETE FROM spaces WHERE id = 1`, (err) => {  if(err) console.error('Error deleting General space:', err.message) });
 
         // Phase 13: Guarantee "Notes to Self" for all existing users
         db.all(`SELECT id, username FROM users`, [], (err, usersList) => {
@@ -94,64 +180,6 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
             });
           }
         });
-      });
-
-      db.run(`CREATE TABLE IF NOT EXISTS space_members (
-        space_id INTEGER,
-        user_id INTEGER,
-        PRIMARY KEY (space_id, user_id),
-        FOREIGN KEY (space_id) REFERENCES spaces(id),
-        FOREIGN KEY (user_id) REFERENCES users(id)
-      )`);
-
-      db.run(`CREATE TABLE IF NOT EXISTS app_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )`, () => {
-        db.run(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('global_font', 'Roboto')`);
-      });
-      db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password_hash TEXT,
-        theme TEXT DEFAULT 'light',
-        color_palette TEXT DEFAULT '#4CAF50',
-        avatar TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`, (err) => {
-        if (!err) {
-          // Try modifying table to add columns if they don't exist (safe failures)
-          db.run(`ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN color_palette TEXT DEFAULT '#4CAF50'`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN avatar TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN first_name TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN last_name TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN location TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN font_family TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN verification_token TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN reset_token TEXT`, () => { });
-          db.run(`ALTER TABLE users ADD COLUMN reset_token_expires INTEGER`, () => { });
-        }
-      });
-      db.run(`CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        text TEXT,
-        sender TEXT,
-        space_id INTEGER DEFAULT 1,
-        asset TEXT,
-        edited INTEGER DEFAULT 0,
-        is_pinned INTEGER DEFAULT 0,
-        reactions TEXT DEFAULT '{}',
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`, () => {
-        db.run(`ALTER TABLE messages ADD COLUMN space_id INTEGER DEFAULT 1`, () => { });
-        db.run(`ALTER TABLE messages ADD COLUMN asset TEXT`, () => { });
-        db.run(`ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0`, () => { });
-        db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => { });
-        db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'`, () => { });
       });
       db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,9 +239,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
 // -- Authentication Routes --
 app.post('/api/register', async (req, res) => {
-  const { password, email } = req.body;
-  if (!password || !email) {
-    return res.status(400).json({ error: 'Email and password required' });
+  const { password, email, publicKey, wrappedPrivateKey } = req.body;
+  if (!password || !email || !publicKey || !wrappedPrivateKey) {
+    return res.status(400).json({ error: 'Email, password, and E2EE keys required' });
   }
   try {
     const hash = await bcrypt.hash(password, 10);
@@ -225,21 +253,32 @@ app.post('/api/register', async (req, res) => {
     
     // Check if this is the first user
     db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
+      if (err) {
+        console.error("SELECT COUNT users error:", err);
+        return res.status(500).json({ error: 'Database error' });
+      }
       
       const role = row.count === 0 ? 'admin' : 'user';
       // Auto-verify admin to prevent locking yourself out initially, everyone else must verify
       const isVerified = row.count === 0 ? 1 : 0; 
       const vt = row.count === 0 ? null : verifyToken;
       
-      db.run('INSERT INTO users (username, email, password_hash, role, is_verified, verification_token) VALUES (?, ?, ?, ?, ?, ?)', [username, email, hash, role, isVerified, vt], async function (err) {
+      db.run('INSERT INTO users (username, email, password_hash, role, is_verified, verification_token, public_key, wrapped_private_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [username, email, hash, role, isVerified, vt, publicKey, wrappedPrivateKey], async function (err) {
         if (err) {
+          console.error("INSERT new user error:", err);
           if (err.message.includes('UNIQUE constraint failed') || err.message.includes('UNIQUE')) {
             return res.status(400).json({ error: 'Username or Email already exists' });
           }
           return res.status(500).json({ error: 'Database error' });
         }
         
+        const newUserId = this.lastID;
+        db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`self_${newUserId}_${Date.now()}`, username], function(err) {
+          if (!err && this.lastID) {
+            db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [this.lastID, newUserId]);
+          }
+        });
+
         if (isVerified === 0) {
           // Dispatch Resend Email
           try {
@@ -299,7 +338,8 @@ app.post('/api/login', (req, res) => {
       theme: user.theme || 'dark',
       color_palette: user.color_palette || 'purple',
       avatar: user.avatar || null,
-      font_family: user.font_family || null
+      font_family: user.font_family || null,
+      wrapped_private_key: user.wrapped_private_key || null
     });
   });
 });
@@ -393,13 +433,17 @@ const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.user = user;
-    next();
+    
+    db.get('SELECT id FROM users WHERE id = ?', [user.userId], (dbErr, dbUser) => {
+      if (dbErr || !dbUser) return res.status(401).json({ error: 'User missing' });
+      req.user = user;
+      next();
+    });
   });
 };
 
 app.get('/api/profile', authenticateToken, (req, res) => {
-  db.get('SELECT username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family FROM users WHERE id = ?', [req.user.userId], (err, user) => {
+  db.get('SELECT id, username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, public_key FROM users WHERE id = ?', [req.user.userId], (err, user) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
@@ -407,7 +451,7 @@ app.get('/api/profile', authenticateToken, (req, res) => {
 });
 
 app.get('/api/users', authenticateToken, (req, res) => {
-  db.all('SELECT id, username, avatar, first_name, last_name FROM users ORDER BY username ASC', [], (err, rows) => {
+  db.all('SELECT id, username, avatar, first_name, last_name, public_key FROM users ORDER BY username ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -489,7 +533,7 @@ app.put('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
 });
 
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
-  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, created_at FROM users ORDER BY id ASC', [], (err, rows) => {
+  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, public_key, created_at FROM users ORDER BY id ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -642,6 +686,13 @@ app.delete('/api/admin/spaces/:id', authenticateToken, requireAdmin, (req, res) 
   });
 });
 
+app.get('/api/spaces/keys', authenticateToken, (req, res) => {
+  db.all('SELECT space_id, encrypted_room_key FROM space_keys WHERE user_id = ?', [req.user.userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json(rows);
+  });
+});
+
 app.get('/api/spaces', authenticateToken, (req, res) => {
   const userId = req.user.userId;
   const isAdmin = req.user.role === 'admin';
@@ -683,7 +734,7 @@ app.get('/api/spaces', authenticateToken, (req, res) => {
 });
 
 app.post('/api/spaces', authenticateToken, (req, res) => {
-  const { name, is_private, invited_users } = req.body;
+  const { name, is_private, invited_users, keyShares } = req.body;
   if (!name || name.trim() === '') return res.status(400).json({ error: 'Space name required' });
   
   const isPrivate = is_private ? 1 : 0;
@@ -697,6 +748,21 @@ app.post('/api/spaces', authenticateToken, (req, res) => {
     }
     const spaceId = this.lastID;
     const newSpaceObj = { id: spaceId, name: name.trim(), created_by: req.user.username, is_private: isPrivate, invite_key: inviteKey };
+    
+    // Insert PKI Key Shares for the creator and any invited users
+    if (keyShares && typeof keyShares === 'object') {
+      const shareUserIds = Object.keys(keyShares);
+      if (shareUserIds.length > 0) {
+        const placeholders = shareUserIds.map(() => '(?, ?, ?)').join(', ');
+        const values = [];
+        shareUserIds.forEach(uId => {
+           values.push(spaceId, Number(uId), keyShares[uId]);
+        });
+        db.run(`INSERT INTO space_keys (space_id, user_id, encrypted_room_key) VALUES ${placeholders}`, values, (keyErr) => {
+          if (keyErr) console.error('Failed to insert space_keys', keyErr);
+        });
+      }
+    }
     
     const broadcastSpace = () => {
       if (!isPrivate) {
@@ -756,7 +822,7 @@ app.post('/api/spaces/join/:invite_key', authenticateToken, (req, res) => {
 
 app.post('/api/spaces/:id/invite', authenticateToken, (req, res) => {
   const spaceId = req.params.id;
-  const { invited_users } = req.body;
+  const { invited_users, keyShares } = req.body;
   if (!Array.isArray(invited_users) || invited_users.length === 0) return res.status(400).json({ error: 'No users provided' });
 
   db.get('SELECT * FROM spaces WHERE id = ?', [spaceId], (err, space) => {
@@ -770,6 +836,21 @@ app.post('/api/spaces/:id/invite', authenticateToken, (req, res) => {
     db.run(`INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES ${placeholders}`, values, function(err) {
       if (err) return res.status(500).json({ error: 'Failed to invite users' });
       
+      // Upsert PKI Key Shares dynamically extending access to newly invited participants natively blindly.
+      if (keyShares && typeof keyShares === 'object') {
+        const shareUserIds = Object.keys(keyShares);
+        if (shareUserIds.length > 0) {
+          const kp = shareUserIds.map(() => '(?, ?, ?)').join(', ');
+          const kv = [];
+          shareUserIds.forEach(uId => {
+             kv.push(spaceId, Number(uId), keyShares[uId]);
+          });
+          db.run(`INSERT OR IGNORE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES ${kp}`, kv, (keyErr) => {
+             if (keyErr) console.error('Failed to insert space_keys for invites', keyErr);
+          });
+        }
+      }
+
       // Selectively push the room exclusively to the newly validated active sockets
       io.sockets.sockets.forEach(s => {
         if (s.user && invited_users.includes(s.user.userId)) {
@@ -814,10 +895,28 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
 app.post('/api/dms', authenticateToken, (req, res) => {
   const targetUserId = parseInt(req.body.targetUserId, 10);
   const myUserId = parseInt(req.user.userId, 10);
-  
+  const { keyShares } = req.body;
+
   if (!targetUserId || !myUserId) return res.status(400).json({ error: 'Invalid parameters' });
 
   const isSelf = targetUserId === myUserId;
+
+  const insertKeyShares = (spaceId, cb) => {
+    if (keyShares && typeof keyShares === 'object') {
+      const shareUserIds = Object.keys(keyShares);
+      if (shareUserIds.length > 0) {
+        const kp = shareUserIds.map(() => '(?, ?, ?)').join(', ');
+        const kv = [];
+        shareUserIds.forEach(uId => { kv.push(spaceId, Number(uId), keyShares[uId]); });
+        db.run(`INSERT OR IGNORE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES ${kp}`, kv, (err) => {
+          if(err) console.error("DM KeyShare Error:", err);
+          cb();
+        });
+        return;
+      }
+    }
+    cb();
+  };
 
   if (isSelf) {
     db.get(`SELECT id FROM spaces WHERE is_dm = 1 AND name LIKE ? LIMIT 1`, [`self_${myUserId}_%`], (err, row) => {
@@ -827,9 +926,12 @@ app.post('/api/dms', authenticateToken, (req, res) => {
       db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`self_${myUserId}_${Date.now()}`, req.user.username], function(err) {
         if (err) return res.status(500).json({ error: 'Failed to create DM' });
         const newId = this.lastID;
-        db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, myUserId]);
-        io.emit('space created', { id: newId, name: `self_${myUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
-        res.json({ spaceId: newId });
+        db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, myUserId], () => {
+          insertKeyShares(newId, () => {
+            io.emit('space created', { id: newId, name: `self_${myUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
+            res.json({ spaceId: newId });
+          });
+        });
       });
     });
   } else {
@@ -849,8 +951,10 @@ app.post('/api/dms', authenticateToken, (req, res) => {
         const newId = this.lastID;
         db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, myUserId], () => {
           db.run(`INSERT INTO space_members (space_id, user_id) VALUES (?, ?)`, [newId, targetUserId], () => {
-            io.emit('space created', { id: newId, name: `dm_${myUserId}_${targetUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
-            res.json({ spaceId: newId });
+            insertKeyShares(newId, () => {
+              io.emit('space created', { id: newId, name: `dm_${myUserId}_${targetUserId}`, created_by: req.user.username, is_private: 1, is_dm: 1 });
+              res.json({ spaceId: newId });
+            });
           });
         });
       });
@@ -1062,8 +1166,12 @@ io.use((socket, next) => {
   }
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) return next(new Error('Authentication error: Invalid token'));
-    socket.user = decoded;
-    next();
+    
+    db.get('SELECT id FROM users WHERE id = ?', [decoded.userId], (dbErr, user) => {
+      if (dbErr || !user) return next(new Error('Authentication error: User missing'));
+      socket.user = decoded;
+      next();
+    });
   });
 });
 
@@ -1172,8 +1280,9 @@ io.on('connection', (socket) => {
     );
   });
   socket.on('chat message', async (msg) => {
+    if (!msg.spaceId) return; // Drop invalid or legacy un-routed payloads
     const sender = socket.user.username;
-    const spaceId = msg.spaceId || 1;
+    const spaceId = msg.spaceId;
     const assetPath = msg.asset || null;
     
 
@@ -1217,7 +1326,7 @@ io.on('connection', (socket) => {
 
       db.run('UPDATE messages SET text = ?, edited = 1 WHERE id = ?', [text, id], (err) => {
         if (!err) {
-          io.to(spaceId.toString()).emit('message updated', { id, text, edited: 1 });
+          io.to(spaceId.toString()).emit('message updated', { id, text, edited: 1, spaceId });
         }
       });
     });

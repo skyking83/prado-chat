@@ -15,6 +15,7 @@
 
 ## ✨ Features
 
+- **Zero-Trust End-to-End Encryption (E2EE)**: Messages and keys are mathematically secured locally in the browser utilizing native `WebCrypto` primitives (`RSA-OAEP` for PKI identity, `AES-GCM` for Room Keys). The SQLite backend stores purely encrypted ciphertexts unconditionally.
 - **Real-Time Communication**: Instant messaging powered by ultra-low-latency WebSockets via `Socket.io`.
 - **Dynamic Workspaces ("Spaces")**: Create public channels for everyone or secure, lock-protected private spaces.
 - **Modern Google Messages UI**: Beautifully crafted Dual-Pane layout featuring a responsive sidebar, floating chat inputs, and seamless mobile transitions.
@@ -35,6 +36,7 @@
 **Frontend**
 - React 18 / Vite ⚡️
 - Vanilla CSS (CSS Grid + Custom Variables)
+- **WebCrypto API Native** (AES-GCM / RSA-OAEP Asymmetric Keys)
 - `Simple-Peer` for WebRTC Video/Audio
 - `emoji-picker-react`
 
