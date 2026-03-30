@@ -42,6 +42,18 @@ services:
     container_name: prado-coturn-dev
     restart: unless-stopped
     network_mode: host
-    volumes:
-      - ./turnserver.conf:/etc/turnserver.conf:ro
-    command: ["-c", "/etc/turnserver.conf"]
+    command:
+      - "-n"
+      - "--listening-port=3478"
+      - "--realm=localhost"
+      - "--user=prado:prado-turn-secret"
+      - "--lt-cred-mech"
+      - "--fingerprint"
+      - "--total-quota=100"
+      - "--max-bps=0"
+      - "--min-port=49152"
+      - "--max-port=49200"
+      - "--no-tls"
+      - "--no-dtls"
+      - "--no-multicast-peers"
+      - "--log-file=stdout"

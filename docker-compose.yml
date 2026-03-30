@@ -41,6 +41,18 @@ services:
     image: coturn/coturn:latest
     restart: unless-stopped
     network_mode: host
-    volumes:
-      - ./turnserver.conf:/etc/turnserver.conf:ro
-    command: ["-c", "/etc/turnserver.conf"]
+    command:
+      - "-n"
+      - "--listening-port=3478"
+      - "--realm=${TURN_REALM:-example.com}"
+      - "--user=${TURN_USER:-turnuser}:${TURN_PASSWORD:-change-me-in-production}"
+      - "--lt-cred-mech"
+      - "--fingerprint"
+      - "--total-quota=100"
+      - "--max-bps=0"
+      - "--min-port=49152"
+      - "--max-port=49200"
+      - "--no-tls"
+      - "--no-dtls"
+      - "--no-multicast-peers"
+      - "--log-file=stdout"
