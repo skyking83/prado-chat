@@ -685,6 +685,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [serverConfig, setServerConfig] = useState(null);
   const [configSaveStatus, setConfigSaveStatus] = useState(null); // 'saving' | 'saved' | null
+  const [turnTestStatus, setTurnTestStatus] = useState(null); // null | 'testing' | { stun: bool, turn: bool, error?: string }
   const [userToDelete, setUserToDelete] = useState(null);
   const [assetToDelete, setAssetToDelete] = useState(null);
   const [spaceToDeleteAdmin, setSpaceToDeleteAdmin] = useState(null);
@@ -2135,6 +2136,69 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   {inputRow('TURN Username', 'turn_username', 'text', { placeholder: 'username' })}
                   {inputRow('TURN Credential', 'turn_credential', 'text', { placeholder: '••••••••', description: 'Shared secret for TURN authentication' })}
                   {inputRow('STUN Server URL', 'stun_server', 'text', { placeholder: 'stun:stun.l.google.com:19302', description: "STUN server for connection discovery. Defaults to Google's." })}
+                  
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button onClick={async () => {
+                      setTurnTestStatus('testing');
+                      const iceServers = [];
+                      const stunUrl = serverConfig.stun_server || 'stun:stun.l.google.com:19302';
+                      iceServers.push({ urls: stunUrl });
+                      if (serverConfig.turn_server) {
+                        iceServers.push({ urls: serverConfig.turn_server, username: serverConfig.turn_username || '', credential: serverConfig.turn_credential || '' });
+                      }
+                      const found = { host: false, srflx: false, relay: false };
+                      try {
+                        const pc = new RTCPeerConnection({ iceServers });
+                        pc.createDataChannel('test');
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        await new Promise((resolve) => {
+                          const timeout = setTimeout(() => { pc.onicecandidate = null; resolve(); }, 5000);
+                          pc.onicecandidate = (e) => {
+                            if (e.candidate) {
+                              const typ = e.candidate.candidate.match(/typ (\w+)/);
+                              if (typ) found[typ[1]] = true;
+                            } else { clearTimeout(timeout); resolve(); }
+                          };
+                        });
+                        pc.close();
+                        setTurnTestStatus(found);
+                      } catch (err) {
+                        setTurnTestStatus({ host: false, srflx: false, relay: false, error: err.message });
+                      }
+                    }} disabled={turnTestStatus === 'testing'} style={{
+                      padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: turnTestStatus === 'testing' ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px',
+                      background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)',
+                      opacity: turnTestStatus === 'testing' ? 0.7 : 1,
+                    }}>
+                      {turnTestStatus === 'testing' ? (
+                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Testing...</>
+                      ) : (
+                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Test Connectivity</>
+                      )}
+                    </button>
+                    {turnTestStatus && turnTestStatus !== 'testing' && (
+                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {[
+                          { label: 'Host (local)', ok: turnTestStatus.host },
+                          { label: 'STUN (srflx)', ok: turnTestStatus.srflx },
+                          { label: 'TURN (relay)', ok: turnTestStatus.relay },
+                        ].map(item => (
+                          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 500, color: item.ok ? '#22c55e' : '#ef4444' }}>
+                            {item.ok
+                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            }
+                            {item.label}
+                          </div>
+                        ))}
+                        {turnTestStatus.error && (
+                          <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>{turnTestStatus.error}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Giphy */}
