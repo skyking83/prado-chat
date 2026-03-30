@@ -602,6 +602,28 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     }
   };
 
+  // ─── In-call keyboard shortcuts ───
+  useEffect(() => {
+    const handleCallKeys = (e) => {
+      // Ctrl+Shift+M — Toggle mute
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        toggleMute();
+        return;
+      }
+      // Ctrl+Shift+V — Toggle camera (only when not in an input)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+        e.preventDefault();
+        toggleVideo();
+        return;
+      }
+    };
+    window.addEventListener('keydown', handleCallKeys);
+    return () => window.removeEventListener('keydown', handleCallKeys);
+  }, [localStream, isMuted, isVideoOff]);
+
   const switchCamera = async () => {
     if (!localStream || audioOnly) return;
     try {

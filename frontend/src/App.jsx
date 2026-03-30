@@ -1315,6 +1315,85 @@ function App() {
     setFormatToolbar({ top: rect.top - 44, left: rect.left + (rect.width / 2) });
   };
 
+  // ─── Global Keyboard Shortcuts ───
+  useEffect(() => {
+    const handleKeyboard = (e) => {
+      const tag = e.target.tagName;
+      const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
+
+      // Escape — close the topmost modal/panel (works even when in inputs)
+      if (e.key === 'Escape') {
+        if (showSettings) { setShowSettings(false); return; }
+        if (showSpaceModal) { setShowSpaceModal(false); return; }
+        if (showDMModal) { setShowDMModal(false); return; }
+        if (showRoomSettingsModal) { setShowRoomSettingsModal(false); return; }
+        if (showAdminPanel) { setShowAdminPanel(false); return; }
+        if (editingId) { setEditingId(null); return; }
+        if (msgToDelete) { setMsgToDelete(null); return; }
+        if (spaceToDelete) { setSpaceToDelete(null); return; }
+        if (spaceToLeave) { setSpaceToLeave(null); return; }
+        if (showE2EEPrompt) { setShowE2EEPrompt(null); return; }
+        if (selectedAsset) { setSelectedAsset(null); return; }
+        if (showPinnedBoard) { setShowPinnedBoard(false); return; }
+        if (formatToolbar) { setFormatToolbar(null); return; }
+        return;
+      }
+
+      // Skip remaining shortcuts if user is typing in an input
+      if (isEditable) return;
+
+      // Ctrl+K / Cmd+K — Focus chat input (quick-jump to typing)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (richInputRef.current) {
+          richInputRef.current.focus();
+        }
+        return;
+      }
+
+      // Ctrl+N / Cmd+N — New Space modal
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
+        e.preventDefault();
+        setShowSpaceModal(true);
+        return;
+      }
+
+      // Ctrl+Shift+D — New DM modal
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        setShowDMModal(true);
+        return;
+      }
+
+      // Ctrl+Shift+, — Settings
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === ',' || e.key === '<')) {
+        e.preventDefault();
+        setShowSettings(prev => !prev);
+        return;
+      }
+
+      // Alt+↑ / Alt+↓ — Navigate spaces (avoids conflict with ↑ to edit)
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        if (!spaces || spaces.length === 0) return;
+        const currentIdx = spaces.findIndex(s => s.id === currentSpace?.id);
+        let nextIdx;
+        if (e.key === 'ArrowUp') {
+          nextIdx = currentIdx <= 0 ? spaces.length - 1 : currentIdx - 1;
+        } else {
+          nextIdx = currentIdx >= spaces.length - 1 ? 0 : currentIdx + 1;
+        }
+        handleSpaceSelect(spaces[nextIdx]);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, [spaces, currentSpace, showSettings, showSpaceModal, showDMModal, showRoomSettingsModal,
+      showAdminPanel, editingId, msgToDelete, spaceToDelete, spaceToLeave, showE2EEPrompt,
+      selectedAsset, showPinnedBoard, formatToolbar]);
+
   const handleSpaceSelect = async (space) => {
     if (space.id === currentSpace?.id) return;
     setMessages([]);
