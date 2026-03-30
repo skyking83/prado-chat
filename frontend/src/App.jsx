@@ -5820,25 +5820,27 @@ function App() {
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: '8px', marginTop: '1rem', flexWrap: 'wrap' }}>
               <button onClick={() => {
-                // Start call and ring selected users
-                setVideoAudioOnly(showCallInvite.audioOnly);
-                setShowVideoRoom(true);
                 if (callInviteSelected.length > 0 && socket) {
                   socket.emit('call-invite', { spaceId: Number(currentSpace.id), targetUserIds: callInviteSelected, audioOnly: showCallInvite.audioOnly });
+                }
+                if (!showCallInvite.midCall) {
+                  setVideoAudioOnly(showCallInvite.audioOnly);
+                  setShowVideoRoom(true);
                 }
                 setShowCallInvite(null);
               }} style={{ flex: 1, padding: '10px', borderRadius: '12px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                Ring {callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''} & Join
+                {showCallInvite.midCall ? `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''}` : `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''} & Join`}
               </button>
-              <button onClick={() => {
-                // Start call without ringing anyone
-                setVideoAudioOnly(showCallInvite.audioOnly);
-                setShowVideoRoom(true);
-                setShowCallInvite(null);
-              }} style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface)', fontSize: '0.82rem', cursor: 'pointer' }}>
-                Join Quietly
-              </button>
+              {!showCallInvite.midCall && (
+                <button onClick={() => {
+                  setVideoAudioOnly(showCallInvite.audioOnly);
+                  setShowVideoRoom(true);
+                  setShowCallInvite(null);
+                }} style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface)', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  Join Quietly
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -5881,6 +5883,16 @@ function App() {
           avatar={avatar}
           e2eeKey={activeKeys[currentSpace.id]}
           iceServers={iceServers}
+          onInvite={() => {
+            fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+              .then(res => res.json())
+              .then(data => {
+                const members = (data || []).filter(m => m.username !== username);
+                setCallInviteMembers(members);
+                setCallInviteSelected(members.map(m => m.id));
+              }).catch(() => setCallInviteMembers([]));
+            setShowCallInvite({ audioOnly: videoAudioOnly, midCall: true });
+          }}
         />
       )}
 

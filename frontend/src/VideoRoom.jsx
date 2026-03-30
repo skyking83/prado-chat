@@ -165,7 +165,7 @@ const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, i
 };
 
 // ─── Main VideoRoom Component ───
-const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar, e2eeKey, iceServers: iceServersProp }) => {
+const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar, e2eeKey, iceServers: iceServersProp, onInvite }) => {
   // Build ICE configuration from admin-configured servers or fall back to defaults
   const iceConfig = React.useMemo(() => {
     if (iceServersProp && iceServersProp.length > 0) {
@@ -1077,6 +1077,11 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
             </div>
 
             <div className="controls-right">
+              {onInvite && (
+                <button className="video-btn" onClick={onInvite} title="Invite to call">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                </button>
+              )}
               <span className="call-timer-inline" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{totalParticipants} in call</span>
             </div>
           </div>
