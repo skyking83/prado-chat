@@ -738,12 +738,21 @@ app.delete('/api/admin/assets/:filename', authenticateToken, requireAdmin, (req,
 app.delete('/api/admin/spaces/:id', authenticateToken, requireAdmin, (req, res) => {
   const spaceId = req.params.id;
   if (spaceId == 1) return res.status(403).json({ error: 'Cannot delete the General space' });
-  db.run('DELETE FROM space_members WHERE space_id = ?', [spaceId], () => {
-    db.run('DELETE FROM messages WHERE space_id = ?', [spaceId], (err) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      db.run('DELETE FROM spaces WHERE id = ?', [spaceId], function(err) {
+  
+  // Protect Notes to Self spaces from deletion
+  db.get('SELECT name, is_dm FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+    if (err || !space) return res.status(404).json({ error: 'Space not found' });
+    if (space.is_dm === 1 && space.name.startsWith('self_')) {
+      return res.status(403).json({ error: 'Cannot delete Notes to Self spaces' });
+    }
+    
+    db.run('DELETE FROM space_members WHERE space_id = ?', [spaceId], () => {
+      db.run('DELETE FROM messages WHERE space_id = ?', [spaceId], (err) => {
         if (err) return res.status(500).json({ error: 'Database error' });
-        res.json({ success: true });
+        db.run('DELETE FROM spaces WHERE id = ?', [spaceId], function(err) {
+          if (err) return res.status(500).json({ error: 'Database error' });
+          res.json({ success: true });
+        });
       });
     });
   });
@@ -1166,8 +1175,14 @@ app.delete('/api/spaces/:id', authenticateToken, (req, res) => {
   const spaceId = parseInt(req.params.id, 10);
   if (spaceId === 1) return res.status(403).json({ error: 'Cannot delete the General space' });
   
-  db.get('SELECT created_by FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+  db.get('SELECT created_by, name, is_dm FROM spaces WHERE id = ?', [spaceId], (err, space) => {
     if (err || !space) return res.status(404).json({ error: 'Space not found' });
+    
+    // Protect Notes to Self spaces from deletion
+    if (space.is_dm === 1 && space.name.startsWith('self_')) {
+      return res.status(403).json({ error: 'Cannot delete your Notes to Self space' });
+    }
+    
     if (req.user.role !== 'admin' && req.user.username !== space.created_by) {
       return res.status(403).json({ error: 'Only admins or the creator can delete this space.' });
     }

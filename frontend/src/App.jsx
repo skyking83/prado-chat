@@ -1019,13 +1019,13 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   </td>
                   <td className="admin-actions-cell">
                     <div className="admin-actions-desktop">
-                      {s.id !== 1 && (
+                      {s.id !== 1 && !(s.is_dm === 1 && s.name.startsWith('self_')) && (
                         <button onClick={() => setSpaceToDeleteAdmin(s)} className="icon-btn danger" title="Delete" style={{ padding: '4px' }}>
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         </button>
                       )}
                     </div>
-                    {s.id !== 1 && (
+                    {s.id !== 1 && !(s.is_dm === 1 && s.name.startsWith('self_')) && (
                       <div className="admin-actions-mobile">
                         <button className="action-menu-trigger" onClick={() => setActiveAdminMenu(activeAdminMenu?.id === s.id ? null : { type: 'spaces', id: s.id })}>⋮</button>
                         {activeAdminMenu?.type === 'spaces' && activeAdminMenu?.id === s.id && (
@@ -2972,7 +2972,7 @@ function App() {
                 </button>
                 {activeSpaceMenu === space.id && (
                   <div ref={spaceMenuRef} style={{ position: 'absolute', top: '100%', right: 0, backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '8px', padding: '4px', zIndex: 110, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-outline-variant)', minWidth: '150px' }}>
-                    {(role === 'admin' || username === space.created_by) && (
+                    {(role === 'admin' || username === space.created_by) && !(space.is_dm === 1 && space.name.startsWith('self_')) && (
                       <button className="dropdown-item danger" onClick={(e) => { e.stopPropagation(); setSpaceToDelete(space); setActiveSpaceMenu(null); }} style={{ width: '100%', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         Delete Space
@@ -3046,7 +3046,7 @@ function App() {
                     </button>
                     {activeSpaceMenu === space.id && (
                       <div ref={spaceMenuRef} style={{ position: 'absolute', top: '100%', right: 0, backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '8px', padding: '4px', zIndex: 110, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-outline-variant)', minWidth: '150px' }}>
-                        {(role === 'admin' || username === space.created_by) ? (
+                        {(role === 'admin' || username === space.created_by) && !isSelf ? (
                           <button className="dropdown-item danger" onClick={(e) => { e.stopPropagation(); setSpaceToDelete(space); setActiveSpaceMenu(null); }} style={{ width: '100%', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                             Delete Space
