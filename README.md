@@ -40,6 +40,7 @@ ContentEditable input with **live inline formatting** — type `**bold**`, `*ita
 - Full Markdown rendering for sent messages (tables, blockquotes, lists, headings, code blocks) via `marked` + `DOMPurify`
 - Paste-aware: pasted formatted text auto-converts to markdown patterns
 - Works in both message composition and inline message editing
+- **Message Drafts**: unsent text auto-saved per space, restored when you switch back
 
 ### 📎 Rich Media & Attachments
 - Drag-and-drop secure file sharing with progress indicators
@@ -52,6 +53,7 @@ E2EE-aware Web Push with grouped notification stacking per-space, inline reply a
 
 ### 🛡️ Admin Dashboard
 Full internal control panel — manage user roles, delete spaces (with Notes to Self protection), audit chat logs, and orchestrate global app settings from a dedicated admin panel.
+- **📢 Broadcast System**: Send real-time announcements to all connected users via an animated top-of-screen banner with auto-dismiss countdown
 
 ### 📱 Progressive Web App (PWA)
 Installable as a native app on iOS, Android, macOS, and Windows:
@@ -64,7 +66,20 @@ Installable as a native app on iOS, Android, macOS, and Windows:
 - Dynamically switchable UI accent colors
 - 1,500+ Google Fonts natively integrated
 - Real-time UI Scaling slider with continuous CSS `rem` ratio adjustments
-- Dark / Light mode toggle
+- Dark / Light mode toggle (fully applied to all views including video calls)
+
+### ⌨️ Keyboard Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| `Escape` | Close topmost modal/panel |
+| `Ctrl+K` | Focus chat input |
+| `Ctrl+Shift+S` | New space modal |
+| `Ctrl+Shift+D` | New DM modal |
+| `Ctrl+Shift+,` | Toggle settings |
+| `Alt+↑/↓` | Navigate spaces (visual sidebar order) |
+| `Ctrl+Shift+M` | Toggle mute (in call) |
+| `Ctrl+Shift+V` | Toggle camera (in call) |
+| `Spacebar` | Push-to-talk momentary unmute (in call) |
 
 ### ♿ Accessibility
 - Respects `prefers-reduced-motion` (disables all animations/transitions)
@@ -100,6 +115,9 @@ Prado Chat includes a complete, browser-native video conferencing system — no 
 - **Audio Processing**: noise suppression, echo cancellation, and auto gain control
 - **ICE Reconnection**: automatic `restartIce` on connection failure
 - **Muted Indicators**: per-tile SVG badge when a participant is muted
+- **Push-to-Talk**: hold spacebar while muted for momentary unmute (walkie-talkie style)
+- **In-Call Chat Panel**: side panel showing the current space's chat with E2EE decryption and full Markdown rendering
+- **Theme-Aware UI**: all video call components respect the global light/dark theme via CSS variables
 
 ### Incoming Call Flow
 - Animated ringing banner with caller info
