@@ -4971,7 +4971,7 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
               {/* Caller Avatar */}
               {incomingCall.caller.avatar ? (
-                <img src={`${socketUrl}${incomingCall.caller.avatar}`} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(76,175,80,0.5)' }} />
+                <img src={incomingCall.caller.avatar} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(76,175,80,0.5)' }} />
               ) : (
                 <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 600 }}>
                   {(incomingCall.caller.first_name || incomingCall.caller.username || '?')[0].toUpperCase()}
@@ -5799,7 +5799,7 @@ function App() {
                     />
                     <div style={{ position: 'relative' }}>
                       {member.avatar ? (
-                        <img src={`${socketUrl}${member.avatar}`} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                        <img src={member.avatar} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
                       ) : (
                         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
                           {(member.first_name || member.username)[0].toUpperCase()}
