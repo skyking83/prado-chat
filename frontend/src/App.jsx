@@ -5744,8 +5744,8 @@ function App() {
 
       {/* Call Invite Modal */}
       {showCallInvite && currentSpace && (
-        <div className="modal-overlay" onClick={() => setShowCallInvite(null)}>
-          <div className="modal-content" style={{ maxWidth: '400px', width: '90%' }} onClick={e => e.stopPropagation()}>
+        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowCallInvite(null); }}>
+          <div className="space-modal-content" style={{ maxWidth: '400px', width: '90%', background: 'var(--md-sys-color-surface)', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 24px 48px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {showCallInvite.audioOnly ? (
