@@ -2142,24 +2142,34 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
                     {[
-                      { label: 'Node.js', value: envInfo.nodeVersion, icon: '🟢' },
-                      { label: 'Platform', value: `${envInfo.platform} ${envInfo.arch}`, icon: '💻' },
-                      { label: 'Hostname', value: envInfo.hostname, icon: '🏠' },
-                      { label: 'CPUs', value: envInfo.cpus, icon: '⚡' },
-                      { label: 'Memory', value: `${(envInfo.freeMemory / 1e9).toFixed(1)} / ${(envInfo.totalMemory / 1e9).toFixed(1)} GB`, icon: '🧠' },
-                      { label: 'Uptime', value: `${Math.floor(envInfo.uptime / 3600)}h ${Math.floor((envInfo.uptime % 3600) / 60)}m`, icon: '⏱️' },
+                      { label: 'Node.js', value: envInfo.nodeVersion, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> },
+                      { label: 'Platform', value: `${envInfo.platform} ${envInfo.arch}`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
+                      { label: 'Hostname', value: envInfo.hostname, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> },
+                      { label: 'CPUs', value: envInfo.cpus, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg> },
+                      { label: 'Memory', value: `${(envInfo.freeMemory / 1e9).toFixed(1)} / ${(envInfo.totalMemory / 1e9).toFixed(1)} GB`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 19v-3"/><path d="M10 19v-6"/><path d="M14 19v-9"/><path d="M18 19V5"/></svg> },
+                      { label: 'Uptime', value: `${Math.floor(envInfo.uptime / 3600)}h ${Math.floor((envInfo.uptime % 3600) / 60)}m`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
                     ].map((item, i) => (
                       <div key={i} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{item.icon} {item.label}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>{item.icon} {item.label}</div>
                         <div style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)', fontSize: '0.85rem' }}>{item.value}</div>
                       </div>
                     ))}
-                    {envInfo.env && Object.entries(envInfo.env).map(([key, val]) => (
-                      <div key={key} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{val.includes('⚠') ? '⚠️' : val.includes('⚙') ? '⚙️' : '🔒'} {key}</div>
-                        <div style={{ fontWeight: 500, color: val.includes('⚠') ? '#ef4444' : val.includes('⚙') ? '#f59e0b' : 'var(--md-sys-color-on-surface)', fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
-                      </div>
-                    ))}
+                    {envInfo.env && Object.entries(envInfo.env).map(([key, entry]) => {
+                      const val = typeof entry === 'object' ? entry.value : entry;
+                      const status = typeof entry === 'object' ? entry.status : 'ok';
+                      const statusColor = status === 'error' ? '#ef4444' : status === 'warn' ? '#f59e0b' : '#4CAF50';
+                      const statusIcon = status === 'error'
+                        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        : status === 'warn'
+                        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                        : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>;
+                      return (
+                        <div key={key} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>{statusIcon} {key}</div>
+                          <div style={{ fontWeight: 500, color: statusColor, fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

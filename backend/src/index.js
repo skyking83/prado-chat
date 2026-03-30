@@ -1145,12 +1145,22 @@ app.get('/api/admin/environment', authenticateToken, requireAdmin, async (req, r
     freeMemory: os.freemem(),
     uptime: process.uptime(),
     env: {
-      NODE_ENV: process.env.NODE_ENV || 'development',
-      JWT_SECRET: process.env.JWT_SECRET ? '••••••••' : '⚙️ Using fallback',
-      RESEND_API_KEY: process.env.RESEND_API_KEY ? '••••' + process.env.RESEND_API_KEY.slice(-4) : '⚠️ Not set',
-      TURN_SERVER: turnServer || process.env.TURN_SERVER || '⚠️ Not configured',
-      TURN_USERNAME: turnUsername || process.env.TURN_USERNAME || '⚠️ Not configured',
-      TURN_CREDENTIAL: (turnCredential || process.env.TURN_CREDENTIAL) ? '••••••••' : '⚠️ Not configured',
+      NODE_ENV: { value: process.env.NODE_ENV || 'development', status: 'ok' },
+      JWT_SECRET: process.env.JWT_SECRET
+        ? { value: '••••••••', status: 'ok' }
+        : { value: 'Using fallback', status: 'warn' },
+      RESEND_API_KEY: process.env.RESEND_API_KEY
+        ? { value: '••••' + process.env.RESEND_API_KEY.slice(-4), status: 'ok' }
+        : { value: 'Not set', status: 'error' },
+      TURN_SERVER: (turnServer || process.env.TURN_SERVER)
+        ? { value: turnServer || process.env.TURN_SERVER, status: 'ok' }
+        : { value: 'Not configured', status: 'error' },
+      TURN_USERNAME: (turnUsername || process.env.TURN_USERNAME)
+        ? { value: turnUsername || process.env.TURN_USERNAME, status: 'ok' }
+        : { value: 'Not configured', status: 'error' },
+      TURN_CREDENTIAL: (turnCredential || process.env.TURN_CREDENTIAL)
+        ? { value: '••••••••', status: 'ok' }
+        : { value: 'Not configured', status: 'error' },
     }
   };
   res.json(envInfo);
