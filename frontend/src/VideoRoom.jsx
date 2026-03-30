@@ -350,8 +350,14 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     };
   }, [inLobby, spaceId, socket, audioOnly, selectedCamera, selectedMic]);
 
-  // ─── Create Peer Connection (with reconnection) ───
+  // ─── Create Peer Connection (with reconnection + duplicate guard) ───
   const createPeerConnection = useCallback((userId, userInfo) => {
+    // Close existing connection to this user if any
+    if (peerConnections.current[userId]) {
+      peerConnections.current[userId].close();
+      delete peerConnections.current[userId];
+    }
+
     const pc = new RTCPeerConnection(STUN_SERVERS);
     peerConnections.current[userId] = pc;
 
@@ -388,7 +394,6 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
         pc.restartIce();
       }
       if (state === 'disconnected') {
-        // Give it 5 seconds to recover before showing warning
         setTimeout(() => {
           if (pc.iceConnectionState === 'disconnected') {
             setPeers(prev => {
@@ -403,11 +408,20 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     return pc;
   }, [localStream, socket]);
 
+  // Store our socket ID for polite peer comparison
+  const mySocketIdRef = useRef(socket?.id);
+  useEffect(() => { mySocketIdRef.current = socket?.id; }, [socket?.id]);
+
   // ─── WebRTC Event Listeners ───
   useEffect(() => {
     if (!localStream) return;
 
     const handleUserJoined = async ({ userId, username, first_name, last_name, avatar }) => {
+      // If we already have a connection to this user, skip (the other side will handle it)
+      if (peerConnections.current[userId]) {
+        console.log(`Already have PC for ${userId}, skipping duplicate offer`);
+        return;
+      }
       const pc = createPeerConnection(userId, { username, first_name, last_name, avatar });
       try {
         const offer = await pc.createOffer();
@@ -417,6 +431,44 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     };
 
     const handleVideoOffer = async ({ senderId, offer, username, first_name, last_name, avatar }) => {
+      const existingPc = peerConnections.current[senderId];
+
+      if (existingPc) {
+        // Glare: we already have a PC (likely with our own pending offer).
+        // "Polite peer" pattern: the peer with the lower socket ID yields.
+        const weArePolite = (mySocketIdRef.current || '') < senderId;
+
+        if (!weArePolite) {
+          // We're impolite — ignore the incoming offer, the other side will accept ours
+          console.log(`Glare detected with ${senderId}: we're impolite, ignoring their offer`);
+          return;
+        }
+
+        // We're polite — rollback our offer and accept theirs
+        console.log(`Glare detected with ${senderId}: we're polite, rolling back`);
+        try {
+          await existingPc.setLocalDescription({ type: 'rollback' });
+          await existingPc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await existingPc.createAnswer();
+          await existingPc.setLocalDescription(answer);
+          socket.emit('video-answer', { targetUserId: senderId, answer });
+        } catch (err) {
+          console.error("Error during polite rollback:", err);
+          // Fallback: tear down and recreate
+          existingPc.close();
+          delete peerConnections.current[senderId];
+          const pc = createPeerConnection(senderId, { username, first_name, last_name, avatar });
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('video-answer', { targetUserId: senderId, answer });
+          } catch (e) { console.error("Error in fallback offer handling:", e); }
+        }
+        return;
+      }
+
+      // No existing connection — normal flow
       const pc = createPeerConnection(senderId, { username, first_name, last_name, avatar });
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -428,17 +480,32 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
 
     const handleVideoAnswer = async ({ senderId, answer }) => {
       const pc = peerConnections.current[senderId];
-      if (pc) {
-        try { await pc.setRemoteDescription(new RTCSessionDescription(answer)); }
+      if (pc && pc.signalingState === 'have-local-offer') {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          // Flush any queued ICE candidates
+          if (pc._queuedCandidates) {
+            for (const c of pc._queuedCandidates) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+            }
+            delete pc._queuedCandidates;
+          }
+        }
         catch (err) { console.error("Error setting remote answer:", err); }
+      } else if (pc) {
+        console.warn(`Ignoring answer from ${senderId} — signaling state is ${pc.signalingState}`);
       }
     };
 
     const handleIceCandidate = async ({ senderId, candidate }) => {
       const pc = peerConnections.current[senderId];
-      if (pc) {
+      if (pc && pc.remoteDescription) {
         try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
         catch (err) { console.error("Error adding ICE candidate:", err); }
+      } else if (pc) {
+        // Queue ICE candidates until remote description is set
+        if (!pc._queuedCandidates) pc._queuedCandidates = [];
+        pc._queuedCandidates.push(candidate);
       }
     };
 
