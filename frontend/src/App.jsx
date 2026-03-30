@@ -6,7 +6,7 @@ import VideoRoom from './VideoRoom'
 import { googleFonts } from './googleFontsList'
 import { 
   generateIdentityKeyPair, exportPublicKey, wrapPrivateKey, unwrapPrivateKey, 
-  generateRoomKey, encryptRoomKeyWithPublicKey, decryptRoomKeyWithPrivateKey, 
+  generateRoomKey, exportRoomKeyRaw, encryptRoomKeyWithPublicKey, decryptRoomKeyWithPrivateKey, 
   encryptMessage, decryptMessage, importPrivateKey,
   syncPrivateKeyToIDB, syncRoomKeyToIDB, purgeCryptoIDB
 } from './crypto'
@@ -18,6 +18,17 @@ const socketUrl = import.meta.env.MODE === 'production' ? '' : `http://${devDoma
 
 // ─── E2EE Helpers ───────────────────────────────────────────
 const isEncryptedSpace = (space) => space && space.name !== 'General';
+
+async function escrowRoomKey(spaceId, aesKey, token, socketUrl) {
+  try {
+    const rawKeyBase64 = await exportRoomKeyRaw(aesKey);
+    await fetch(`${socketUrl}/api/spaces/${spaceId}/escrow-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ rawKeyBase64 })
+    });
+  } catch (e) { console.error('[E2EE] Escrow upload failed:', e); }
+}
 
 async function tryDecryptMsg(text, aesKey) {
   if (!text || typeof text !== 'string') return { text, raw_text: null };
@@ -644,7 +655,7 @@ const useWeather = (location) => {
 };
 
 const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset }) => {
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [assets, setAssets] = useState([]);
   const [spaces, setSpaces] = useState([]);
@@ -657,6 +668,9 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const [adminResetMsg, setAdminResetMsg] = useState(null);
   const [broadcastText, setBroadcastText] = useState('');
   const [broadcastSent, setBroadcastSent] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [serverConfig, setServerConfig] = useState(null);
+  const [configSaveStatus, setConfigSaveStatus] = useState(null); // 'saving' | 'saved' | null
   const [userToDelete, setUserToDelete] = useState(null);
   const [assetToDelete, setAssetToDelete] = useState(null);
   const [spaceToDeleteAdmin, setSpaceToDeleteAdmin] = useState(null);
@@ -704,12 +718,18 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     const fetchData = async () => {
       try {
         const headers = { 'Authorization': `Bearer ${token}` };
-        if (activeTab === 'users') {
+        if (activeTab === 'dashboard') {
+          const res = await fetch(`${socketUrl}/api/admin/stats`, { headers });
+          if (res.ok) setDashboardStats(await res.json());
+        } else if (activeTab === 'users') {
           const res = await fetch(`${socketUrl}/api/admin/users`, { headers });
           if (res.ok) setUsers(await res.json());
         } else if (activeTab === 'assets') {
           const res = await fetch(`${socketUrl}/api/admin/assets`, { headers });
           if (res.ok) setAssets(await res.json());
+        } else if (activeTab === 'config') {
+          const res = await fetch(`${socketUrl}/api/admin/config`, { headers });
+          if (res.ok) setServerConfig(await res.json());
         } else if (activeTab === 'spaces') {
           const res = await fetch(`${socketUrl}/api/spaces`, { headers });
           if (res.ok) setSpaces(await res.json());
@@ -807,96 +827,359 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'var(--md-sys-color-background)', zIndex: 9000, overflowY: 'auto', padding: 'min(5vw, 2rem)' }}>
       <div style={{ maxWidth: 'min(95vw, 1200px)', margin: '0 auto' }}>
-        <h1 style={{ color: 'var(--md-sys-color-on-background)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          Admin Panel 
-          <button onClick={onClose} className="icon-btn" title="Close" style={{ backgroundColor: 'var(--md-sys-color-surface-variant)' }}>
+        <style>{`
+          .dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
+          @media (max-width: 900px) { .dash-grid { grid-template-columns: repeat(2, 1fr); } }
+          @media (max-width: 500px) { .dash-grid { grid-template-columns: 1fr; } }
+          .dash-card { background: var(--md-sys-color-surface); border-radius: 16px; padding: 1.1rem; border: 1px solid var(--md-sys-color-outline-variant); display: flex; align-items: center; gap: 12px; transition: transform 0.15s, box-shadow 0.15s; }
+          .dash-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+          .dash-card-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+          .dash-card-value { font-size: 1.5rem; font-weight: 700; color: var(--md-sys-color-on-surface); line-height: 1; }
+          .dash-card-label { font-size: 0.72rem; color: var(--md-sys-color-outline); margin-top: 2px; }
+          .dash-section { background: var(--md-sys-color-surface); border-radius: 16px; padding: 1.15rem; border: 1px solid var(--md-sys-color-outline-variant); margin-bottom: 0.85rem; }
+          .dash-section-title { font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-outline); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 8px; }
+          .dash-two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 0.85rem; }
+          @media (max-width: 800px) { .dash-two-col { grid-template-columns: 1fr; } }
+        `}</style>
+        {/* Admin Panel Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-on-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <div>
+              <h1 style={{ color: 'var(--md-sys-color-on-background)', margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Admin Panel</h1>
+              <span style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>System management & analytics</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="icon-btn" title="Close" style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-surface-variant)' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
           </button>
-        </h1>
-        <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--md-sys-color-outline)', marginBottom: '1rem' }}>
-          {['users', 'assets', 'spaces', 'broadcast'].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: 'pointer', color: activeTab === tab ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)', borderBottom: activeTab === tab ? '2px solid var(--md-sys-color-primary)' : 'none', fontWeight: activeTab === tab ? 'bold' : 'normal' }}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+        </div>
+        {/* Tab Navigation */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          {[
+            { id: 'dashboard', label: 'Dashboard', icon: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>' },
+            { id: 'users', label: 'Users', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>' },
+            { id: 'assets', label: 'Assets', icon: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>' },
+            { id: 'spaces', label: 'Spaces', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' },
+            { id: 'config', label: 'Config', icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>' },
+            { id: 'broadcast', label: 'Broadcast', icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>' },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: activeTab === tab.id ? 600 : 400, fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.2s', flex: '1 1 auto', minWidth: '0',
+              background: activeTab === tab.id ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+              color: activeTab === tab.id ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: tab.icon }} />
+              {tab.label}
             </button>
           ))}
         </div>
 
+        {/* ═══ DASHBOARD TAB ═══ */}
+        {activeTab === 'dashboard' && dashboardStats && (() => {
+          const fmt = (bytes) => {
+            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return bytes + ' B';
+          };
+          const uptimeFmt = (s) => {
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            return d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+          };
+          const maxVol = Math.max(...(dashboardStats.messageVolume?.map(v => v.count) || [1]), 1);
+          const parseUA = (ua) => {
+            if (/Mobile|Android|iPhone|iPad/i.test(ua)) return 'mobile';
+            return 'desktop';
+          };
+          return (
+            <div>
+
+              {/* Stat Cards */}
+              <div className="dash-grid">
+                <div className="dash-card">
+                  <div className="dash-card-icon" style={{ background: 'var(--md-sys-color-primary-container)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                  </div>
+                  <div><div className="dash-card-value">{dashboardStats.totalUsers}</div><div className="dash-card-label">Total Users</div></div>
+                </div>
+                <div className="dash-card">
+                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #4CAF50 15%, transparent)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  </div>
+                  <div>
+                    <div className="dash-card-value">{dashboardStats.activeUsers24h}</div>
+                    <div className="dash-card-label">Active (24h) / {dashboardStats.activeUsers7d} (7d)</div>
+                  </div>
+                </div>
+                <div className="dash-card">
+                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #2196F3 15%, transparent)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2196F3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                  </div>
+                  <div><div className="dash-card-value">{dashboardStats.totalMessages.toLocaleString()}</div><div className="dash-card-label">Messages</div></div>
+                </div>
+                <div className="dash-card">
+                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #FF9800 15%, transparent)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF9800" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                  </div>
+                  <div><div className="dash-card-value">{fmt(dashboardStats.storageUsedBytes)}</div><div className="dash-card-label">Storage Used</div></div>
+                </div>
+              </div>
+
+              <div className="dash-two-col">
+                {/* Message Volume Chart */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                    Message Volume (30 days)
+                  </div>
+                  {dashboardStats.messageVolume?.length > 0 ? (
+                    <div style={{ position: 'relative', height: '160px' }}>
+                      <svg width="100%" height="160" viewBox={`0 0 ${Math.max(dashboardStats.messageVolume.length * 20, 100)} 160`} preserveAspectRatio="none" style={{ display: 'block' }}>
+                        {dashboardStats.messageVolume.map((v, i) => {
+                          const barH = (v.count / maxVol) * 130;
+                          const x = i * (100 / dashboardStats.messageVolume.length);
+                          const w = 100 / dashboardStats.messageVolume.length * 0.7;
+                          return (
+                            <g key={i}>
+                              <rect x={`${x}%`} y={155 - barH} width={`${w}%`} height={barH} rx="3" fill="var(--md-sys-color-primary)" opacity="0.8">
+                                <title>{`${v.date}: ${v.count} messages`}</title>
+                              </rect>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--md-sys-color-outline)', marginTop: '4px' }}>
+                        <span>{dashboardStats.messageVolume[0]?.date?.slice(5)}</span>
+                        <span>{dashboardStats.messageVolume[dashboardStats.messageVolume.length - 1]?.date?.slice(5)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>No message data yet</div>
+                  )}
+                </div>
+
+                {/* Storage Breakdown */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                    Storage Breakdown
+                  </div>
+                  {(() => {
+                    const bd = dashboardStats.storageBreakdown || {};
+                    const total = dashboardStats.storageUsedBytes || 1;
+                    const items = [
+                      { label: 'Images', bytes: bd.image || 0, color: '#4CAF50' },
+                      { label: 'Videos', bytes: bd.video || 0, color: '#2196F3' },
+                      { label: 'Audio', bytes: bd.audio || 0, color: '#9C27B0' },
+                      { label: 'Documents', bytes: bd.document || 0, color: '#FF9800' },
+                      { label: 'Other', bytes: bd.other || 0, color: 'var(--md-sys-color-outline)' },
+                    ].filter(it => it.bytes > 0);
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {/* Stacked bar */}
+                        <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', background: 'var(--md-sys-color-surface-variant)' }}>
+                          {items.map((it, i) => (
+                            <div key={i} style={{ width: `${(it.bytes / total) * 100}%`, background: it.color, minWidth: '3px' }} title={`${it.label}: ${fmt(it.bytes)}`} />
+                          ))}
+                        </div>
+                        {/* Legend */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+                          {items.map((it, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                              <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: it.color, flexShrink: 0 }} />
+                              {it.label}: {fmt(it.bytes)}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Active Sessions */}
+              <div className="dash-section">
+                <div className="dash-section-title">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  Active Sessions ({dashboardStats.activeSessions?.length || 0})
+                </div>
+                {dashboardStats.activeSessions?.length > 0 ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>User</th>
+                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>Device</th>
+                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>Duration</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardStats.activeSessions.map((s, i) => {
+                          const dur = Math.floor((Date.now() - s.connectedAt) / 1000);
+                          const isMobile = parseUA(s.userAgent) === 'mobile';
+                          const displayName = s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.username;
+                          return (
+                            <tr key={i} style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                              <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {s.avatar ? (
+                                  <img src={s.avatar} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} alt="" />
+                                ) : (
+                                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
+                                    {displayName[0]?.toUpperCase() || '?'}
+                                  </div>
+                                )}
+                                <div>
+                                  <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{displayName}</div>
+                                  <div style={{ fontSize: '0.68rem', color: 'var(--md-sys-color-outline)' }}>@{s.username}</div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                                  {isMobile ? (
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                                  ) : (
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                                  )}
+                                  <span style={{ fontSize: '0.78rem' }}>{isMobile ? 'Mobile' : 'Desktop'}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.78rem' }}>{uptimeFmt(dur)}</td>
+                              <td style={{ padding: '8px', textAlign: 'right' }}>
+                                <button onClick={async () => {
+                                  if (!confirm(`Disconnect ${displayName}?`)) return;
+                                  try {
+                                    await fetch(`${socketUrl}/api/admin/disconnect`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                      body: JSON.stringify({ socketId: s.socketId })
+                                    });
+                                    setDashboardStats(prev => ({ ...prev, activeSessions: prev.activeSessions.filter(x => x.socketId !== s.socketId) }));
+                                  } catch (_) {}
+                                }} style={{ background: 'none', border: '1px solid var(--md-sys-color-error)', color: 'var(--md-sys-color-error)', borderRadius: '8px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                  Disconnect
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>No active sessions</div>
+                )}
+              </div>
+
+              {/* System Info */}
+              <div className="dash-section">
+                <div className="dash-section-title">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  System
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                  {[
+                    { label: 'Uptime', value: uptimeFmt(dashboardStats.serverUptime) },
+                    { label: 'Node.js', value: dashboardStats.nodeVersion },
+                    { label: 'Platform', value: dashboardStats.osInfo },
+                    { label: 'CPUs', value: dashboardStats.cpuCount },
+                    { label: 'Database', value: fmt(dashboardStats.dbSizeBytes) },
+                    { label: 'Memory (Heap)', value: `${fmt(dashboardStats.memoryUsage?.heapUsed || 0)} / ${fmt(dashboardStats.memoryUsage?.heapTotal || 0)}` },
+                    { label: 'System RAM', value: `${fmt((dashboardStats.totalMemory || 0) - (dashboardStats.freeMemory || 0))} / ${fmt(dashboardStats.totalMemory || 0)}` },
+                    { label: 'Spaces', value: dashboardStats.totalSpaces },
+                  ].map((item, i) => (
+                    <div key={i} style={{ padding: '10px', borderRadius: '10px', background: 'var(--md-sys-color-surface-variant)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>{item.label}</div>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Refresh */}
+              <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                <button onClick={async () => {
+                  const res = await fetch(`${socketUrl}/api/admin/stats`, { headers: { 'Authorization': `Bearer ${token}` } });
+                  if (res.ok) setDashboardStats(await res.json());
+                }} style={{ background: 'none', border: '1px solid var(--md-sys-color-outline-variant)', color: 'var(--md-sys-color-on-surface-variant)', borderRadius: '10px', padding: '6px 16px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '6px', margin: '0 auto' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  Refresh Stats
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {activeTab === 'dashboard' && !dashboardStats && (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>
+            <div style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Loading dashboard...</div>
+          </div>
+        )}
+
+
         {activeTab === 'users' && !editingUser && (
-          <div className="table-container">
-            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <label style={{ color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.9rem', fontWeight: 500 }}>Filter Role:</label>
+          <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+              <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                {users.length} Users
+              </div>
               <select 
                 value={roleFilter} 
                 onChange={(e) => setRoleFilter(e.target.value)}
-                style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
               >
-                <option value="">All Users</option>
+                <option value="">All Roles</option>
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <table className="admin-table">
-            <thead>
-              <tr>
-                <th onClick={() => requestSort('first_name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Name {sortConfig?.key === 'first_name' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th onClick={() => requestSort('role')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Role {sortConfig?.key === 'role' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[...users].filter(u => !roleFilter || u.role === roleFilter).sort((a, b) => {
                 if (!sortConfig) return 0;
                 let valA = a[sortConfig.key] || '';
                 let valB = b[sortConfig.key] || '';
-                if (sortConfig.key === 'id') {
-                  valA = Number(valA);
-                  valB = Number(valB);
-                } else {
-                  valA = String(valA).toLowerCase();
-                  valB = String(valB).toLowerCase();
-                }
+                valA = String(valA).toLowerCase();
+                valB = String(valB).toLowerCase();
                 if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
-              }).map(u => (
-                <tr key={u.id}>
-                  <td>{u.first_name} {u.last_name}</td>
-                  <td>
-                    <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: u.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: u.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                      {u.role.toUpperCase()}
+              }).map(u => {
+                const displayName = (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username) || u.username;
+                return (
+                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '12px', background: 'var(--md-sys-color-surface-variant)', cursor: 'pointer', transition: 'background 0.15s' }} onClick={() => setEditingUser(u)}>
+                    {u.avatar ? (
+                      <img src={u.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} alt="" />
+                    ) : (
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 'bold', flexShrink: 0 }}>
+                        {displayName[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{u.username} · {u.email}</div>
+                    </div>
+                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', flexShrink: 0,
+                      backgroundColor: u.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
+                      color: u.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
+                      {u.role}
                     </span>
-                  </td>
-                  <td className="admin-actions-cell">
-                    <div className="admin-actions-desktop">
-                      <button onClick={() => setEditingUser(u)} className="icon-btn" title="Edit Profile">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                      </button>
-                      <button onClick={() => setUserToDelete(u)} className="icon-btn danger" title="Delete">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
-                    </div>
-                    <div className="admin-actions-mobile">
-                      <button className="action-menu-trigger" onClick={() => setActiveAdminMenu(activeAdminMenu?.id === u.id ? null : { type: 'users', id: u.id })}>⋮</button>
-                      {activeAdminMenu?.type === 'users' && activeAdminMenu?.id === u.id && (
-                        <div className="admin-actions-dropdown">
-                          <button onClick={() => { setEditingUser(u); setActiveAdminMenu(null); }}>Edit Profile</button>
-                          <button onClick={() => { setUserToDelete(u); setActiveAdminMenu(null); }} className="danger">Delete</button>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <button onClick={(e) => { e.stopPropagation(); setUserToDelete(u); }} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {activeTab === 'users' && editingUser && (
+{activeTab === 'users' && editingUser && (
           <form onSubmit={handleUserUpdate}>
             <style>{`
               .admin-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
@@ -1091,13 +1374,16 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
         )}
 
         {activeTab === 'assets' && (
-          <div className="table-container">
-            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <label style={{ color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.9rem', fontWeight: 500 }}>Filter Types:</label>
+          <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+              <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                {assets.length} Assets
+              </div>
               <select 
                 value={typeFilter} 
                 onChange={(e) => setTypeFilter(e.target.value)}
-                style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
               >
                 <option value="">All Files</option>
                 <option value="image">Images</option>
@@ -1105,23 +1391,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 <option value="other">Documents / Other</option>
               </select>
             </div>
-            <table className="admin-table">
-            <thead>
-              <tr>
-                <th style={{ width: '64px', textAlign: 'center' }}>Preview</th>
-                <th onClick={() => requestSort('file')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Filename {sortConfig?.key === 'file' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th onClick={() => requestSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  File Type {sortConfig?.key === 'type' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th onClick={() => requestSort('size')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Size (KB) {sortConfig?.key === 'size' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px' }}>
               {assets.filter(a => {
                 if (!typeFilter) return true;
                 const type = a.type || '';
@@ -1132,84 +1402,54 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 if (!sortConfig) return 0;
                 let valA = a[sortConfig.key] || '';
                 let valB = b[sortConfig.key] || '';
-                if (sortConfig.key === 'size') {
-                  valA = Number(valA);
-                  valB = Number(valB);
-                } else {
-                  valA = String(valA).toLowerCase();
-                  valB = String(valB).toLowerCase();
-                }
+                if (sortConfig.key === 'size') { valA = Number(valA); valB = Number(valB); }
+                else { valA = String(valA).toLowerCase(); valB = String(valB).toLowerCase(); }
                 if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
-              }).map(a => (
-                <tr key={a.file}>
-                  <td style={{ textAlign: 'center' }}>
-                    {a.type && a.type.startsWith('video/') ? (
-                      <video 
-                        src={a.file.startsWith('http') ? a.file : a.file.startsWith('/uploads/') ? `${socketUrl}${a.file}` : `${socketUrl}/uploads/${a.file}`} 
-                        style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#000' }}
-                        onClick={() => onPreviewAsset(a)}
-                      />
-                    ) : a.type && a.type.startsWith('image/') ? (
-                      <img 
-                        src={a.file.startsWith('http') ? a.file : a.file.startsWith('/uploads/') ? `${socketUrl}${a.file}` : `${socketUrl}/uploads/${a.file}`} 
-                        alt="thumb"
-                        style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'var(--md-sys-color-surface-container-highest)' }}
-                        onClick={() => onPreviewAsset(a)}
-                      />
-                    ) : (
-                      <div 
-                        style={{ width: '40px', height: '48px', margin: '0 auto', backgroundColor: 'var(--md-sys-color-primary)', borderRadius: '4px 12px 4px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: 'pointer', flexShrink: 0 }}
-                        onClick={() => onPreviewAsset(a)}
-                      >
-                        <div style={{ position: 'absolute', top: 0, right: 0, width: '12px', height: '12px', backgroundColor: 'var(--md-sys-color-background)', borderBottomLeftRadius: '6px' }}></div>
-                        <span style={{ color: 'var(--md-sys-color-on-primary)', fontSize: '0.65rem', fontWeight: 'bold', letterSpacing: '0.5px', marginTop: '6px', userSelect: 'none' }}>
-                          {a.file.split('.').pop().toUpperCase().substring(0, 4)}
-                        </span>
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <span 
-                      onClick={() => onPreviewAsset(a)} 
-                      style={{ color: 'var(--md-sys-color-primary)', cursor: 'pointer', textDecoration: 'underline', wordBreak: 'break-all' }}
-                    >
-                      {a.file}
-                    </span>
-                  </td>
-                  <td style={{ color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.85rem' }}>{a.type || 'unknown'}</td>
-                  <td>{Math.round(a.size / 1024)}</td>
-                  <td className="admin-actions-cell">
-                    <div className="admin-actions-desktop">
-                      <button onClick={() => setAssetToDelete(a)} className="icon-btn danger" title="Delete">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
-                    </div>
-                    <div className="admin-actions-mobile">
-                      <button className="action-menu-trigger" onClick={() => setActiveAdminMenu(activeAdminMenu?.id === a.file ? null : { type: 'assets', id: a.file })}>⋮</button>
-                      {activeAdminMenu?.type === 'assets' && activeAdminMenu?.id === a.file && (
-                        <div className="admin-actions-dropdown">
-                          <button onClick={() => { setAssetToDelete(a); setActiveAdminMenu(null); }} className="danger">Delete</button>
-                        </div>
+              }).map(a => {
+                const assetUrl = a.file.startsWith('http') ? a.file : a.file.startsWith('/uploads/') ? `${socketUrl}${a.file}` : `${socketUrl}/uploads/${a.file}`;
+                const isImage = a.type && a.type.startsWith('image/');
+                const isVideo = a.type && a.type.startsWith('video/');
+                const sizeStr = a.size >= 1024 ? `${(a.size / 1024).toFixed(1)} MB` : `${a.size} KB`;
+                return (
+                  <div key={a.file} style={{ borderRadius: '12px', overflow: 'hidden', background: 'var(--md-sys-color-surface-variant)', border: '1px solid var(--md-sys-color-outline-variant)', position: 'relative', transition: 'transform 0.15s, box-shadow 0.15s' }}>
+                    <div style={{ width: '100%', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)', cursor: 'pointer', overflow: 'hidden' }} onClick={() => onPreviewAsset(a)}>
+                      {isVideo ? (
+                        <video src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : isImage ? (
+                        <img src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                      ) : (
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="1.5"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
                       )}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div style={{ padding: '8px 10px' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px' }} title={a.file}>{a.file.split('/').pop()}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--md-sys-color-outline)' }}>{sizeStr}</span>
+                        <button onClick={() => setAssetToDelete(a)} className="icon-btn danger" title="Delete" style={{ padding: '2px', width: '22px', height: '22px' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {activeTab === 'spaces' && (
-          <div className="table-container">
-            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <label style={{ color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.9rem', fontWeight: 500 }}>Filter Creator:</label>
+{activeTab === 'spaces' && (
+          <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+              <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                {spaces.length} Spaces
+              </div>
               <select 
                 value={creatorFilter} 
                 onChange={(e) => setCreatorFilter(e.target.value)}
-                style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
               >
                 <option value="">All Creators</option>
                 {[...new Set(spaces.map(s => s.created_by))].map(creator => {
@@ -1219,65 +1459,69 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 })}
               </select>
             </div>
-            <table className="admin-table">
-            <thead>
-              <tr>
-                <th onClick={() => requestSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Name {sortConfig?.key === 'name' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th onClick={() => requestSort('created_by')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                  Created By {sortConfig?.key === 'created_by' ? (sortConfig.direction === 'ascending' ? '↑' : '↓') : ''}
-                </th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...spaces].filter(s => !creatorFilter || s.created_by === creatorFilter).sort((a, b) => {
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[...spaces].filter(s => !creatorFilter || s.created_by === creatorFilter).filter(s => !(s.is_dm === 1 && s.name?.startsWith('self_'))).sort((a, b) => {
                 if (!sortConfig) return 0;
                 let valA = a[sortConfig.key] || '';
                 let valB = b[sortConfig.key] || '';
-                if (sortConfig.key === 'id') {
-                  valA = Number(valA);
-                  valB = Number(valB);
-                } else {
-                  valA = String(valA).toLowerCase();
-                  valB = String(valB).toLowerCase();
-                }
+                valA = String(valA).toLowerCase();
+                valB = String(valB).toLowerCase();
                 if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
-              }).map(s => (
-                <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td>
-                    {(() => {
-                      const creatorUser = users.find(u => u.username === s.created_by);
-                      return creatorUser ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || s.created_by : s.created_by;
-                    })()}
-                  </td>
-                  <td className="admin-actions-cell">
-                    <div className="admin-actions-desktop">
-                      {s.id !== 1 && !(s.is_dm === 1 && s.name.startsWith('self_')) && (
-                        <button onClick={() => setSpaceToDeleteAdmin(s)} className="icon-btn danger" title="Delete" style={{ padding: '4px' }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
+              }).map(s => {
+                const creatorUser = users.find(u => u.username === s.created_by);
+                const creatorName = creatorUser ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || s.created_by : s.created_by;
+                // Friendly name display
+                let friendlyName = s.name;
+                const isDM = s.is_dm === 1;
+                const isSelf = isDM && s.name?.startsWith('self_');
+                const isDMConvo = isDM && s.name?.startsWith('dm_');
+                if (isSelf) {
+                  const selfUser = s.name.replace('self_', '');
+                  const su = users.find(u => u.username === selfUser);
+                  friendlyName = su ? `Notes to Self (${su.first_name || selfUser})` : `Notes to Self (${selfUser})`;
+                } else if (isDMConvo) {
+                  const parts = s.name.replace('dm_', '').split('_');
+                  const u1 = users.find(u => u.username === parts[0]);
+                  const u2 = users.find(u => u.username === parts[1]);
+                  const n1 = u1 ? u1.first_name || parts[0] : parts[0];
+                  const n2 = u2 ? u2.first_name || parts[1] : parts[1];
+                  friendlyName = `${n1} ↔ ${n2}`;
+                }
+                const isProtected = s.id === 1 || isSelf;
+                const spaceIcon = null; // unused, replaced by SVGs below
+                const iconColor = isDM ? '#9C27B0' : s.is_private ? '#FF9800' : 'var(--md-sys-color-primary)';
+                return (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '12px', background: 'var(--md-sys-color-surface-variant)' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isDM ? 'color-mix(in srgb, #9C27B0 15%, transparent)' : s.is_private ? 'color-mix(in srgb, #FF9800 15%, transparent)' : 'var(--md-sys-color-primary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {isSelf ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                      ) : isDMConvo ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                      ) : s.is_private ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
                       )}
                     </div>
-                    {s.id !== 1 && !(s.is_dm === 1 && s.name.startsWith('self_')) && (
-                      <div className="admin-actions-mobile">
-                        <button className="action-menu-trigger" onClick={() => setActiveAdminMenu(activeAdminMenu?.id === s.id ? null : { type: 'spaces', id: s.id })}>⋮</button>
-                        {activeAdminMenu?.type === 'spaces' && activeAdminMenu?.id === s.id && (
-                          <div className="admin-actions-dropdown">
-                            <button onClick={() => { setSpaceToDeleteAdmin(s); setActiveAdminMenu(null); }} className="danger">Delete</button>
-                          </div>
-                        )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{friendlyName}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                        by {creatorName} · ID: {s.id}
+                        {s.is_private ? ' · Private' : ''}
+                        {isDM ? ' · DM' : ''}
                       </div>
+                    </div>
+                    {!isProtected && (
+                      <button onClick={() => setSpaceToDeleteAdmin(s)} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1321,33 +1565,139 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           </div>
         )}
 
+        {activeTab === 'config' && serverConfig && (() => {
+          const updateConfig = async (key, value) => {
+            const updated = { ...serverConfig, [key]: value };
+            setServerConfig(updated);
+            setConfigSaveStatus('saving');
+            try {
+              const res = await fetch(`${socketUrl}/api/admin/config`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ [key]: value })
+              });
+              if (res.ok) {
+                setConfigSaveStatus('saved');
+                setTimeout(() => setConfigSaveStatus(null), 2000);
+              }
+            } catch (_) { setConfigSaveStatus(null); }
+          };
+          const InputRow = ({ label, description, configKey, type, options, placeholder }) => (
+            <div style={{ marginBottom: '0.85rem' }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>{label}</label>
+              {description && <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginBottom: '6px' }}>{description}</div>}
+              {type === 'select' ? (
+                <select value={serverConfig[configKey] || ''} onChange={(e) => updateConfig(configKey, e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', cursor: 'pointer', boxSizing: 'border-box' }}>
+                  {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : type === 'toggle' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button onClick={() => updateConfig(configKey, serverConfig[configKey] === 'true' ? 'false' : 'true')} style={{ position: 'relative', width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer', transition: 'background 0.2s', background: serverConfig[configKey] === 'true' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)', padding: 0 }}>
+                    <div style={{ position: 'absolute', top: '2px', left: serverConfig[configKey] === 'true' ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                  </button>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>{serverConfig[configKey] === 'true' ? 'Enabled' : 'Disabled'}</span>
+                </div>
+              ) : type === 'textarea' ? (
+                <textarea value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} rows={2} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }} />
+              ) : type === 'color' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input type="color" value={serverConfig[configKey] || '#4CAF50'} onChange={(e) => updateConfig(configKey, e.target.value)} style={{ width: '36px', height: '36px', border: '2px solid var(--md-sys-color-outline-variant)', borderRadius: '8px', cursor: 'pointer', padding: 0, background: 'none' }} />
+                  <span style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)', fontFamily: 'monospace' }}>{serverConfig[configKey] || '#4CAF50'}</span>
+                </div>
+              ) : (
+                <input type={type || 'text'} value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', boxSizing: 'border-box' }} />
+              )}
+            </div>
+          );
+          return (
+            <div>
+              {/* Save Status */}
+              {configSaveStatus && (
+                <div style={{ position: 'fixed', top: '1rem', right: '1rem', padding: '8px 16px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 500, zIndex: 10001, display: 'flex', alignItems: 'center', gap: '6px', animation: 'fadeIn 0.2s', background: configSaveStatus === 'saved' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: configSaveStatus === 'saved' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
+                  {configSaveStatus === 'saving' ? (
+                    <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg> Saving...</>
+                  ) : (
+                    <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Saved</>
+                  )}
+                </div>
+              )}
+
+              <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                {/* Registration */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                    Registration
+                  </div>
+                  <InputRow label="Registration Mode" configKey="registration_mode" type="select" options={[{ value: 'open', label: 'Open (anyone can register)' }, { value: 'closed', label: 'Closed (no new registrations)' }]} />
+                  <InputRow label="Require Email Verification" configKey="require_email_verification" type="toggle" description="New users must verify their email before logging in" />
+                  <InputRow label="Email Domain Whitelist" configKey="email_domain_whitelist" type="text" placeholder="e.g. company.com, example.org" description="Comma-separated list of allowed email domains. Leave empty for no restriction." />
+                </div>
+
+                {/* Branding */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    Branding
+                  </div>
+                  <InputRow label="App Name" configKey="app_name" type="text" placeholder="Prado Chat" />
+                  <InputRow label="Default Theme" configKey="default_theme" type="select" options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} description="Theme applied to new users on first login" />
+                  <InputRow label="Default Accent Color" configKey="default_accent_color" type="color" />
+                </div>
+
+                {/* Uploads */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Uploads
+                  </div>
+                  <InputRow label="Max Upload Size (MB)" configKey="max_upload_size_mb" type="number" description="Maximum file size for uploads in megabytes" />
+                </div>
+
+                {/* Maintenance */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                    Maintenance Mode
+                  </div>
+                  <InputRow label="Maintenance Mode" configKey="maintenance_mode" type="toggle" description="When enabled, non-admin users see a maintenance screen" />
+                  <InputRow label="Maintenance Message" configKey="maintenance_message" type="textarea" placeholder="System is undergoing maintenance..." />
+                </div>
+              </div>
+
+              <style>{`@media (max-width: 700px) { .dash-section { margin-bottom: 0 !important; } }`}</style>
+            </div>
+          );
+        })()}
+
+        {activeTab === 'config' && !serverConfig && (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>Loading configuration...</div>
+        )}
+
         {activeTab === 'broadcast' && (
-          <div style={{ backgroundColor: 'var(--md-sys-color-surface)', padding: 'min(5vw, 2rem)', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-            <h2 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 13v-2z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path></svg> Broadcast Message</h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', marginBottom: '1rem' }}>Send a message that will appear as a banner for all connected users in real-time.</p>
-            <textarea
-              value={broadcastText}
-              onChange={(e) => setBroadcastText(e.target.value)}
-              placeholder="Type your announcement..."
-              rows={3}
-              style={{ width: '100%', padding: '0.85rem', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontSize: '0.95rem', resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
-              <button
-                className="btn-primary"
-                disabled={!broadcastText.trim()}
-                onClick={() => {
-                  socket.emit('admin broadcast', { message: broadcastText.trim() });
-                  setBroadcastText('');
-                  setBroadcastSent(true);
-                  setTimeout(() => setBroadcastSent(false), 3000);
-                }}
-                style={{ padding: '0.75rem 2rem' }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px', verticalAlign: 'middle' }}><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          <div className="dash-section">
+            <div className="dash-section-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+              System Broadcast
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-outline)', marginBottom: '1rem', marginTop: 0 }}>Send a real-time announcement banner to all connected users. The message appears at the top of their screen with an auto-dismiss countdown.</p>
+            <textarea value={broadcastText} onChange={(e) => setBroadcastText(e.target.value)} placeholder="Type your broadcast message..." rows={3} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '0.75rem' }}>
+              <button onClick={() => {
+                if (!broadcastText.trim()) return;
+                socket?.emit('admin broadcast', { message: broadcastText.trim() });
+                setBroadcastText('');
+                setBroadcastSent(true);
+                setTimeout(() => setBroadcastSent(false), 3000);
+              }} disabled={!broadcastText.trim()} style={{
+                padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: broadcastText.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s',
+                background: broadcastText.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                color: broadcastText.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 Send Broadcast
               </button>
-              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.85rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in', display: 'flex', alignItems: 'center', gap: '4px' }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Broadcast sent!</span>}
+              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.82rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in', display: 'flex', alignItems: 'center', gap: '4px' }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Broadcast sent!</span>}
             </div>
           </div>
         )}
@@ -1694,8 +2044,21 @@ function App() {
             const roomKey = await decryptRoomKeyWithPrivateKey(targetKeyObj.encrypted_room_key, privateKeyRef.current);
             setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
             await syncRoomKeyToIDB(space.id, roomKey);
-          } else if (socket) {
-            socket.emit('request_room_key', { spaceId: space.id, requesterId: profileData.id, requesterPublicKey: profileData.public_key });
+          } else {
+            // Try server-side escrow recovery
+            try {
+              const escrowRes = await fetch(`${socketUrl}/api/spaces/${space.id}/request-key`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (escrowRes.ok) {
+                const { encrypted_room_key } = await escrowRes.json();
+                if (encrypted_room_key) {
+                  const roomKey = await decryptRoomKeyWithPrivateKey(encrypted_room_key, privateKeyRef.current);
+                  setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
+                  await syncRoomKeyToIDB(space.id, roomKey);
+                }
+              }
+            } catch (e) { console.error('[E2EE] Space select escrow recovery failed', e); }
           }
         }
       } catch (e) {
@@ -1935,17 +2298,17 @@ function App() {
           const spacesData = await spacesRes.json();
 
           let newActiveKeys = {};
+          let pKey = privateKeyRef.current;
+          if (!pKey) {
+            const jwkString = localStorage.getItem('prado_decryption_key');
+            if (jwkString) {
+              syncPrivateKeyToIDB(jwkString);
+              pKey = await importPrivateKey(jwkString);
+              privateKeyRef.current = pKey;
+            }
+          }
           if (keysRes.ok) {
              const keysData = await keysRes.json();
-             let pKey = privateKeyRef.current;
-             if (!pKey) {
-                const jwkString = localStorage.getItem('prado_decryption_key');
-                if (jwkString) {
-                   syncPrivateKeyToIDB(jwkString);
-                   pKey = await importPrivateKey(jwkString);
-                   privateKeyRef.current = pKey;
-                }
-             }
 
              if (pKey && keysData.length > 0) {
                await Promise.all(keysData.map(async (kd) => {
@@ -1964,7 +2327,36 @@ function App() {
           // Force React DOM to delay mapping spaces until activeKeys have completely synced Cyphers synchronously
           setSpaces(spacesData);
 
-          // Legacy hardcoded detached Auto-Provision Removed Here
+          // Backfill escrow: upload raw keys to server for any spaces we have keys for (one-time migration)
+          if (Object.keys(newActiveKeys).length > 0) {
+            for (const [spaceId, aesKey] of Object.entries(newActiveKeys)) {
+              escrowRoomKey(spaceId, aesKey, token, socketUrl); // fire-and-forget
+            }
+          }
+
+          // Auto-recover missing room keys from server-side escrow
+          if (pKey) {
+            const missingSpaces = spacesData.filter(s => isEncryptedSpace(s) && !newActiveKeys[s.id]);
+            if (missingSpaces.length > 0) {
+              await Promise.all(missingSpaces.map(async (space) => {
+                try {
+                  const keyRes = await fetch(`${socketUrl}/api/spaces/${space.id}/request-key`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                  });
+                  if (keyRes.ok) {
+                    const { encrypted_room_key } = await keyRes.json();
+                    if (encrypted_room_key) {
+                      const roomKey = await decryptRoomKeyWithPrivateKey(encrypted_room_key, pKey);
+                      newActiveKeys[space.id] = roomKey;
+                      await syncRoomKeyToIDB(space.id, roomKey);
+                      console.log(`[E2EE] Recovered key from escrow for space ${space.id}`);
+                    }
+                  }
+                } catch (e) { console.error(`[E2EE] Escrow recovery failed for space ${space.id}`, e); }
+              }));
+              setActiveKeys(prev => ({ ...prev, ...newActiveKeys }));
+            }
+          }
 
           if (spacesData.length > 0) {
             const lastSpaceId = localStorage.getItem('lastSpaceId');
@@ -2007,6 +2399,7 @@ function App() {
         if (res.ok) {
           setActiveKeys(prev => ({ ...prev, [selfDm.id]: roomKey }));
           await syncRoomKeyToIDB(selfDm.id, roomKey);
+          await escrowRoomKey(selfDm.id, roomKey, token, socketUrl);
         } else {
           provisioningLocksRef.current.delete(selfDm.id);
         }
@@ -2475,7 +2868,26 @@ function App() {
             syncPrivateKeyToIDB(jwkStr);
             privateKeyRef.current = privateKey;
           } catch (unwrapErr) {
-            console.error('Failed to unwrap private key', unwrapErr);
+            console.warn('[E2EE] Private key unwrap failed, regenerating identity keys...', unwrapErr);
+            try {
+              const newKeyPair = await generateIdentityKeyPair();
+              const newPubKey = await exportPublicKey(newKeyPair);
+              const newWrapped = await wrapPrivateKey(newKeyPair.privateKey, authPassword, authEmail);
+              // Update server with new keys
+              await fetch(`${socketUrl}/api/profile`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.token}` },
+                body: JSON.stringify({ public_key: newPubKey, wrapped_private_key: newWrapped })
+              });
+              const exportedJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.privateKey);
+              const jwkStr = JSON.stringify(exportedJwk);
+              localStorage.setItem('prado_decryption_key', jwkStr);
+              syncPrivateKeyToIDB(jwkStr);
+              privateKeyRef.current = newKeyPair.privateKey;
+              console.log('[E2EE] Successfully regenerated identity keys');
+            } catch (regenErr) {
+              console.error('[E2EE] Key regeneration failed', regenErr);
+            }
           }
         }
 
@@ -2829,6 +3241,7 @@ function App() {
         if (roomKeyObj) {
           setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKeyObj }));
           await syncRoomKeyToIDB(newSpace.id, roomKeyObj);
+          await escrowRoomKey(newSpace.id, roomKeyObj, token, socketUrl);
         }
 
         setSpaces(prev => {
@@ -4546,6 +4959,7 @@ function App() {
                 const newSpace = await response.json();
                 if (response.ok) {
                   setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKey }));
+                  await escrowRoomKey(newSpace.id, roomKey, token, socketUrl);
                   setSpaces(prev => { if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace]; return prev; });
                   setCurrentSpace(newSpace);
                   setShowSpaceModal(false);
@@ -4682,6 +5096,7 @@ function App() {
                       const data = await response.json();
                       if (response.ok) {
                         setActiveKeys(prev => ({ ...prev, [data.spaceId]: roomKey }));
+                        await escrowRoomKey(data.spaceId, roomKey, token, socketUrl);
                         const targetSpace = spaces.find(s => s.id === data.spaceId);
                         if (targetSpace) {
                           setCurrentSpace(targetSpace);

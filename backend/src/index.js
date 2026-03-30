@@ -9,6 +9,7 @@ import sqlite3 from 'sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
@@ -58,6 +59,8 @@ const io = new Server(server, {
   }
 });
 
+const SERVER_START_TIME = Date.now();
+
 // Database setup
 const db = new sqlite3.Database('./data/database.sqlite', (err) => {
   if (err) {
@@ -77,6 +80,7 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         db.run(`ALTER TABLE spaces ADD COLUMN is_private BOOLEAN DEFAULT 0`, () => {});
         db.run(`ALTER TABLE spaces ADD COLUMN invite_key TEXT`, () => {});
         db.run(`ALTER TABLE spaces ADD COLUMN is_dm INTEGER DEFAULT 0`, () => {});
+        db.run(`ALTER TABLE spaces ADD COLUMN escrow_key TEXT`, () => {});
       });
 
       db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -208,6 +212,28 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         message_id INTEGER,
         PRIMARY KEY (space_id, username)
       )`);
+      // Admin config store
+      db.run(`CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`, () => {
+        // Seed defaults if not present
+        const defaults = [
+          ['registration_mode', 'open'],
+          ['require_email_verification', 'true'],
+          ['email_domain_whitelist', ''],
+          ['app_name', 'Prado Chat'],
+          ['default_theme', 'dark'],
+          ['default_accent_color', '#4CAF50'],
+          ['max_upload_size_mb', '100'],
+          ['maintenance_mode', 'false'],
+          ['maintenance_message', 'System is undergoing maintenance. Please check back soon.'],
+        ];
+        defaults.forEach(([k, v]) => {
+          db.run(`INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)`, [k, v]);
+        });
+      });
     });
   }
 });
@@ -308,13 +334,67 @@ app.delete('/api/push/subscribe', (req, res) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
+// ─── Server-side key escrow crypto ─────────────────────────────
+const ESCROW_KEY = crypto.scryptSync(JWT_SECRET, 'prado-escrow-salt', 32);
+
+function serverEncrypt(plaintext) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ESCROW_KEY, iv);
+  let encrypted = cipher.update(plaintext, 'utf8', 'base64');
+  encrypted += cipher.final('base64');
+  const tag = cipher.getAuthTag();
+  return iv.toString('base64') + '.' + encrypted + '.' + tag.toString('base64');
+}
+
+function serverDecrypt(payload) {
+  const [ivB64, dataB64, tagB64] = payload.split('.');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ESCROW_KEY, Buffer.from(ivB64, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  let decrypted = decipher.update(dataB64, 'base64', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
 // -- Authentication Routes --
+// ─── Config helper ─────────────────────────────────────────────
+const getConfig = (key, fallback = null) => new Promise((resolve) => {
+  db.get('SELECT value FROM config WHERE key = ?', [key], (err, row) => {
+    resolve(row?.value ?? fallback);
+  });
+});
+
+// Public config (non-admin, for login page)
+app.get('/api/config/public', (req, res) => {
+  db.all('SELECT key, value FROM config WHERE key IN ("app_name", "registration_mode", "maintenance_mode", "maintenance_message", "default_theme", "default_accent_color")', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    const config = {};
+    rows.forEach(r => { config[r.key] = r.value; });
+    res.json(config);
+  });
+});
+
 app.post('/api/register', async (req, res) => {
   const { password, email, publicKey, wrappedPrivateKey } = req.body;
   if (!password || !email || !publicKey || !wrappedPrivateKey) {
     return res.status(400).json({ error: 'Email, password, and E2EE keys required' });
   }
   try {
+    // Check registration mode
+    const regMode = await getConfig('registration_mode', 'open');
+    if (regMode === 'closed') {
+      return res.status(403).json({ error: 'Registration is currently closed' });
+    }
+    // Check email domain whitelist
+    const whitelist = await getConfig('email_domain_whitelist', '');
+    if (whitelist) {
+      const allowed = whitelist.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+      if (allowed.length > 0) {
+        const domain = email.split('@')[1]?.toLowerCase();
+        if (!allowed.includes(domain)) {
+          return res.status(403).json({ error: `Registration is restricted to: ${allowed.join(', ')}` });
+        }
+      }
+    }
     const hash = await bcrypt.hash(password, 10);
     const verifyToken = crypto.randomBytes(32).toString('hex');
     const baseUrl = req.headers.origin || 'http://localhost:5173';
@@ -323,16 +403,18 @@ app.post('/api/register', async (req, res) => {
     const username = `${prefix}${salt}`;
     
     // Check if this is the first user
-    db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
+    db.get('SELECT COUNT(*) as count FROM users', [], async (err, row) => {
       if (err) {
         console.error("SELECT COUNT users error:", err);
         return res.status(500).json({ error: 'Database error' });
       }
       
       const role = row.count === 0 ? 'admin' : 'user';
-      // Auto-verify admin to prevent locking yourself out initially, everyone else must verify
-      const isVerified = row.count === 0 ? 1 : 0; 
-      const vt = row.count === 0 ? null : verifyToken;
+      // Check if email verification is required via config
+      const requireVerify = await getConfig('require_email_verification', 'true');
+      const skipVerification = row.count === 0 || requireVerify === 'false';
+      const isVerified = skipVerification ? 1 : 0; 
+      const vt = skipVerification ? null : verifyToken;
       
       db.run('INSERT INTO users (username, email, password_hash, role, is_verified, verification_token, public_key, wrapped_private_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [username, email, hash, role, isVerified, vt, publicKey, wrappedPrivateKey], async function (err) {
         if (err) {
@@ -552,7 +634,7 @@ app.post('/api/push/subscribe', authenticateToken, (req, res) => {
 });
 
 app.put('/api/profile', authenticateToken, (req, res) => {
-  const { theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone } = req.body;
+  const { theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, public_key, wrapped_private_key } = req.body;
 
   db.run(`UPDATE users SET 
     theme = COALESCE(?, theme), 
@@ -566,9 +648,11 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     bio = COALESCE(?, bio),
     status_text = COALESCE(?, status_text),
     status_emoji = COALESCE(?, status_emoji),
-    timezone = COALESCE(?, timezone)
+    timezone = COALESCE(?, timezone),
+    public_key = COALESCE(?, public_key),
+    wrapped_private_key = COALESCE(?, wrapped_private_key)
     WHERE id = ?`, 
-    [theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, req.user.userId], 
+    [theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, public_key, wrapped_private_key, req.user.userId], 
     function(err) {
       if (err) return res.status(500).json({ error: 'Update failed' });
       // Broadcast profile changes to all connected clients
@@ -785,6 +869,198 @@ app.delete('/api/admin/spaces/:id', authenticateToken, requireAdmin, (req, res) 
           res.json({ success: true });
         });
       });
+    });
+  });
+});
+
+// ─── Admin Dashboard Stats ─────────────────────────────────────
+app.get('/api/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+    });
+    const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+    });
+
+    // User counts
+    const totalUsersRow = await dbGet('SELECT COUNT(*) as count FROM users');
+    const now = new Date().toISOString();
+    const d24h = new Date(Date.now() - 86400000).toISOString();
+    const d7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const active24hRow = await dbGet('SELECT COUNT(DISTINCT sender) as count FROM messages WHERE timestamp > ?', [d24h]);
+    const active7dRow = await dbGet('SELECT COUNT(DISTINCT sender) as count FROM messages WHERE timestamp > ?', [d7d]);
+
+    // Message counts
+    const totalMsgsRow = await dbGet('SELECT COUNT(*) as count FROM messages');
+
+    // Total spaces
+    const totalSpacesRow = await dbGet('SELECT COUNT(*) as count FROM spaces');
+
+    // Storage: scan uploads directory
+    let storageUsedBytes = 0;
+    const storageBreakdown = { image: 0, video: 0, audio: 0, document: 0, other: 0 };
+    try {
+      const files = fs.readdirSync(UPLOADS_DIR);
+      for (const file of files) {
+        try {
+          const stat = fs.statSync(path.join(UPLOADS_DIR, file));
+          storageUsedBytes += stat.size;
+          const ext = path.extname(file).toLowerCase();
+          if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.heic'].includes(ext)) {
+            storageBreakdown.image += stat.size;
+          } else if (['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext)) {
+            storageBreakdown.video += stat.size;
+          } else if (['.mp3', '.ogg', '.wav', '.m4a', '.aac'].includes(ext)) {
+            storageBreakdown.audio += stat.size;
+          } else if (['.pdf', '.doc', '.docx', '.txt', '.csv', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar'].includes(ext)) {
+            storageBreakdown.document += stat.size;
+          } else {
+            storageBreakdown.other += stat.size;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Message volume (last 30 days)
+    const messageVolume = await dbAll(
+      `SELECT DATE(timestamp) as date, COUNT(*) as count FROM messages 
+       WHERE timestamp > DATE('now', '-30 days') 
+       GROUP BY DATE(timestamp) ORDER BY date ASC`
+    );
+
+    // Active sessions from connected sockets
+    const activeSessions = [];
+    io.sockets.sockets.forEach(s => {
+      if (s.user) {
+        activeSessions.push({
+          socketId: s.id,
+          username: s.user.username,
+          userId: s.user.userId,
+          first_name: s.userProfile?.first_name || '',
+          last_name: s.userProfile?.last_name || '',
+          avatar: s.userProfile?.avatar || null,
+          connectedAt: s.connectedAt || Date.now(),
+          userAgent: s.userAgentStr || 'Unknown'
+        });
+      }
+    });
+
+    // DB size
+    let dbSizeBytes = 0;
+    try { dbSizeBytes = fs.statSync('./data/database.sqlite').size; } catch (_) {}
+
+    // System info
+    const memUsage = process.memoryUsage();
+
+    res.json({
+      totalUsers: totalUsersRow?.count || 0,
+      activeUsers24h: active24hRow?.count || 0,
+      activeUsers7d: active7dRow?.count || 0,
+      totalMessages: totalMsgsRow?.count || 0,
+      totalSpaces: totalSpacesRow?.count || 0,
+      storageUsedBytes,
+      storageBreakdown,
+      messageVolume,
+      activeSessions,
+      serverUptime: Math.floor((Date.now() - SERVER_START_TIME) / 1000),
+      nodeVersion: process.version,
+      dbSizeBytes,
+      memoryUsage: { rss: memUsage.rss, heapUsed: memUsage.heapUsed, heapTotal: memUsage.heapTotal },
+      osInfo: `${os.type()} ${os.arch()}`,
+      osPlatform: os.platform(),
+      cpuCount: os.cpus().length,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem()
+    });
+  } catch (err) {
+    console.error('Stats endpoint error:', err);
+    res.status(500).json({ error: 'Failed to gather stats' });
+  }
+});
+
+// Force disconnect a socket
+app.post('/api/admin/disconnect', authenticateToken, requireAdmin, (req, res) => {
+  const { socketId } = req.body;
+  const targetSocket = io.sockets.sockets.get(socketId);
+  if (targetSocket) {
+    targetSocket.disconnect(true);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Socket not found' });
+  }
+});
+
+// ─── Admin Config API ──────────────────────────────────────────
+app.get('/api/admin/config', authenticateToken, requireAdmin, (req, res) => {
+  db.all('SELECT key, value, updated_at FROM config', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    const config = {};
+    rows.forEach(r => { config[r.key] = r.value; });
+    res.json(config);
+  });
+});
+
+app.put('/api/admin/config', authenticateToken, requireAdmin, (req, res) => {
+  const updates = req.body;
+  if (!updates || typeof updates !== 'object') return res.status(400).json({ error: 'Invalid config data' });
+  const stmt = db.prepare('INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime("now"))');
+  for (const [key, value] of Object.entries(updates)) {
+    stmt.run(key, String(value));
+  }
+  stmt.finalize();
+  res.json({ success: true });
+});
+
+// ─── Server-side Key Escrow endpoints ──────────────────────────
+// Store escrow key when a room key is first created
+app.post('/api/spaces/:id/escrow-key', authenticateToken, (req, res) => {
+  const spaceId = req.params.id;
+  const { rawKeyBase64 } = req.body;
+  if (!rawKeyBase64) return res.status(400).json({ error: 'rawKeyBase64 required' });
+  const encrypted = serverEncrypt(rawKeyBase64);
+  db.run('UPDATE spaces SET escrow_key = ? WHERE id = ?', [encrypted, spaceId], (err) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json({ success: true });
+  });
+});
+
+// Request key from escrow: server decrypts escrow, re-wraps with user's public key, stores, returns
+app.get('/api/spaces/:id/request-key', authenticateToken, (req, res) => {
+  const spaceId = req.params.id;
+  const userId = req.user.userId;
+  // Always re-wrap from escrow to handle public key changes (e.g. after key regen)
+  // Check membership (private space) or public access
+  db.get('SELECT 1 as ok FROM space_members WHERE space_id = ? AND user_id = ? UNION SELECT 1 as ok FROM spaces WHERE id = ? AND is_private = 0', [spaceId, userId, spaceId], (err, access) => {
+    if (!access) return res.status(403).json({ error: 'Not a member of this space' });
+      // Get escrow key and user's public key
+      db.get('SELECT escrow_key FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+        if (!space?.escrow_key) return res.status(404).json({ error: 'No escrow key available for this space' });
+        db.get('SELECT public_key FROM users WHERE id = ?', [userId], async (err, user) => {
+          if (!user?.public_key) return res.status(404).json({ error: 'User has no public key' });
+          try {
+            // Decrypt escrow to get raw AES key bytes
+            const rawKeyBase64 = serverDecrypt(space.escrow_key);
+            const rawKeyBuffer = Buffer.from(rawKeyBase64, 'base64');
+            // Import user's RSA public key and wrap the AES key
+            const pubKeyJWK = JSON.parse(user.public_key);
+            const publicKey = crypto.createPublicKey({ key: pubKeyJWK, format: 'jwk' });
+            const encryptedForUser = crypto.publicEncrypt(
+              { key: publicKey, oaepHash: 'sha256', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+              rawKeyBuffer
+            );
+            const wrappedB64 = encryptedForUser.toString('base64');
+            // Store in space_keys
+            db.run('INSERT OR REPLACE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES (?, ?, ?)',
+              [spaceId, userId, wrappedB64], (err) => {
+                if (err) console.error('Failed to store re-wrapped key', err);
+                res.json({ encrypted_room_key: wrappedB64 });
+              });
+          } catch (e) {
+            console.error('Escrow key recovery failed:', e);
+            res.status(500).json({ error: 'Key recovery failed' });
+          }
+        });
     });
   });
 });
@@ -1336,6 +1612,8 @@ io.on('connection', (socket) => {
   const user = socket.user;
   const username = user.username;
   console.log(`A user connected: ${username} (${socket.id})`);
+  socket.connectedAt = Date.now();
+  socket.userAgentStr = socket.handshake?.headers?.['user-agent'] || 'Unknown';
 
   // Track active sessions per user
   db.get('SELECT username, first_name, last_name, avatar FROM users WHERE username = ?', [username], (err, row) => {

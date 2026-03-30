@@ -85,6 +85,14 @@ export async function generateRoomKey() {
   );
 }
 
+export async function exportRoomKeyRaw(aesKey) {
+  const raw = await window.crypto.subtle.exportKey("raw", aesKey);
+  let binary = '';
+  const bytes = new Uint8Array(raw);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return window.btoa(binary);
+}
+
 export async function encryptRoomKeyWithPublicKey(aesKey, publicKeyJWKString) {
   const publicKey = await importPublicKey(publicKeyJWKString);
   const rawAesKey = await window.crypto.subtle.exportKey("raw", aesKey);
