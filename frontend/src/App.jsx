@@ -669,6 +669,13 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const [broadcastText, setBroadcastText] = useState('');
   const [broadcastSent, setBroadcastSent] = useState(false);
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [auditLogs, setAuditLogs] = useState(null);
+  const [reports, setReports] = useState(null);
+  const [wordFilters, setWordFilters] = useState([]);
+  const [newFilterWord, setNewFilterWord] = useState('');
+  const [newFilterAction, setNewFilterAction] = useState('block');
+  const [reportFilter, setReportFilter] = useState('pending');
+  const [auditFilter, setAuditFilter] = useState('');
   const [serverConfig, setServerConfig] = useState(null);
   const [configSaveStatus, setConfigSaveStatus] = useState(null); // 'saving' | 'saved' | null
   const [userToDelete, setUserToDelete] = useState(null);
@@ -752,7 +759,75 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     } catch (e) { console.error('Export failed', e); }
   };
 
-  const fetchLoginHistory = async (userId) => {
+  // Moderation fetchers
+  const fetchAuditLogs = async (action = '') => {
+    try {
+      const url = new URL(`${socketUrl}/api/admin/audit-log`);
+      if (action) url.searchParams.set('action', action);
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); setAuditLogs(data); }
+    } catch (e) { console.error('Audit log fetch failed', e); }
+  };
+
+  const fetchReports = async (status = 'pending') => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/reports?status=${status}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setReports(await res.json());
+    } catch (e) { console.error('Reports fetch failed', e); }
+  };
+
+  const fetchWordFilters = async () => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/word-filters`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setWordFilters(await res.json());
+    } catch (e) { console.error('Word filters fetch failed', e); }
+  };
+
+  const handleReportAction = async (reportId, status, deleteMessage = false) => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/reports/${reportId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status, deleteMessage })
+      });
+      if (res.ok) fetchReports(reportFilter);
+    } catch (e) { console.error('Report action failed', e); }
+  };
+
+  const handleAddWordFilter = async () => {
+    if (!newFilterWord.trim()) return;
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/word-filters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ pattern: newFilterWord, action: newFilterAction })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWordFilters(prev => [data, ...prev]);
+        setNewFilterWord('');
+      } else {
+        const err = await res.json();
+        alert(err.error);
+      }
+    } catch (e) { console.error('Add filter failed', e); }
+  };
+
+  const handleDeleteWordFilter = async (id) => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/word-filters/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setWordFilters(prev => prev.filter(f => f.id !== id));
+    } catch (e) { console.error('Delete filter failed', e); }
+  };
+
+    const fetchLoginHistory = async (userId) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/${userId}/logins`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -941,6 +1016,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
             { id: 'assets', label: 'Assets', icon: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>' },
             { id: 'spaces', label: 'Spaces', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' },
             { id: 'config', label: 'Config', icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>' },
+            { id: 'moderation', label: 'Moderation', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>' },
             { id: 'broadcast', label: 'Broadcast', icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>' },
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
@@ -1868,7 +1944,172 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>Loading configuration...</div>
         )}
 
-        {activeTab === 'broadcast' && (
+        {activeTab === 'moderation' && (() => {
+          // Auto-fetch on tab open
+          if (!auditLogs) fetchAuditLogs();
+          if (!reports) fetchReports();
+          if (wordFilters.length === 0) fetchWordFilters();
+
+          const actionLabels = {
+            suspend_user: '🚫 Suspended User',
+            unsuspend_user: '✅ Unsuspended User',
+            delete_user: '🗑️ Deleted User',
+            bulk_delete_users: '🗑️ Bulk Deleted Users',
+            update_config: '⚙️ Updated Config',
+            add_word_filter: '🔤 Added Word Filter',
+            delete_word_filter: '🔤 Removed Word Filter',
+            resolve_report: '✅ Resolved Report',
+            dismiss_report: '❌ Dismissed Report',
+          };
+
+          return (
+            <div>
+              {/* ═══ Reports Section ═══ */}
+              <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                    Message Reports {reports?.pendingCount > 0 && <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 700, background: '#ef4444', color: '#fff', marginLeft: '6px' }}>{reports.pendingCount}</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {['pending', 'resolved', 'dismissed'].map(s => (
+                      <button key={s} onClick={() => { setReportFilter(s); fetchReports(s); }} style={{
+                        padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit', textTransform: 'capitalize',
+                        background: reportFilter === s ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                        color: reportFilter === s ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)',
+                      }}>{s}</button>
+                    ))}
+                  </div>
+                </div>
+                {reports?.reports?.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ display: 'block', margin: '0 auto 8px' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    No {reportFilter} reports
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {reports?.reports?.map(r => (
+                      <div key={r.id} style={{ padding: '10px 12px', borderRadius: '10px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.82rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                          <div>
+                            <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>@{r.reporter_username}</span>
+                            <span style={{ color: 'var(--md-sys-color-outline)' }}> reported </span>
+                            <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>@{r.message_sender}</span>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>{new Date(r.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <div style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface)', fontSize: '0.8rem', color: 'var(--md-sys-color-on-surface)', marginBottom: '6px', borderLeft: '3px solid var(--md-sys-color-error)' }}>
+                          "{r.message_text?.substring(0, 200) || '[deleted]'}"
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)', flex: 1 }}>Reason: {r.reason}</span>
+                          {r.status === 'pending' && (
+                            <>
+                              <button onClick={() => handleReportAction(r.id, 'resolved', true)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                Delete Message
+                              </button>
+                              <button onClick={() => handleReportAction(r.id, 'resolved')} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit' }}>Resolve</button>
+                              <button onClick={() => handleReportAction(r.id, 'dismissed')} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit' }}>Dismiss</button>
+                            </>
+                          )}
+                          {r.status !== 'pending' && (
+                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: r.status === 'resolved' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)' }}>
+                              {r.status === 'resolved' ? '✅' : '❌'} {r.resolved_by} · {new Date(r.resolved_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ═══ Word Filters Section ═══ */}
+              <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+                <div className="dash-section-title">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                  Word Filters
+                </div>
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <input type="text" placeholder="Add a word or phrase..." value={newFilterWord} onChange={(e) => setNewFilterWord(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddWordFilter(); }}
+                      style={{ flex: 1, padding: '8px 12px 8px 32px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
+                  </div>
+                  <select value={newFilterAction} onChange={(e) => setNewFilterAction(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontFamily: 'inherit', fontSize: '0.82rem', cursor: 'pointer' }}>
+                    <option value="block">Block</option>
+                    <option value="flag">Flag</option>
+                  </select>
+                  <button onClick={handleAddWordFilter} disabled={!newFilterWord.trim()} style={{
+                    padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: newFilterWord.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                    background: newFilterWord.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                    color: newFilterWord.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add
+                  </button>
+                </div>
+                {wordFilters.length === 0 ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>No word filters configured</div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {wordFilters.map(f => (
+                      <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', borderRadius: '8px', background: f.action === 'block' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)', fontSize: '0.8rem' }}>
+                        <span style={{ color: f.action === 'block' ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
+                          {f.action === 'block' ? '🚫' : '⚠️'}
+                        </span>
+                        <span style={{ color: 'var(--md-sys-color-on-surface)' }}>{f.pattern}</span>
+                        <button onClick={() => handleDeleteWordFilter(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--md-sys-color-outline)', display: 'flex' }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ═══ Audit Log Section ═══ */}
+              <div className="dash-section">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    Audit Log {auditLogs?.total > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--md-sys-color-outline)' }}>({auditLogs.total} entries)</span>}
+                  </div>
+                  <button onClick={() => fetchAuditLogs(auditFilter)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Refresh
+                  </button>
+                </div>
+                {auditLogs?.logs?.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ display: 'block', margin: '0 auto 8px' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    No audit entries yet
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '300px', overflow: 'auto' }}>
+                    {auditLogs?.logs?.map(log => (
+                      <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
+                        <span style={{ fontSize: '1rem', flexShrink: 0 }}>{(actionLabels[log.action] || log.action).split(' ')[0]}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>@{log.admin_username}</span>
+                          <span style={{ color: 'var(--md-sys-color-outline)' }}> {actionLabels[log.action]?.substring(2) || log.action} </span>
+                          {log.target_id && <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 500 }}>#{log.target_id}</span>}
+                          {log.details && <span style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem' }}> — {log.details.substring(0, 60)}</span>}
+                        </div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>{new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+                {activeTab === 'broadcast' && (
           <div className="dash-section">
             <div className="dash-section-title">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
@@ -2653,6 +2894,10 @@ function App() {
       alert(data.reason || 'You have been disconnected by an administrator.');
       localStorage.clear();
       window.location.reload();
+    });
+
+        newSocket.on('message_blocked', (data) => {
+      alert(data.reason || 'Your message was blocked by content filters.');
     });
 
     newSocket.on('presence', (users) => {

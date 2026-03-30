@@ -168,6 +168,41 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         FOREIGN KEY (space_id) REFERENCES spaces(id),
         FOREIGN KEY (user_id) REFERENCES users(id)
       )`);
+      // Phase 4: Moderation tables
+      db.run(`CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id INTEGER,
+        admin_username TEXT,
+        action TEXT,
+        target_type TEXT,
+        target_id TEXT,
+        details TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
+      db.run(`CREATE TABLE IF NOT EXISTS message_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reporter_id INTEGER,
+        reporter_username TEXT,
+        message_id INTEGER,
+        space_id INTEGER,
+        message_text TEXT,
+        message_sender TEXT,
+        reason TEXT,
+        status TEXT DEFAULT 'pending',
+        resolved_by TEXT,
+        resolved_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (reporter_id) REFERENCES users(id)
+      )`);
+
+      db.run(`CREATE TABLE IF NOT EXISTS word_filters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern TEXT UNIQUE,
+        action TEXT DEFAULT 'block',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
       db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
@@ -703,6 +738,12 @@ const requireAdmin = (req, res, next) => {
   });
 };
 
+// Audit log helper
+function logAudit(adminId, adminUsername, action, targetType, targetId, details) {
+  db.run('INSERT INTO audit_log (admin_id, admin_username, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?)',
+    [adminId, adminUsername, action, targetType, String(targetId), typeof details === 'object' ? JSON.stringify(details) : details]);
+}
+
 app.get('/api/settings', (req, res) => {
   db.all('SELECT key, value FROM app_settings', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
@@ -792,6 +833,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) =
   if (targetId == req.user.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
   db.run('DELETE FROM users WHERE id = ?', [targetId], function(err) {
     if (err) return res.status(500).json({ error: 'Delete failed' });
+    logAudit(req.user.userId, req.user.username, 'delete_user', 'user', targetId, null);
     res.json({ success: true });
   });
 });
@@ -815,6 +857,7 @@ app.put('/api/admin/users/:id/suspend', authenticateToken, requireAdmin, (req, r
         }
       }
       res.json({ suspended: newStatus });
+      logAudit(req.user.userId, req.user.username, newStatus ? 'suspend_user' : 'unsuspend_user', 'user', targetId, null);
     });
   });
 });
@@ -888,8 +931,136 @@ app.post('/api/admin/users/bulk-delete', authenticateToken, requireAdmin, (req, 
   db.run(`DELETE FROM users WHERE id IN (${placeholders})`, filtered, function(err) {
     if (err) return res.status(500).json({ error: 'Delete failed' });
     res.json({ deleted: this.changes });
+    logAudit(req.user.userId, req.user.username, 'bulk_delete_users', 'user', filtered.join(','), null);
   });
 });
+
+// ═══ Phase 4: Moderation & Audit ═══
+
+// -- Audit Log --
+app.get('/api/admin/audit-log', authenticateToken, requireAdmin, (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  const action = req.query.action;
+  
+  let query = 'SELECT * FROM audit_log';
+  let params = [];
+  if (action) {
+    query += ' WHERE action = ?';
+    params.push(action);
+  }
+  query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    db.get('SELECT COUNT(*) as total FROM audit_log' + (action ? ' WHERE action = ?' : ''), action ? [action] : [], (err2, countRow) => {
+      res.json({ logs: rows || [], total: countRow?.total || 0 });
+    });
+  });
+});
+
+// -- Message Reports --
+app.post('/api/messages/:id/report', authenticateToken, (req, res) => {
+  const messageId = req.params.id;
+  const { reason, spaceId } = req.body;
+  if (!reason) return res.status(400).json({ error: 'Reason required' });
+  
+  db.get('SELECT text, sender FROM messages WHERE id = ?', [messageId], (err, msg) => {
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    
+    // Check for duplicate report
+    db.get('SELECT id FROM message_reports WHERE reporter_id = ? AND message_id = ? AND status = ?', [req.user.userId, messageId, 'pending'], (err, existing) => {
+      if (existing) return res.status(409).json({ error: 'Already reported' });
+      
+      db.run('INSERT INTO message_reports (reporter_id, reporter_username, message_id, space_id, message_text, message_sender, reason) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [req.user.userId, req.user.username, messageId, spaceId || null, msg.text, msg.sender, reason], function(err) {
+          if (err) return res.status(500).json({ error: 'Report failed' });
+          res.json({ id: this.lastID, message: 'Report submitted' });
+        });
+    });
+  });
+});
+
+app.get('/api/admin/reports', authenticateToken, requireAdmin, (req, res) => {
+  const status = req.query.status || 'pending';
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  
+  db.all('SELECT * FROM message_reports WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', [status, limit, offset], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    db.get('SELECT COUNT(*) as total FROM message_reports WHERE status = ?', [status], (err2, c) => {
+      db.get('SELECT COUNT(*) as pending FROM message_reports WHERE status = ?', ['pending'], (err3, p) => {
+        res.json({ reports: rows || [], total: c?.total || 0, pendingCount: p?.pending || 0 });
+      });
+    });
+  });
+});
+
+app.put('/api/admin/reports/:id', authenticateToken, requireAdmin, (req, res) => {
+  const { status } = req.body; // 'resolved' | 'dismissed'
+  if (!['resolved', 'dismissed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  
+  db.run('UPDATE message_reports SET status = ?, resolved_by = ?, resolved_at = datetime("now") WHERE id = ?',
+    [status, req.user.username, req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: 'Update failed' });
+      logAudit(req.user.userId, req.user.username, status === 'resolved' ? 'resolve_report' : 'dismiss_report', 'report', req.params.id, null);
+      
+      // If resolved, optionally delete the message
+      if (status === 'resolved' && req.body.deleteMessage) {
+        db.get('SELECT message_id, space_id FROM message_reports WHERE id = ?', [req.params.id], (err, report) => {
+          if (report) {
+            db.run('DELETE FROM messages WHERE id = ?', [report.message_id]);
+            io.emit('message deleted', { messageId: report.message_id, spaceId: report.space_id });
+          }
+        });
+      }
+      res.json({ success: true });
+    });
+});
+
+// -- Word Filters --
+app.get('/api/admin/word-filters', authenticateToken, requireAdmin, (req, res) => {
+  db.all('SELECT * FROM word_filters ORDER BY created_at DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json(rows || []);
+  });
+});
+
+app.post('/api/admin/word-filters', authenticateToken, requireAdmin, (req, res) => {
+  const { pattern, action } = req.body;
+  if (!pattern) return res.status(400).json({ error: 'Pattern required' });
+  const filterAction = action === 'flag' ? 'flag' : 'block';
+  
+  db.run('INSERT OR IGNORE INTO word_filters (pattern, action) VALUES (?, ?)', [pattern.toLowerCase().trim(), filterAction], function(err) {
+    if (err) return res.status(500).json({ error: 'Insert failed' });
+    if (this.changes === 0) return res.status(409).json({ error: 'Filter already exists' });
+    logAudit(req.user.userId, req.user.username, 'add_word_filter', 'filter', this.lastID, pattern);
+    res.json({ id: this.lastID, pattern: pattern.toLowerCase().trim(), action: filterAction });
+  });
+});
+
+app.delete('/api/admin/word-filters/:id', authenticateToken, requireAdmin, (req, res) => {
+  db.run('DELETE FROM word_filters WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: 'Delete failed' });
+    logAudit(req.user.userId, req.user.username, 'delete_word_filter', 'filter', req.params.id, null);
+    res.json({ success: true });
+  });
+});
+
+// -- Word filter check middleware for messages --
+function checkWordFilters(text, callback) {
+  db.all('SELECT * FROM word_filters', [], (err, filters) => {
+    if (err || !filters || filters.length === 0) return callback(null, null);
+    const lower = text.toLowerCase();
+    for (const f of filters) {
+      if (lower.includes(f.pattern)) {
+        return callback(f.action, f.pattern);
+      }
+    }
+    callback(null, null);
+  });
+}
 
 // -- Self-service password change (requires current password) --
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
