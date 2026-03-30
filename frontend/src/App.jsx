@@ -2874,7 +2874,7 @@ function App() {
                  {deferredPrompt && (
                    <button onClick={() => { handleInstallClick(); setShowDropdown(false); }} className="dropdown-item">Install App</button>
                  )}
-                 <button onClick={() => { logout(); setShowDropdown(false); }} className="dropdown-item danger">Logout</button>
+                 <button onClick={() => { handleLogout(); setShowDropdown(false); }} className="dropdown-item danger">Logout</button>
                </div>
              )}
            </div>
@@ -3182,7 +3182,7 @@ function App() {
               <div className={`message-wrapper ${isMe ? 'me' : 'them'}`} id={`msg-${msg.id}`}>
                 {!isMe && (
                 msg.avatar ? (
-                  <img src={msg.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: '2px' }} alt={msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender} />
+                  <img loading="lazy" src={msg.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: '2px' }} alt={msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender} />
                 ) : (
                   <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-background)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 'bold', flexShrink: 0, marginBottom: '2px' }}>
                     {msg.first_name ? msg.first_name.charAt(0).toUpperCase() : msg.sender.charAt(0).toUpperCase()}

@@ -181,7 +181,7 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         db.all(`SELECT id, username FROM users`, [], (err, usersList) => {
           if (!err && usersList) {
             usersList.forEach(u => {
-              db.get(`SELECT s.id FROM spaces s JOIN space_members sm ON s.id = sm.space_id WHERE s.is_dm = 1 AND sm.user_id = ? GROUP BY s.id HAVING COUNT(sm.user_id) = 1`, [u.id], (err, row) => {
+              db.get(`SELECT s.id FROM spaces s JOIN space_members sm ON s.id = sm.space_id WHERE s.is_dm = 1 AND s.name LIKE 'self_%' AND sm.user_id = ?`, [u.id], (err, row) => {
                 if (!row) {
                   db.run(`INSERT INTO spaces (name, created_by, is_private, is_dm) VALUES (?, ?, 1, 1)`, [`self_${u.id}_${Date.now()}`, u.username], function(err) {
                     if (!err && this.lastID) {

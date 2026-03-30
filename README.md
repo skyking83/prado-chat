@@ -26,9 +26,11 @@
   - Auto-searching, debounced integrated GIF engine (via Giphy)
 - **Slack-Style Rich Text Editor**: ContentEditable input with live inline formatting — type `**bold**`, `*italic*`, `` `code` ``, or `~~strike~~` and watch the syntax markers vanish as formatting appears in-place. Includes a floating format toolbar (Bold, Italic, Strikethrough, Code) on text selection. Sent messages render full Markdown (tables, blockquotes, lists, headings) via `marked` + `DOMPurify`.
 - **Admin Dashboard**: Full internal control panel to manage user roles, delete spaces, audit chat logs, and orchestrate global app settings.
-- **Progressive Web App (PWA)**: Installable as a native app on iOS, Android, macOS, and Windows.
+- **Progressive Web App (PWA)**: Installable as a native app on iOS, Android, macOS, and Windows. Full offline support with service worker caching policy, push notifications with E2EE-aware decryption, and iOS-optimized `apple-mobile-web-app` meta tags.
+- **Push Notifications**: E2EE-aware Web Push with grouped notification stacking per-space, inline reply actions (Android), and one-tap deep-linking into the target conversation.
 - **Customizable Theming & Typography**: Dynamically updates UI accents, features a partitioned subset of the 1,500+ Google Fonts natively, and ships with a real-time UI Scaling slider leveraging continuous CSS `rem` ratios natively across the client.
 - **Resilient Connection States**: Real-time network detection seamlessly swapping avatar states and suppressing active boundaries if the backend WebSocket drops out.
+- **Accessibility**: Respects `prefers-reduced-motion`, proper semantic HTML, iOS safe area insets for notch/Dynamic Island devices.
 
 ---
 
@@ -47,10 +49,13 @@
 - SQLite3 (zero-configuration local persistence)
 - `Socket.io` (Real-Time Bidirectional Event Engine)
 - JSON Web Tokens (JWT) & bcrypt (Authentication)
+- `web-push` (VAPID Web Push Notifications)
 
 **Deployment**
 - Fully Containerized (Docker & Docker Compose)
 - Auto-bridged Nginx Reverse Proxy (Frontend routing & WebSocket upgrading)
+- Service Worker with offline fallback, cache versioning, and no-cache policy via nginx
+- Watchtower auto-update support for continuous deployment
 
 ---
 
@@ -65,22 +70,21 @@ The easiest way to run Prado Chat is via Docker Compose. The environment is orch
    ```
 
 2. **Configure your Environment**
-   Create a `.env` file in the `backend/` directory mapping to the example values:
+   Create a `.env` file in the project root:
    ```env
-   # backend/.env
-   PORT=3000
    JWT_SECRET=super_secret_key_change_me
-   SOCKET_CORS_ORIGIN=*
+   RESEND_API_KEY=your_resend_api_key
+   GIPHY_API_KEY=your_giphy_api_key
    ```
 
 3. **Spin up the stack**
    ```bash
    # Make sure Docker Desktop / Engine is running
-   docker-compose up -d --build
+   docker-compose up -d
    ```
 
 4. **Access the App**
-   Open your browser and navigate to `http://localhost`.
+   Open your browser and navigate to `http://localhost:30099`.
 
 ---
 
@@ -94,7 +98,7 @@ cd backend
 npm install
 npm run dev
 ```
-*(The backend runs on `http://localhost:3000`)*
+*(The backend runs on `http://localhost:3001`)*
 
 ### 2. Start the Vite Frontend Server
 ```bash
@@ -103,7 +107,7 @@ cd frontend
 npm install
 npm run dev
 ```
-*(The frontend runs on `http://localhost:5173`)*
+*(The frontend runs on `http://localhost:5173` and proxies API/WebSocket to the backend)*
 
 ---
 
@@ -112,6 +116,18 @@ npm run dev
 If you are spinning the application up from a clean slate, the first user you register will automatically be granted the **`admin`** role. All subsequent registrations will be tagged as standard `users`. 
 
 To manage your instance, simply click your avatar in the Top App Bar, and hit the **Admin Panel** gear. 
+
+---
+
+## 📱 PWA Installation
+
+Prado Chat is a fully installable Progressive Web App:
+
+- **Android**: Tap the "Install App" option in the user menu, or use Chrome's "Add to Home Screen"
+- **iOS**: In Safari, tap the Share button → "Add to Home Screen"
+- **Desktop**: Click "Install App" in the user dropdown or use the browser's install icon in the address bar
+
+The PWA includes offline detection with a branded fallback page, app shortcuts, and full push notification support.
 
 ---
 

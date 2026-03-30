@@ -38,6 +38,7 @@
 
 input, button, textarea, select {
   font-family: inherit;
+  font-size: 16px; /* Prevents iOS Safari auto-zoom on focus */
 }
 
 body {
@@ -46,7 +47,9 @@ body {
   color: var(--md-sys-color-on-background);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  /* App container handles scrolling */
+  overscroll-behavior: none;
+  /* Safe area insets for iPhone notch / Dynamic Island */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 /* Fullspan Container */
@@ -1549,10 +1552,7 @@ button {
     padding: 0.25rem 0.5rem;
   }
 
-  .sidebar {
-    width: 280px;
-    left: -320px;
-  }
+  /* Dead sidebar positioning rules removed — sidebar is a grid child at this breakpoint */
 
   .auth-card {
     padding: 1.25rem 1rem;
@@ -1770,4 +1770,14 @@ button {
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* Accessibility: Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

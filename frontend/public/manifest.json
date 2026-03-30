@@ -1,11 +1,15 @@
 {
   "name": "Prado Chat",
   "short_name": "Prado",
-  "description": "Local real-time messaging app.",
-  "start_url": ".",
+  "description": "Encrypted real-time messaging for your homelab.",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
+  "id": "/",
   "background_color": "#121212",
   "theme_color": "#121212",
+  "categories": ["social", "communication"],
   "icons": [
     {
       "src": "icon.png",
@@ -13,9 +17,17 @@
       "type": "image/png"
     },
     {
-      "src": "icon.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Notes to Self",
+      "url": "/?space=self",
+      "description": "Open your personal notes"
     }
   ]
 }

@@ -1,4 +1,59 @@
 /* eslint-env serviceworker */
+
+// -- App Shell Cache & Offline Fallback --
+const CACHE_NAME = 'prado-v1';
+const OFFLINE_ASSETS = ['/icon.png'];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(OFFLINE_ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then(names =>
+      Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  // Only intercept navigation requests (HTML pages)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return new Response(
+          `<!DOCTYPE html>
+          <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Prado Chat - Offline</title>
+          <style>
+            body{font-family:system-ui,sans-serif;background:#1c1b1f;color:#e6e1e5;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:2rem}
+            h1{font-size:2rem;margin-bottom:1rem}p{opacity:0.7;max-width:300px;line-height:1.6}
+            button{margin-top:2rem;padding:12px 32px;border:none;border-radius:100px;background:#4CAF50;color:#fff;font-size:1rem;cursor:pointer}
+          </style></head><body>
+          <img src="/icon.png" width="64" height="64" style="border-radius:14px;margin-bottom:24px" alt="Prado">
+          <h1>You're Offline</h1>
+          <p>Prado Chat needs an internet connection. Check your WiFi or cellular data and try again.</p>
+          <button onclick="location.reload()">Retry</button>
+          </body></html>`,
+          { headers: { 'Content-Type': 'text/html' } }
+        );
+      })
+    );
+    return;
+  }
+  // For non-navigation requests, try cache first for static assets, network otherwise
+  if (event.request.url.match(/\.(png|jpg|jpeg|svg|ico|woff2?)$/)) {
+    event.respondWith(
+      caches.match(event.request).then(cached => cached || fetch(event.request))
+    );
+  }
+});
+
+// -- E2EE Push Helpers --
 function base64ToUint8Array(base64) {
   const binary_string = atob(base64);
   const len = binary_string.length;
