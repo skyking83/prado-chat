@@ -1351,8 +1351,8 @@ function App() {
         return;
       }
 
-      // Ctrl+N / Cmd+N — New Space modal
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
+      // Ctrl+Shift+N — New Space modal (Ctrl+N is reserved by browser)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         setShowSpaceModal(true);
         return;
@@ -1372,18 +1372,20 @@ function App() {
         return;
       }
 
-      // Alt+↑ / Alt+↓ — Navigate spaces (avoids conflict with ↑ to edit)
+      // Alt+↑ / Alt+↓ — Navigate spaces in visual sidebar order
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
         if (!spaces || spaces.length === 0) return;
-        const currentIdx = spaces.findIndex(s => s.id === currentSpace?.id);
+        // Build visual order: non-DM spaces first, then DMs (matches sidebar rendering)
+        const visualOrder = [...spaces.filter(s => s.is_dm !== 1), ...spaces.filter(s => s.is_dm === 1)];
+        const currentIdx = visualOrder.findIndex(s => s.id === currentSpace?.id);
         let nextIdx;
         if (e.key === 'ArrowUp') {
-          nextIdx = currentIdx <= 0 ? spaces.length - 1 : currentIdx - 1;
+          nextIdx = currentIdx <= 0 ? visualOrder.length - 1 : currentIdx - 1;
         } else {
-          nextIdx = currentIdx >= spaces.length - 1 ? 0 : currentIdx + 1;
+          nextIdx = currentIdx >= visualOrder.length - 1 ? 0 : currentIdx + 1;
         }
-        handleSpaceSelect(spaces[nextIdx]);
+        handleSpaceSelect(visualOrder[nextIdx]);
         return;
       }
     };

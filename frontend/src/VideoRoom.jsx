@@ -619,9 +619,34 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
         toggleVideo();
         return;
       }
+      // Spacebar — Push-to-talk (momentary unmute while held)
+      if (e.key === ' ' && !e.repeat) {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+        if (isMuted && localStream) {
+          e.preventDefault();
+          localStream.getAudioTracks().forEach(t => t.enabled = true);
+          setIsMuted(false);
+        }
+      }
+    };
+    const handleCallKeyUp = (e) => {
+      // Spacebar release — re-mute (push-to-talk release)
+      if (e.key === ' ') {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+        if (localStream && !isMuted) {
+          localStream.getAudioTracks().forEach(t => t.enabled = false);
+          setIsMuted(true);
+        }
+      }
     };
     window.addEventListener('keydown', handleCallKeys);
-    return () => window.removeEventListener('keydown', handleCallKeys);
+    window.addEventListener('keyup', handleCallKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleCallKeys);
+      window.removeEventListener('keyup', handleCallKeyUp);
+    };
   }, [localStream, isMuted, isVideoOff]);
 
   const switchCamera = async () => {
