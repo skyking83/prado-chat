@@ -267,16 +267,25 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
 
     return () => {
       isMounted = false;
-      if (previewStream) previewStream.getTracks().forEach(t => t.stop());
+      // Only stop tracks if the stream was NOT transferred to the call
+      if (previewStream && previewStream !== transferredStreamRef.current) {
+        previewStream.getTracks().forEach(t => t.stop());
+      }
       if (lobbyAnimFrameRef.current) cancelAnimationFrame(lobbyAnimFrameRef.current);
       if (lobbyAnalyserRef.current?.ctx) lobbyAnalyserRef.current.ctx.close().catch(() => {});
     };
   }, [inLobby, audioOnly, selectedCamera, selectedMic]);
 
+  // Ref to hold the lobby stream that gets transferred to the call
+  const transferredStreamRef = useRef(null);
+
   // ─── Join Call from Lobby ───
   const joinCall = () => {
-    // Stop lobby preview stream
-    if (lobbyStream) lobbyStream.getTracks().forEach(t => t.stop());
+    // Transfer the lobby stream instead of destroying it — avoids a second getUserMedia call
+    if (lobbyStream) {
+      transferredStreamRef.current = lobbyStream;
+    }
+    // Only clean up the mic level meter, NOT the stream tracks
     if (lobbyAnimFrameRef.current) cancelAnimationFrame(lobbyAnimFrameRef.current);
     if (lobbyAnalyserRef.current?.ctx) lobbyAnalyserRef.current.ctx.close().catch(() => {});
     setLobbyStream(null);
@@ -289,17 +298,29 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     let currentStream = null;
     let isMounted = true;
 
-    const constraints = {
-      audio: selectedMic
-        ? { deviceId: { exact: selectedMic }, noiseSuppression: true, echoCancellation: true, autoGainControl: true }
-        : { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
-      video: audioOnly ? false : (selectedCamera
-        ? { deviceId: { exact: selectedCamera }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' })
-    };
+    const initMedia = async () => {
+      try {
+        let stream;
+        const transferred = transferredStreamRef.current;
+        transferredStreamRef.current = null;
 
-    navigator.mediaDevices.getUserMedia(constraints)
-      .then(stream => {
+        if (transferred && transferred.active) {
+          // Reuse the lobby stream directly — no second getUserMedia needed
+          stream = transferred;
+        } else {
+          // Fallback: acquire fresh media (e.g. if lobby was skipped or stream died)
+          if (transferred) transferred.getTracks().forEach(t => t.stop());
+          const constraints = {
+            audio: selectedMic
+              ? { deviceId: { exact: selectedMic }, noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+              : { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
+            video: audioOnly ? false : (selectedCamera
+              ? { deviceId: { exact: selectedCamera }, width: { ideal: 1280 }, height: { ideal: 720 } }
+              : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' })
+          };
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        }
+
         if (!isMounted) { stream.getTracks().forEach(t => t.stop()); return; }
         currentStream = stream;
         setLocalStream(stream);
@@ -309,13 +330,15 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
         socket.emit('call-ringing', { spaceId });
         // Join the video room
         socket.emit('join-video-room', spaceId);
-      })
-      .catch(err => {
+      } catch (err) {
         if (isMounted) {
           console.error("Failed to acquire media:", err);
           setError('Camera or microphone permissions denied. Check browser settings.');
         }
-      });
+      }
+    };
+
+    initMedia();
 
     return () => {
       isMounted = false;
