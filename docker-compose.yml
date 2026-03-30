@@ -43,5 +43,4 @@ services:
     network_mode: host
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
-      - /mnt/pool1/app_data/prado-chat-coturn:/var/lib/coturn
     command: ["-c", "/etc/turnserver.conf"]
