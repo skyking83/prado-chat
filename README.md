@@ -51,9 +51,17 @@ ContentEditable input with **live inline formatting** — type `**bold**`, `*ita
 ### 🔔 Push Notifications
 E2EE-aware Web Push with grouped notification stacking per-space, inline reply actions (Android), and one-tap deep-linking into the target conversation.
 
+### 👤 Enhanced User Profiles
+- **Status Indicators**: 10 curated SVG status icons (Available, Busy, Away, In a Meeting, Headphones, Working from Home, Traveling, DND, On a Break) — all theme-aware via `currentColor`
+- **Bio**: 200-character user biography with live character counter
+- **Timezone**: Auto-detected from browser on first login, auto-inferred from location with 30+ city/country keyword mappings, or manual override from 35 IANA timezones
+- **Profile Hover Cards**: Hover over any avatar in the sidebar to see a rich floating card with avatar, display name, @username, status icon + text, bio (3-line clamp), and local time
+- **Real-time status sync**: Status changes broadcast instantly to all connected clients via WebSocket
+
 ### 🛡️ Admin Dashboard
-Full internal control panel — manage user roles, delete spaces (with Notes to Self protection), audit chat logs, and orchestrate global app settings from a dedicated admin panel.
+Full internal control panel with a redesigned user edit form matching the Settings modal's visual language — hero avatar, responsive 2-column grid, section cards (Profile, Status & Bio, Role & Preferences, Security), and metadata bar.
 - **📢 Broadcast System**: Send real-time announcements to all connected users via an animated top-of-screen banner with auto-dismiss countdown
+- **Location → Timezone inference**: Selecting a location auto-populates timezone for users who haven't set one
 
 ### 📱 Progressive Web App (PWA)
 Installable as a native app on iOS, Android, macOS, and Windows:

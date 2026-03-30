@@ -98,6 +98,10 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         reset_token_expires INTEGER,
         public_key TEXT,
         wrapped_private_key TEXT,
+        bio TEXT,
+        status_text TEXT,
+        status_emoji TEXT,
+        timezone TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )`, (err) => {
         if (err) console.error("FATAL SQLITE CREATE ERROR:", err);
@@ -118,6 +122,10 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
           db.run(`ALTER TABLE users ADD COLUMN reset_token_expires INTEGER`, () => { });
           db.run(`ALTER TABLE users ADD COLUMN public_key TEXT`, () => { });
           db.run(`ALTER TABLE users ADD COLUMN wrapped_private_key TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN status_text TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN status_emoji TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN timezone TEXT`, () => { });
         }
       });
 
@@ -506,7 +514,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 app.get('/api/profile', authenticateToken, (req, res) => {
-  db.get('SELECT id, username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, public_key FROM users WHERE id = ?', [req.user.userId], (err, user) => {
+  db.get('SELECT id, username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, public_key FROM users WHERE id = ?', [req.user.userId], (err, user) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
@@ -514,7 +522,7 @@ app.get('/api/profile', authenticateToken, (req, res) => {
 });
 
 app.get('/api/users', authenticateToken, (req, res) => {
-  db.all('SELECT id, username, avatar, first_name, last_name, public_key FROM users ORDER BY username ASC', [], (err, rows) => {
+  db.all('SELECT id, username, avatar, first_name, last_name, public_key, status_text, status_emoji, timezone FROM users ORDER BY username ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -544,7 +552,7 @@ app.post('/api/push/subscribe', authenticateToken, (req, res) => {
 });
 
 app.put('/api/profile', authenticateToken, (req, res) => {
-  const { theme, color_palette, avatar, first_name, last_name, email, location, font_family } = req.body;
+  const { theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone } = req.body;
 
   db.run(`UPDATE users SET 
     theme = COALESCE(?, theme), 
@@ -554,11 +562,28 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     last_name = COALESCE(?, last_name),
     email = COALESCE(?, email),
     location = COALESCE(?, location),
-    font_family = COALESCE(?, font_family)
+    font_family = COALESCE(?, font_family),
+    bio = COALESCE(?, bio),
+    status_text = COALESCE(?, status_text),
+    status_emoji = COALESCE(?, status_emoji),
+    timezone = COALESCE(?, timezone)
     WHERE id = ?`, 
-    [theme, color_palette, avatar, first_name, last_name, email, location, font_family, req.user.userId], 
+    [theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, req.user.userId], 
     function(err) {
       if (err) return res.status(500).json({ error: 'Update failed' });
+      // Broadcast profile changes to all connected clients
+      db.get('SELECT username, avatar, font_family, location, status_text, status_emoji FROM users WHERE id = ?', [req.user.userId], (dbErr, row) => {
+        if (!dbErr && row) {
+          io.emit('user profile updated', {
+            username: row.username,
+            avatar: row.avatar,
+            font_family: row.font_family,
+            location: row.location,
+            status_text: row.status_text,
+            status_emoji: row.status_emoji
+          });
+        }
+      });
       res.json({ message: 'Profile updated' });
     }
   );
@@ -596,7 +621,7 @@ app.put('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
 });
 
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
-  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, public_key, created_at FROM users ORDER BY id ASC', [], (err, rows) => {
+  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, bio, status_text, status_emoji, timezone, public_key, created_at FROM users ORDER BY id ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -604,7 +629,7 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
 
 app.put('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family } = req.body;
+  const { username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone } = req.body;
 
   db.run(`UPDATE users SET 
     username = COALESCE(?, username),
@@ -616,9 +641,13 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) => {
     last_name = COALESCE(?, last_name),
     email = COALESCE(?, email),
     location = COALESCE(?, location),
-    font_family = COALESCE(?, font_family)
+    font_family = COALESCE(?, font_family),
+    bio = COALESCE(?, bio),
+    status_text = COALESCE(?, status_text),
+    status_emoji = COALESCE(?, status_emoji),
+    timezone = COALESCE(?, timezone)
     WHERE id = ?`, 
-    [username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, id], 
+    [username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, id], 
     function(err) {
       if (err) {
         if (err.message.includes('UNIQUE constraint failed')) {
@@ -628,13 +657,15 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) => {
       }
       if (this.changes === 0) return res.status(404).json({ error: 'User not found' });    
       
-      db.get('SELECT username, avatar, font_family, location FROM users WHERE id = ?', [id], (dbErr, row) => {
+      db.get('SELECT username, avatar, font_family, location, status_text, status_emoji FROM users WHERE id = ?', [id], (dbErr, row) => {
         if (!dbErr && row) {
           io.emit('user profile updated', {
             username: row.username,
             avatar: row.avatar,
             font_family: row.font_family,
-            location: row.location
+            location: row.location,
+            status_text: row.status_text,
+            status_emoji: row.status_emoji
           });
         }
         res.json({ message: 'User updated successfully' });
@@ -1686,24 +1717,24 @@ io.on('connection', (socket) => {
     socket.videoSpaceId = null;
   });
 
+  // ─── Admin Broadcast ───
+  socket.on('admin broadcast', (data) => {
+    if (!data?.message?.trim()) return;
+    db.get('SELECT role, first_name, last_name FROM users WHERE username = ?', [username], (err, row) => {
+      if (err || !row || row.role !== 'admin') return;
+      io.emit('broadcast', {
+        message: data.message.trim(),
+        sender: row.first_name ? `${row.first_name} ${row.last_name || ''}`.trim() : username,
+        timestamp: new Date().toISOString()
+      });
+    });
+  });
+
   socket.on('disconnect', () => {
     // Clean up video room on disconnect
     if (socket.videoSpaceId) {
       cleanupVideoRoom(socket.videoSpaceId);
     }
-
-    // ─── Admin Broadcast ───
-    socket.on('admin broadcast', (data) => {
-      if (!data?.message?.trim()) return;
-      db.get('SELECT role, first_name, last_name FROM users WHERE username = ?', [username], (err, row) => {
-        if (err || !row || row.role !== 'admin') return;
-        io.emit('broadcast', {
-          message: data.message.trim(),
-          sender: row.first_name ? `${row.first_name} ${row.last_name || ''}`.trim() : username,
-          timestamp: new Date().toISOString()
-        });
-      });
-    });
 
     console.log('User disconnected:', socket.id);
 

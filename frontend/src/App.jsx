@@ -304,6 +304,165 @@ const VideoMessage = ({ src }) => {
   );
 };
 
+// Location → Timezone inference map (keyword → IANA timezone)
+const LOCATION_TZ_MAP = [
+  [/new\s*york|nyc|manhattan|brooklyn|queens|bronx/i, 'America/New_York'],
+  [/boston|philadelphia|philly|washington\s*d\.?c|atlanta|miami|charlotte|pittsburgh|detroit|cleveland|columbus.*ohio|indianapolis|virginia|maryland|georgia|florida|carolina|jersey|connecticut|massachusetts|maine|vermont|rhode|delaware|tennessee|kentucky|ohio|michigan|pennsylvania/i, 'America/New_York'],
+  [/chicago|houston|dallas|san\s*antonio|austin|fort\s*worth|memphis|nashville|milwaukee|oklahoma|kansas\s*city|minneapolis|st\.?\s*louis|new\s*orleans|omaha|tulsa|wichita|iowa|texas|illinois|minnesota|wisconsin|missouri|louisiana|arkansas|mississippi|alabama|nebraska|north\s*dakota|south\s*dakota/i, 'America/Chicago'],
+  [/denver|salt\s*lake|boise|albuquerque|colorado|montana|wyoming|utah|new\s*mexico|idaho|el\s*paso/i, 'America/Denver'],
+  [/los\s*angeles|san\s*francisco|seattle|portland|san\s*diego|sacramento|las\s*vegas|california|oregon|washington\s*state|nevada|reno/i, 'America/Los_Angeles'],
+  [/phoenix|arizona|scottsdale|tucson|tempe|mesa/i, 'America/Phoenix'],
+  [/anchorage|alaska|fairbanks|juneau/i, 'America/Anchorage'],
+  [/honolulu|hawaii|maui/i, 'Pacific/Honolulu'],
+  [/toronto|montreal|ottawa|quebec|ontario|vancouver|calgary|edmonton|winnipeg/i, 'America/Toronto'],
+  [/london|manchester|birmingham|liverpool|edinburgh|glasgow|bristol|leeds|united\s*kingdom|england|scotland|wales|britain/i, 'Europe/London'],
+  [/paris|lyon|marseille|toulouse|france/i, 'Europe/Paris'],
+  [/berlin|munich|hamburg|frankfurt|cologne|germany|deutschland/i, 'Europe/Berlin'],
+  [/madrid|barcelona|valencia|seville|spain/i, 'Europe/Madrid'],
+  [/rome|milan|naples|florence|italy|italia/i, 'Europe/Rome'],
+  [/amsterdam|rotterdam|netherlands|dutch|holland/i, 'Europe/Amsterdam'],
+  [/stockholm|sweden|oslo|norway|copenhagen|denmark|helsinki|finland/i, 'Europe/Stockholm'],
+  [/moscow|russia|st\.?\s*petersburg/i, 'Europe/Moscow'],
+  [/tokyo|osaka|japan|kyoto/i, 'Asia/Tokyo'],
+  [/seoul|korea|busan/i, 'Asia/Seoul'],
+  [/shanghai|beijing|guangzhou|shenzhen|china/i, 'Asia/Shanghai'],
+  [/hong\s*kong/i, 'Asia/Hong_Kong'],
+  [/singapore/i, 'Asia/Singapore'],
+  [/mumbai|delhi|bangalore|chennai|kolkata|hyderabad|india/i, 'Asia/Kolkata'],
+  [/dubai|abu\s*dhabi|uae/i, 'Asia/Dubai'],
+  [/sydney|melbourne|brisbane|perth|adelaide|australia/i, 'Australia/Sydney'],
+  [/auckland|wellington|new\s*zealand/i, 'Pacific/Auckland'],
+  [/cairo|egypt/i, 'Africa/Cairo'],
+  [/johannesburg|cape\s*town|south\s*africa/i, 'Africa/Johannesburg'],
+  [/lagos|nigeria/i, 'Africa/Lagos'],
+  [/mexico\s*city|mexico|guadalajara|monterrey/i, 'America/Mexico_City'],
+  [/sao\s*paulo|rio|brazil|brasil/i, 'America/Sao_Paulo'],
+  [/buenos\s*aires|argentina/i, 'America/Argentina/Buenos_Aires'],
+];
+
+const inferTimezone = (location) => {
+  if (!location) return null;
+  for (const [pattern, tz] of LOCATION_TZ_MAP) {
+    if (pattern.test(location)) return tz;
+  }
+  return null;
+};
+
+// Status icons — all SVG, theme-aware via currentColor
+const STATUS_ICONS = [
+  { id: 'available', label: 'Available', color: '#4CAF50', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/>' },
+  { id: 'busy', label: 'Busy', color: '#f44336', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><line x1="9" y1="9" x2="15" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/>' },
+  { id: 'away', label: 'Away', color: '#FF9800', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="var(--md-sys-color-surface)"/>' },
+  { id: 'meeting', label: 'In a Meeting', svg: '<rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="16" y2="20" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="12" y2="20" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'headphones', label: 'Listening', svg: '<path d="M3 18v-6a9 9 0 0 1 18 0v6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" fill="none" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'home', label: 'Working from Home', svg: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'travel', label: 'Traveling', svg: '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.4-.1.9.3 1.1L11 12l-2 3H6l-2 2 4-1 4-1 2-2 4.3 7.3c.2.4.7.5 1.1.3l.5-.3c.4-.2.5-.7.3-1.1z" fill="none" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'dnd', label: 'Do Not Disturb', svg: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.73 21a2 2 0 0 1-3.46 0" fill="none" stroke="currentColor" stroke-width="2"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'coffee', label: 'On a Break', svg: '<path d="M18 8h1a4 4 0 0 1 0 8h-1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" fill="none" stroke="currentColor" stroke-width="2"/><line x1="6" y1="1" x2="6" y2="4" stroke="currentColor" stroke-width="2"/><line x1="10" y1="1" x2="10" y2="4" stroke="currentColor" stroke-width="2"/><line x1="14" y1="1" x2="14" y2="4" stroke="currentColor" stroke-width="2"/>' },
+  { id: 'none', label: 'Reset to Available', svg: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>' },
+];
+
+const StatusIcon = ({ statusId, size = 16, style = {} }) => {
+  const icon = STATUS_ICONS.find(s => s.id === statusId);
+  if (!icon) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: icon.color || 'currentColor', ...style }} dangerouslySetInnerHTML={{ __html: icon.svg }} />
+  );
+};
+
+const ProfileHoverCard = ({ userData, isSelf, profileData, avatar, children }) => {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState('below');
+  const containerRef = useRef(null);
+  const timeoutRef = useRef(null);
+
+  const data = isSelf ? {
+    first_name: profileData?.first_name,
+    last_name: profileData?.last_name,
+    username: profileData?.username || '',
+    avatar: avatar,
+    status_emoji: profileData?.status_emoji,
+    status_text: profileData?.status_text,
+    bio: profileData?.bio,
+    timezone: profileData?.timezone,
+  } : userData;
+
+  if (!data) return children;
+
+  const displayName = data.first_name ? `${data.first_name} ${data.last_name || ''}`.trim() : (data.username || '');
+  const statusDef = STATUS_ICONS.find(s => s.id === data.status_emoji);
+  const localTime = data.timezone ? new Date().toLocaleTimeString('en-US', { timeZone: data.timezone, hour: 'numeric', minute: '2-digit', hour12: true }) : null;
+
+  const handleEnter = () => {
+    timeoutRef.current = setTimeout(() => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setPos(rect.top > 280 ? 'above' : 'below');
+      }
+      setShow(true);
+    }, 400);
+  };
+  const handleLeave = () => {
+    clearTimeout(timeoutRef.current);
+    setShow(false);
+  };
+
+  return (
+    <div ref={containerRef} onMouseEnter={handleEnter} onMouseLeave={handleLeave} style={{ position: 'relative', display: 'inline-flex' }}>
+      {children}
+      {show && (
+        <div style={{
+          position: 'absolute', left: 'calc(100% + 8px)',
+          [pos === 'above' ? 'bottom' : 'top']: '-8px',
+          width: '220px', zIndex: 9999, pointerEvents: 'none',
+          background: 'var(--md-sys-color-surface-container-high)',
+          borderRadius: '14px', padding: '14px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.15)',
+          border: '1px solid var(--md-sys-color-outline-variant)',
+          animation: 'fadeIn 0.15s ease-out'
+        }}>
+          {/* Avatar + Name */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+            {data.avatar ? (
+              <img src={data.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--md-sys-color-primary)', flexShrink: 0 }} alt="" />
+            ) : (
+              <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', fontWeight: 'bold', flexShrink: 0 }}>
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--md-sys-color-on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+              {data.username && <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginTop: '1px' }}>@{data.username}</div>}
+            </div>
+          </div>
+          {/* Status */}
+          {statusDef && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: data.bio || localTime ? '8px' : 0, padding: '6px 8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)' }}>
+              <StatusIcon statusId={data.status_emoji} size={14} />
+              <span style={{ fontSize: '0.78rem', color: 'var(--md-sys-color-on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {data.status_text || statusDef.label}
+              </span>
+            </div>
+          )}
+          {/* Bio */}
+          {data.bio && (
+            <div style={{ fontSize: '0.76rem', color: 'var(--md-sys-color-on-surface-variant)', lineHeight: 1.4, marginBottom: localTime ? '8px' : 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+              {data.bio}
+            </div>
+          )}
+          {/* Timezone / Local time */}
+          {localTime && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              {localTime} local time
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const FontPicker = ({ value, onApply }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -358,8 +517,8 @@ const FontPicker = ({ value, onApply }) => {
   }, []);
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+    <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minWidth: 0 }}>
         <input 
           type="text"
           value={isOpen ? query : currentSelected}
@@ -368,15 +527,16 @@ const FontPicker = ({ value, onApply }) => {
           onBlur={() => setTimeout(() => { setIsOpen(false); setQuery(''); }, 200)}
           placeholder="Search 1,500+ fonts..."
           style={{ 
-            flex: 1, padding: '0.75rem', backgroundColor: 'var(--md-sys-color-surface-variant)', 
-            color: 'var(--md-sys-color-on-surface)', border: 'none', borderRadius: '4px', fontSize: '1rem',
-            fontFamily: query ? 'inherit' : `'${currentSelected}', sans-serif`
+            flex: 1, minWidth: 0, padding: '0.6rem 0.75rem', backgroundColor: 'var(--md-sys-color-surface-variant)', 
+            color: 'var(--md-sys-color-on-surface)', border: 'none', borderRadius: '8px', fontSize: '0.9rem',
+            fontFamily: query ? 'inherit' : `'${currentSelected}', sans-serif`,
+            boxSizing: 'border-box'
           }}
         />
         <button 
           onClick={() => { setIsOpen(false); onApply(currentSelected); }}
           className="btn-primary"
-          style={{ padding: '0.75rem 1.5rem', borderRadius: '4px' }}
+          style={{ padding: '0.6rem 1rem', borderRadius: '8px', flexShrink: 0, fontSize: '0.85rem', whiteSpace: 'nowrap' }}
         >
           Apply
         </button>
@@ -618,16 +778,29 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   };
 
   const handleAdminResetPassword = async () => {
-    if (!adminResetPw) return;
-    if (!window.confirm(`Reset password for ${editingUser.first_name ? editingUser.first_name + ' ' + (editingUser.last_name || '') : editingUser.username}?`)) return;
-    const res = await fetch(`${socketUrl}/api/admin/users/${editingUser.id}/password`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ newPassword: adminResetPw })
-    });
-    const data = await res.json();
-    setAdminResetMsg({ ok: res.ok, text: res.ok ? 'Password reset successfully' : data.error });
-    if (res.ok) setAdminResetPw('');
+    if (!adminResetPw) {
+      setAdminResetMsg({ ok: false, text: 'Please enter a new password' });
+      setTimeout(() => setAdminResetMsg(null), 3000);
+      return;
+    }
+    if (adminResetPw.length < 6) {
+      setAdminResetMsg({ ok: false, text: 'Password must be at least 6 characters' });
+      setTimeout(() => setAdminResetMsg(null), 3000);
+      return;
+    }
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/${editingUser.id}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ newPassword: adminResetPw })
+      });
+      const data = await res.json();
+      setAdminResetMsg({ ok: res.ok, text: res.ok ? 'Password reset successfully' : data.error });
+      if (res.ok) setAdminResetPw('');
+    } catch (err) {
+      console.error('Admin password reset error:', err);
+      setAdminResetMsg({ ok: false, text: 'Network error — could not reach server' });
+    }
     setTimeout(() => setAdminResetMsg(null), 3000);
   };
 
@@ -724,132 +897,195 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
         )}
 
         {activeTab === 'users' && editingUser && (
-          <form onSubmit={handleUserUpdate} style={{ backgroundColor: 'var(--md-sys-color-surface)', padding: 'min(5vw, 2rem)', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', alignItems: 'center' }}>
-              <h2 style={{ color: 'var(--md-sys-color-on-surface)', margin: 0 }}>Edit User: {editingUser.first_name} {editingUser.last_name}</h2>
-              <button type="button" onClick={() => setEditingUser(null)} className="btn-secondary">Cancel</button>
-            </div>
+          <form onSubmit={handleUserUpdate}>
+            <style>{`
+              .admin-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+              .admin-edit-grid .admin-edit-col { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; overflow: hidden; }
+              @media (max-width: 700px) { .admin-edit-grid { grid-template-columns: 1fr; } }
+              .ae-section { background: var(--md-sys-color-surface); border-radius: 16px; padding: 1rem 1.15rem; border: 1px solid var(--md-sys-color-outline-variant); }
+              .ae-section-title { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-outline); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.85rem; }
+              .ae-label { font-size: 0.8rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 4px; }
+              .ae-input { background: var(--md-sys-color-surface-variant); border: 1px solid var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface); padding: 9px 12px; border-radius: 10px; outline: none; font-family: inherit; font-size: 0.85rem; width: 100%; box-sizing: border-box; min-width: 0; transition: border-color 0.2s; }
+              .ae-input:focus { border-color: var(--md-sys-color-primary); }
+            `}</style>
+            <div style={{ maxWidth: '660px', margin: '0 auto', background: 'var(--md-sys-color-surface-variant)', borderRadius: '24px', padding: '1.5rem', boxSizing: 'border-box' }}>
 
-            <div className="form-grid">
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  <h2 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Edit User</h2>
+                </div>
+                <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="icon-btn" title="Back to Users" style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--md-sys-color-surface)', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
 
-              <div className="form-group">
-                <label>Role</label>
-                <select 
-                  value={editingUser.role} 
-                  onChange={(e) => setEditingUser({...editingUser, role: e.target.value})}
-                  style={{ padding: '0.85rem', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', border: 'none', borderRadius: '4px' }}
-                >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>First Name</label>
-                <input 
-                  type="text" 
-                  value={editingUser.first_name || ''} 
-                  onChange={(e) => setEditingUser({...editingUser, first_name: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label>Last Name</label>
-                <input 
-                  type="text" 
-                  value={editingUser.last_name || ''} 
-                  onChange={(e) => setEditingUser({...editingUser, last_name: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label>Email</label>
-                <input 
-                  type="email" 
-                  value={editingUser.email || ''} 
-                  onChange={(e) => setEditingUser({...editingUser, email: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--md-sys-color-outline)' }}>User Avatar</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  {editingUser.avatar ? (
-                    <img src={editingUser.avatar} style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--md-sys-color-primary)' }} alt="Avatar" />
-                  ) : (
-                    <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-background)', fontSize: '1rem', fontWeight: 'bold' }}>
-                      {editingUser.username?.[0]?.toUpperCase() || '?'}
+              <div className="admin-edit-grid">
+                {/* ═══ LEFT COLUMN: Profile & Status ═══ */}
+                <div className="admin-edit-col">
+                  <div className="ae-section">
+                    <div className="ae-section-title">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      Profile
                     </div>
-                  )}
-                  <label style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, transition: 'transform 0.2s', border: '1px solid var(--md-sys-color-outline-variant)' }} title="Upload Image">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <input type="file" accept="image/*" style={{ display: 'none' }} onClick={(e) => { e.target.value = null; }} onChange={(e) => {
-                      const file = e.target.files[0];
-                      if(file) {
-                        const reader = new FileReader();
-                        reader.onload = (event) => setAdminCroppingImage(event.target.result);
-                        reader.readAsDataURL(file);
-                      }
-                    }} />
-                  </label>
-                  {editingUser.avatar && (
-                    <button type="button" className="action-menu-trigger" onClick={() => setEditingUser({...editingUser, avatar: null})} style={{ padding: '0.5rem' }}>🗑️</button>
-                  )}
-                </div>
-              </div>
-              <div className="form-group" style={{ position: 'relative', zIndex: showLocSuggestions ? 10 : 1 }}>
-                <label>Location</label>
-                <input 
-                  type="text" 
-                  value={editingUser.location || ''} 
-                  onChange={(e) => handleLocChange(e.target.value)}
-                  onFocus={() => { if (editingUser.location?.length >= 2) setShowLocSuggestions(true); }}
-                  onBlur={() => setTimeout(() => setShowLocSuggestions(false), 200)}
-                  placeholder="City, Zip, or Country"
-                />
-                {showLocSuggestions && locSuggestions.length > 0 && (
-                  <div className="location-suggestions">
-                    {locSuggestions.map((s, idx) => (
-                      <div 
-                        key={idx} 
-                        className="suggestion-item"
-                        onClick={() => {
-                          setEditingUser({ ...editingUser, location: s });
-                          setShowLocSuggestions(false);
-                        }}
-                      >
-                        {s}
+
+                    {/* Hero Avatar */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                      <div style={{ position: 'relative' }}>
+                        {editingUser.avatar ? (
+                          <img src={editingUser.avatar} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--md-sys-color-primary)' }} alt="Avatar" />
+                        ) : (
+                          <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 'bold' }}>
+                            {(editingUser.first_name || editingUser.username || '?')[0].toUpperCase()}
+                          </div>
+                        )}
+                        <label style={{ position: 'absolute', bottom: '0', right: '0', width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid var(--md-sys-color-surface)', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }} title="Upload Avatar">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onClick={(e) => { e.target.value = null; }} onChange={(e) => {
+                            const file = e.target.files[0];
+                            if(file) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => setAdminCroppingImage(event.target.result);
+                              reader.readAsDataURL(file);
+                            }
+                          }} />
+                        </label>
                       </div>
-                    ))}
+                      {editingUser.avatar && (
+                        <button type="button" onClick={() => setEditingUser({...editingUser, avatar: null})} style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: 'var(--md-sys-color-error)', cursor: 'pointer', padding: '2px 8px' }}>Remove Avatar</button>
+                      )}
+                      <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--md-sys-color-on-surface)', textAlign: 'center' }}>
+                        {editingUser.first_name ? `${editingUser.first_name} ${editingUser.last_name || ''}`.trim() : editingUser.username}
+                      </div>
+                      <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.04em', backgroundColor: editingUser.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)', color: editingUser.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', textTransform: 'uppercase' }}>
+                        {editingUser.role}
+                      </span>
+                    </div>
+
+                    {/* Name fields */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                      <div>
+                        <label className="ae-label">First Name</label>
+                        <input className="ae-input" type="text" value={editingUser.first_name || ''} onChange={(e) => setEditingUser({...editingUser, first_name: e.target.value})} placeholder="First" />
+                      </div>
+                      <div>
+                        <label className="ae-label">Last Name</label>
+                        <input className="ae-input" type="text" value={editingUser.last_name || ''} onChange={(e) => setEditingUser({...editingUser, last_name: e.target.value})} placeholder="Last" />
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <label className="ae-label">Email</label>
+                      <input className="ae-input" type="email" value={editingUser.email || ''} onChange={(e) => setEditingUser({...editingUser, email: e.target.value})} placeholder="user@example.com" />
+                    </div>
+                    <div style={{ position: 'relative', zIndex: showLocSuggestions ? 10 : 1 }}>
+                      <label className="ae-label">Location</label>
+                      <input className="ae-input" type="text" value={editingUser.location || ''} onChange={(e) => handleLocChange(e.target.value)} onFocus={() => { if (editingUser.location?.length >= 2) setShowLocSuggestions(true); }} onBlur={() => setTimeout(() => setShowLocSuggestions(false), 200)} placeholder="City, State" />
+                      {showLocSuggestions && locSuggestions.length > 0 && (
+                        <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
+                          {locSuggestions.map((s, idx) => (
+                            <div key={idx} className="suggestion-item" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => { const tz = !editingUser.timezone ? inferTimezone(s) : null; setEditingUser({ ...editingUser, location: s, ...(tz ? { timezone: tz } : {}) }); setShowLocSuggestions(false); }}>{s}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-              <div style={{ gridColumn: '1 / -1', marginTop: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--md-sys-color-outline)' }}>Primary User Font</label>
-                <FontPicker value={editingUser.font_family || 'Inter'} onApply={(val) => setEditingUser({ ...editingUser, font_family: val })} />
-              </div>
-            </div>
 
-            <div style={{ marginTop: '1.5rem', padding: 'min(4vw, 1.25rem)', backgroundColor: 'var(--md-sys-color-surface-variant)', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-              <h3 style={{ margin: '0 0 1rem', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reset Password</h3>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div className="form-group" style={{ flex: 1, gap: '4px' }}>
-                  <label style={{ fontSize: '0.75rem' }}>New Password</label>
-                  <input
-                    type="password"
-                    placeholder="Min 6 characters"
-                    value={adminResetPw}
-                    onChange={(e) => { setAdminResetPw(e.target.value); setAdminResetMsg(null); }}
-                  />
+                  {/* Status & Bio */}
+                  <div className="ae-section">
+                    <div className="ae-section-title">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                      Status & Bio
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      {STATUS_ICONS.map(icon => (
+                        <button key={icon.id} type="button" title={icon.label} onClick={() => { const ne = icon.id === 'none' ? 'available' : icon.id; setEditingUser({ ...editingUser, status_emoji: ne, status_text: icon.id === 'none' ? '' : editingUser.status_text }); }}
+                          style={{ width: '30px', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: editingUser.status_emoji === icon.id ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: icon.color || 'var(--md-sys-color-on-surface-variant)', transition: 'all 0.15s', outline: editingUser.status_emoji === icon.id ? '2px solid var(--md-sys-color-primary)' : '1px solid var(--md-sys-color-outline-variant)', outlineOffset: '-1px' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" dangerouslySetInnerHTML={{ __html: icon.svg }} />
+                        </button>
+                      ))}
+                    </div>
+                    {editingUser.status_emoji && editingUser.status_emoji !== 'none' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <StatusIcon statusId={editingUser.status_emoji} size={18} />
+                        <input className="ae-input" type="text" value={editingUser.status_text || ''} onChange={(e) => setEditingUser({ ...editingUser, status_text: e.target.value })} placeholder={STATUS_ICONS.find(s => s.id === editingUser.status_emoji)?.label || 'Status message...'} maxLength={80} />
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label className="ae-label" style={{ marginBottom: 0 }}>Bio</label>
+                      <span style={{ fontSize: '0.7rem', color: (editingUser.bio || '').length > 180 ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)', fontVariantNumeric: 'tabular-nums' }}>
+                        {(editingUser.bio || '').length}/200
+                      </span>
+                    </div>
+                    <textarea className="ae-input" value={editingUser.bio || ''} onChange={(e) => { if (e.target.value.length <= 200) setEditingUser({ ...editingUser, bio: e.target.value }); }} placeholder="User bio..." rows={3} style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }} />
+                  </div>
                 </div>
-                <button type="button" onClick={handleAdminResetPassword} className="btn-secondary" style={{ whiteSpace: 'nowrap', height: '42px', borderRadius: '8px' }}>Set Password</button>
-              </div>
-              {adminResetMsg && (
-                <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: adminResetMsg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>
-                  {adminResetMsg.text}
-                </p>
-              )}
-            </div>
 
-            <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
-              <button type="submit" className="btn-primary" style={{ flex: 1 }}>Save Changes</button>
-              <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="btn-secondary" style={{ flex: 1 }}>Discard</button>
+                {/* ═══ RIGHT COLUMN: Role/Font, Timezone, Security ═══ */}
+                <div className="admin-edit-col">
+                  <div className="ae-section">
+                    <div className="ae-section-title">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      Role & Preferences
+                    </div>
+                    <div style={{ marginBottom: '10px' }}>
+                      <label className="ae-label">Role</label>
+                      <select className="ae-input" value={editingUser.role} onChange={(e) => setEditingUser({...editingUser, role: e.target.value})} style={{ cursor: 'pointer' }}>
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: '10px' }}>
+                      <label className="ae-label">Timezone</label>
+                      <select className="ae-input" value={editingUser.timezone || ''} onChange={(e) => setEditingUser({ ...editingUser, timezone: e.target.value })} style={{ cursor: 'pointer' }}>
+                        <option value="">Not set</option>
+                        {['America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Phoenix','America/Toronto','America/Vancouver','America/Mexico_City','America/Sao_Paulo','America/Argentina/Buenos_Aires','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Stockholm','Europe/Moscow','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Asia/Singapore','Asia/Hong_Kong','Australia/Sydney','Australia/Melbourne','Australia/Perth','Pacific/Auckland','Pacific/Fiji'].map(tz => (
+                          <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="ae-label">Primary Font</label>
+                      <FontPicker value={editingUser.font_family || 'Inter'} onApply={(val) => setEditingUser({ ...editingUser, font_family: val })} />
+                    </div>
+                  </div>
+
+                  {/* Security */}
+                  <div className="ae-section">
+                    <div className="ae-section-title">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      Security
+                    </div>
+                    <div>
+                      <label className="ae-label">Reset Password</label>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                        <input className="ae-input" type="password" placeholder="Min 6 characters" value={adminResetPw} onChange={(e) => { setAdminResetPw(e.target.value); setAdminResetMsg(null); }} style={{ flex: 1 }} />
+                        <button type="button" onClick={handleAdminResetPassword} className="btn-secondary" style={{ whiteSpace: 'nowrap', borderRadius: '10px', padding: '0 14px', fontSize: '0.8rem', flexShrink: 0 }}>Set</button>
+                      </div>
+                      {adminResetMsg && (
+                        <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: adminResetMsg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>
+                          {adminResetMsg.text}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Meta info */}
+                  <div className="ae-section" style={{ padding: '0.75rem 1.15rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                      <span>ID: {editingUser.id}</span>
+                      <span>@{editingUser.username}</span>
+                      {editingUser.created_at && <span>Joined {new Date(editingUser.created_at).toLocaleDateString()}</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem' }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}>Save Changes</button>
+                <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="btn-secondary" style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}>Discard</button>
+              </div>
             </div>
           </form>
         )}
@@ -1087,7 +1323,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
         {activeTab === 'broadcast' && (
           <div style={{ backgroundColor: 'var(--md-sys-color-surface)', padding: 'min(5vw, 2rem)', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-            <h2 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem' }}>📢 Broadcast Message</h2>
+            <h2 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 13v-2z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path></svg> Broadcast Message</h2>
             <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', marginBottom: '1rem' }}>Send a message that will appear as a banner for all connected users in real-time.</p>
             <textarea
               value={broadcastText}
@@ -1111,7 +1347,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px', verticalAlign: 'middle' }}><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 Send Broadcast
               </button>
-              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.85rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in' }}>✓ Broadcast sent!</span>}
+              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.85rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in', display: 'flex', alignItems: 'center', gap: '4px' }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Broadcast sent!</span>}
             </div>
           </div>
         )}
@@ -1220,7 +1456,11 @@ function App() {
     last_name: '',
     email: '',
     location: '',
-    font_family: 'Roboto'
+    font_family: 'Roboto',
+    bio: '',
+    status_text: '',
+    status_emoji: 'available',
+    timezone: ''
   });
   const profileDataRef = useRef(null);
   useEffect(() => { profileDataRef.current = profileData; }, [profileData]);
@@ -1916,11 +2156,11 @@ function App() {
     newSocket.on('message reacted', ({ id, reactions }) => {
       setMessages(prev => prev.map(m => m.id === id ? { ...m, reactions } : m));
     });
-    newSocket.on('user profile updated', ({ username: uName, avatar, font_family, location }) => {
+    newSocket.on('user profile updated', ({ username: uName, avatar, font_family, location, status_text, status_emoji }) => {
       setMessages(prev => prev.map(m => m.sender === uName ? { ...m, avatar, font_family } : m));
       setSpaces(prev => prev.map(s => (s.is_dm === 1 && s.dm_username === uName) ? { ...s, dm_avatar: avatar } : s));
       setCurrentSpace(prev => (prev && prev.is_dm === 1 && prev.dm_username === uName) ? { ...prev, dm_avatar: avatar } : prev);
-      setAllUsers(prev => prev.map(u => u.username === uName ? { ...u, avatar, font_family, location } : u));
+      setAllUsers(prev => prev.map(u => u.username === uName ? { ...u, avatar, font_family, location, status_text, status_emoji } : u));
     });
 
     newSocket.on('settings-updated', (settings) => {
@@ -2297,8 +2537,24 @@ function App() {
           email: data.email || '',
           location: data.location || '',
           font_family: data.font_family || '',
-          public_key: data.public_key || null
+          public_key: data.public_key || null,
+          bio: data.bio || '',
+          status_text: data.status_text || '',
+          status_emoji: data.status_emoji || 'available',
+          timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
         });
+
+        // Auto-save timezone on first load if not set
+        if (!data.timezone) {
+          const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (detectedTz) {
+            fetch(`${socketUrl}/api/profile`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` },
+              body: JSON.stringify({ timezone: detectedTz })
+            }).catch(() => {});
+          }
+        }
         
         if (!data.first_name || !data.first_name.trim()) {
           setShowOnboarding(true);
@@ -2316,7 +2572,14 @@ function App() {
   };
 
   useEffect(() => {
-    if (token) fetchProfile();
+    if (token) {
+      fetchProfile();
+      // Eagerly load all users for sidebar status icons
+      fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => { if (Array.isArray(data)) setAllUsers(data.filter(u => u.username !== username)); })
+        .catch(() => {});
+    }
   }, [token]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2978,12 +3241,12 @@ function App() {
       {/* Broadcast Banner */}
       {broadcastBanner && (
         <div className="broadcast-banner" onClick={() => setBroadcastBanner(null)}>
-          <div className="broadcast-banner-icon">📢</div>
+          <div className="broadcast-banner-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 13v-2z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path></svg></div>
           <div className="broadcast-banner-content">
             <strong>{broadcastBanner.sender}</strong>
             <span>{broadcastBanner.message}</span>
           </div>
-          <button className="broadcast-banner-close" onClick={(e) => { e.stopPropagation(); setBroadcastBanner(null); }}>✕</button>
+          <button className="broadcast-banner-close" onClick={(e) => { e.stopPropagation(); setBroadcastBanner(null); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
         </div>
       )}
       {/* Sidebar Overlay - Legacy/Optional depending on CSS */}
@@ -3034,6 +3297,11 @@ function App() {
                  </div>
                )}
              </button>
+             {profileData.status_emoji && profileData.status_emoji !== 'none' && (
+               <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', background: 'var(--md-sys-color-surface)', borderRadius: '50%', padding: '2px', display: 'flex', zIndex: 5, pointerEvents: 'none' }}>
+                 <StatusIcon statusId={profileData.status_emoji} size={12} />
+               </div>
+             )}
 
              {showDropdown && (
                <div className="user-dropdown">
@@ -3195,6 +3463,12 @@ function App() {
                 style={{ padding: '8px 20px' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+                  <ProfileHoverCard
+                    userData={allUsers.find(u => u.username === space.dm_username)}
+                    isSelf={isSelf}
+                    profileData={profileData}
+                    avatar={avatar}
+                  >
                   <div style={{ position: 'relative', display: 'flex' }}>
                     {displayAvatar ? (
                       <img src={displayAvatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} alt="Avatar" />
@@ -3203,11 +3477,19 @@ function App() {
                         {displayName ? displayName.charAt(0).toUpperCase() : '?'}
                       </div>
                     )}
-                    <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: isOnline ? '#4CAF50' : 'var(--md-sys-color-outline-variant)', border: '2px solid var(--md-sys-color-surface)', zIndex: 10 }}></div>
+                    {(() => {
+                      const statusEmoji = isSelf ? profileData.status_emoji : allUsers.find(u => u.username === space.dm_username)?.status_emoji;
+                      if (statusEmoji && statusEmoji !== 'none') {
+                        return <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', zIndex: 10, background: 'var(--md-sys-color-surface)', borderRadius: '50%', padding: '1px', display: 'flex' }}><StatusIcon statusId={statusEmoji} size={12} /></div>;
+                      }
+                      return <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: isOnline ? '#4CAF50' : 'var(--md-sys-color-outline-variant)', border: '2px solid var(--md-sys-color-surface)', zIndex: 10 }}></div>;
+                    })()}
                   </div>
-                  <span className="space-name" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>
+                  </ProfileHoverCard>
+                  <span className="space-name" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
-                    {unreadCounts[space.id] > 0 && <span style={{ marginLeft: '8px', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 6px', borderRadius: '12px' }}>{unreadCounts[space.id]}</span>}
+                    {(() => { const se = isSelf ? profileData.status_emoji : allUsers.find(u => u.username === space.dm_username)?.status_emoji; return se && se !== 'none' ? <StatusIcon statusId={se} size={13} /> : null; })()}
+                    {unreadCounts[space.id] > 0 && <span style={{ marginLeft: '4px', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 6px', borderRadius: '12px' }}>{unreadCounts[space.id]}</span>}
                   </span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <button className="delete-space-btn" style={{ color: 'var(--md-sys-color-outline)' }} onClick={(e) => { e.stopPropagation(); setActiveSpaceMenu(activeSpaceMenu === space.id ? null : space.id); }} title="Space Options">
@@ -3745,9 +4027,10 @@ function App() {
       {/* Delete Space Confirm Modal */}
       {spaceToDelete && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
           backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem'
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem',
+          boxSizing: 'border-box'
         }}>
           <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
             <h2 style={{ marginBottom: '1rem', color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', fontSize: '1.5rem', textAlign: 'center' }}>Delete Space?</h2>
@@ -3765,9 +4048,10 @@ function App() {
       {/* Delete Message Confirm Modal */}
       {msgToDelete && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
           backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem'
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem',
+          boxSizing: 'border-box'
         }}>
           <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
             <h2 style={{ marginBottom: '1rem', color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', fontSize: '1.5rem', textAlign: 'center' }}>Delete Message?</h2>
@@ -3781,142 +4065,273 @@ function App() {
           </div>
         </div>
       )}
-
       {/* Settings Modal */}
       {showSettings && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: '1rem'
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: '1rem',
+          boxSizing: 'border-box'
         }}>
-          <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }`}</style>
-          <div className="auth-card no-scrollbar" style={{ maxWidth: '500px', width: '100%', margin: 0, alignItems: 'stretch', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem', position: 'relative' }}>
-            
-            {/* Header Sticky */}
+          <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            .settings-section { background: var(--md-sys-color-surface-variant); border-radius: 16px; padding: 1rem 1.15rem; }
+            .settings-section-title { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-outline); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.85rem; }
+            .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+            .settings-label { font-size: 0.8rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
+            .settings-input { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface); padding: 9px 12px; border-radius: 10px; outline: none; font-family: inherit; font-size: 0.85rem; width: 100%; box-sizing: border-box; min-width: 0; transition: border-color 0.2s; }
+            .settings-input:focus { border-color: var(--md-sys-color-primary); }
+            .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+            .settings-grid .settings-col { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; overflow: hidden; }
+            @media (max-width: 680px) { .settings-grid { grid-template-columns: 1fr; } }
+          `}</style>
+          <div className="no-scrollbar" style={{
+            maxWidth: '660px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overflowX: 'hidden',
+            background: 'var(--md-sys-color-surface)', borderRadius: '24px', padding: '1.5rem',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-surface-variant)',
+            boxSizing: 'border-box'
+          }}>
+
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h1 style={{ margin: 0, fontSize: '1.4rem', color: 'var(--md-sys-color-on-surface)' }}>Settings</h1>
-              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'var(--md-sys-color-surface-variant)', border: 'none', color: 'var(--md-sys-color-on-surface)', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                <h1 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Settings</h1>
+              </div>
+              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'var(--md-sys-color-surface-variant)', border: 'none', color: 'var(--md-sys-color-on-surface-variant)', width: '34px', height: '34px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             </div>
 
-            {/* Top Row: Avatar & Theme Toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', backgroundColor: 'var(--md-sys-color-surface-variant)', padding: '12px', borderRadius: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {avatar ? (
-                  <img src={avatar} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} alt="Profile" />
-                ) : (
-                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '1.2rem', fontWeight: 'bold' }}>
-                    {profileData.first_name ? profileData.first_name.charAt(0).toUpperCase() : username.charAt(0).toUpperCase()}
+            {/* ═══ 2-COLUMN GRID ═══ */}
+            <div className="settings-grid">
+              {/* Left Column: Profile + Notifications */}
+              <div className="settings-col">
+                {/* ═══ PROFILE ═══ */}
+                <div className="settings-section">
+                  <div className="settings-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    Profile
                   </div>
-                )}
-                <label className="btn-secondary" style={{ cursor: 'pointer', padding: '0.4rem 0.75rem', fontSize: '0.75rem', background: 'var(--md-sys-color-surface)' }}>
-                  Change Photo
-                  <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
-                </label>
-              </div>
-
-              {/* Theme Toggle SVG */}
-              <div style={{ display: 'flex', background: 'var(--md-sys-color-surface)', borderRadius: '24px', padding: '4px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-                <button type="button" onClick={() => handleThemeChange('light')} style={{ padding: '6px', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme === 'light' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'light' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }} title="Light Mode">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                </button>
-                <button type="button" onClick={() => handleThemeChange('dark')} style={{ padding: '6px', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme === 'dark' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'dark' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }} title="Dark Mode">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Personal Details Compact Array */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>First Name</label>
-                <input type="text" value={profileData.first_name || ''} onChange={(e) => setProfileData({...profileData, first_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="First" />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Last Name</label>
-                <input type="text" value={profileData.last_name || ''} onChange={(e) => setProfileData({...profileData, last_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="Last" />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '60% 1fr', gap: '0.75rem', marginBottom: '1.5rem', alignItems: 'center' }}>
-              <div className="form-group" style={{ marginBottom: 0, position: 'relative', zIndex: showSuggestions ? 100 : 1 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Location</label>
-                <input type="text" value={profileData.location || ''} onChange={(e) => handleLocationChange(e.target.value)} onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); saveProfileSettings(); }} onFocus={() => { if (profileData.location?.length >= 2) setShowSuggestions(true); }} placeholder="City, Zip" />
-                {showSuggestions && locationSuggestions.length > 0 && (
-                  <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
-                    {locationSuggestions.map((s, idx) => (
-                      <div key={idx} className="suggestion-item" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => { setProfileData({ ...profileData, location: s }); saveProfileSettings({ location: s }); setShowSuggestions(false); }}>{s}</div>
-                    ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div style={{ position: 'relative', marginBottom: '8px' }}>
+                      {avatar ? (
+                        <img src={avatar} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--md-sys-color-primary)', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} alt="Profile" />
+                      ) : (
+                        <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '2rem', fontWeight: 'bold', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
+                          {profileData.first_name ? profileData.first_name.charAt(0).toUpperCase() : username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <label style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '28px', height: '28px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid var(--md-sys-color-surface-variant)', transition: 'transform 0.15s', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-on-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                        <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--md-sys-color-on-surface)', textAlign: 'center' }}>
+                      {profileData.first_name ? `${profileData.first_name} ${profileData.last_name || ''}`.trim() : username}
+                    </div>
                   </div>
-                )}
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px', fontWeight: 'bold', color: 'var(--md-sys-color-outline)' }}>Push Alerts</label>
-                <button type="button" className={pushEnabled ? 'btn-primary' : 'btn-secondary'} onClick={togglePushNotifications} disabled={isSubscribing} style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', height: '35px', width: '100%' }}>
-                  {isSubscribing ? 'Wait...' : pushEnabled ? 'Enabled ✓' : 'Turn On'}
-                </button>
-              </div>
-            </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <div>
+                      <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>First Name</label>
+                      <input className="settings-input" type="text" value={profileData.first_name || ''} onChange={(e) => setProfileData({...profileData, first_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="First" />
+                    </div>
+                    <div>
+                      <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Last Name</label>
+                      <input className="settings-input" type="text" value={profileData.last_name || ''} onChange={(e) => setProfileData({...profileData, last_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="Last" />
+                    </div>
+                  </div>
+                  <div style={{ position: 'relative', zIndex: showSuggestions ? 100 : 1 }}>
+                    <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Location</label>
+                    <input className="settings-input" type="text" value={profileData.location || ''} onChange={(e) => handleLocationChange(e.target.value)} onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); saveProfileSettings(); }} onFocus={() => { if (profileData.location?.length >= 2) setShowSuggestions(true); }} placeholder="City, State" />
+                    {showSuggestions && locationSuggestions.length > 0 && (
+                      <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
+                        {locationSuggestions.map((s, idx) => (
+                          <div key={idx} className="suggestion-item" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => { const tz = !profileData.timezone ? inferTimezone(s) : null; const updates = { location: s, ...(tz ? { timezone: tz } : {}) }; setProfileData({ ...profileData, ...updates }); saveProfileSettings(updates); setShowSuggestions(false); }}>{s}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-            {/* Palette & Font Separated */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-              <div style={{ position: 'relative', zIndex: 90 }}>
-                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Typeface</label>
-                <FontPicker value={profileData.font_family || globalFont || 'Inter'} onApply={(val) => { setProfileData({ ...profileData, font_family: val }); saveProfileSettings({ font_family: val }); }} />
+                  {/* Status */}
+                  <div style={{ marginTop: '12px' }}>
+                    <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>Status</label>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {STATUS_ICONS.map(icon => (
+                          <button
+                            key={icon.id}
+                            type="button"
+                            title={icon.label}
+                            onClick={() => {
+                              const newEmoji = icon.id === 'none' ? 'available' : icon.id;
+                              setProfileData({ ...profileData, status_emoji: newEmoji, status_text: icon.id === 'none' ? '' : profileData.status_text });
+                              saveProfileSettings({ status_emoji: newEmoji, status_text: icon.id === 'none' ? '' : undefined });
+                            }}
+                            style={{
+                              width: '30px', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: profileData.status_emoji === icon.id ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
+                              color: icon.color || 'var(--md-sys-color-on-surface-variant)',
+                              transition: 'all 0.15s',
+                              outline: profileData.status_emoji === icon.id ? '2px solid var(--md-sys-color-primary)' : '1px solid var(--md-sys-color-outline-variant)',
+                              outlineOffset: '-1px'
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" dangerouslySetInnerHTML={{ __html: icon.svg }} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {profileData.status_emoji && profileData.status_emoji !== 'none' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <StatusIcon statusId={profileData.status_emoji} size={18} />
+                        <input
+                          className="settings-input"
+                          type="text"
+                          value={profileData.status_text || ''}
+                          onChange={(e) => setProfileData({ ...profileData, status_text: e.target.value })}
+                          onBlur={() => saveProfileSettings()}
+                          placeholder={STATUS_ICONS.find(s => s.id === profileData.status_emoji)?.label || 'What\'s your status?'}
+                          maxLength={80}
+                          style={{ flex: 1 }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bio */}
+                  <div style={{ marginTop: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label className="settings-label">Bio</label>
+                      <span style={{ fontSize: '0.7rem', color: (profileData.bio || '').length > 180 ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)', fontVariantNumeric: 'tabular-nums' }}>
+                        {(profileData.bio || '').length}/200
+                      </span>
+                    </div>
+                    <textarea
+                      className="settings-input"
+                      value={profileData.bio || ''}
+                      onChange={(e) => { if (e.target.value.length <= 200) setProfileData({ ...profileData, bio: e.target.value }); }}
+                      onBlur={() => saveProfileSettings()}
+                      placeholder="Tell people a bit about yourself..."
+                      rows={3}
+                      style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }}
+                    />
+                  </div>
+
+                  {/* Timezone */}
+                  <div style={{ marginTop: '12px' }}>
+                    <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Timezone</label>
+                    <div className="settings-row" style={{ gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--md-sys-color-on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {(profileData.timezone || 'Not set').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <select
+                        className="settings-input"
+                        value={profileData.timezone || ''}
+                        onChange={(e) => { setProfileData({ ...profileData, timezone: e.target.value }); saveProfileSettings({ timezone: e.target.value }); }}
+                        style={{ width: 'auto', flex: '0 0 auto', maxWidth: '160px', padding: '6px 8px', fontSize: '0.78rem' }}
+                      >
+                        <option value="">Auto-detect</option>
+                        {['America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Phoenix','America/Toronto','America/Vancouver','America/Mexico_City','America/Sao_Paulo','America/Argentina/Buenos_Aires','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Stockholm','Europe/Moscow','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Asia/Singapore','Asia/Hong_Kong','Australia/Sydney','Australia/Melbourne','Australia/Perth','Pacific/Auckland','Pacific/Fiji'].map(tz => (
+                          <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ═══ NOTIFICATIONS ═══ */}
+                <div className="settings-section">
+                  <div className="settings-row">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                      <span className="settings-label" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, fontSize: '0.8rem', color: 'var(--md-sys-color-outline)' }}>Push Notifications</span>
+                    </div>
+                    <button type="button" onClick={togglePushNotifications} disabled={isSubscribing} style={{
+                      padding: '6px 16px', borderRadius: '20px', border: pushEnabled ? 'none' : '1px solid var(--md-sys-color-outline-variant)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
+                      background: pushEnabled ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface)',
+                      color: pushEnabled ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'
+                    }}>
+                      {isSubscribing ? 'Wait...' : pushEnabled ? 'Enabled' : 'Turn On'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Accent Color</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input type="color" className="color-picker-input" value={colorPalette} onChange={(e) => handlePaletteChange(e.target.value)} />
-                  <span style={{ fontSize: '0.8rem', fontFamily: 'monospace', opacity: 0.7 }}>{colorPalette.toUpperCase()}</span>
+
+              {/* Right Column: Appearance + Security */}
+              <div className="settings-col">
+                {/* ═══ APPEARANCE ═══ */}
+                <div className="settings-section">
+                  <div className="settings-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
+                    Appearance
+                  </div>
+                  <div className="settings-row" style={{ marginBottom: '1rem' }}>
+                    <span className="settings-label">Theme</span>
+                    <div style={{ display: 'flex', background: 'var(--md-sys-color-surface)', borderRadius: '24px', padding: '3px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
+                      <button type="button" onClick={() => handleThemeChange('light')} style={{ padding: '5px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', fontWeight: 500, fontFamily: 'inherit', background: theme === 'light' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'light' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"></circle></svg>
+                        Light
+                      </button>
+                      <button type="button" onClick={() => handleThemeChange('dark')} style={{ padding: '5px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', fontWeight: 500, fontFamily: 'inherit', background: theme === 'dark' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'dark' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
+                        Dark
+                      </button>
+                    </div>
+                  </div>
+                  <div className="settings-row" style={{ marginBottom: '1rem' }}>
+                    <span className="settings-label">Accent Color</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input type="color" className="color-picker-input" value={colorPalette} onChange={(e) => handlePaletteChange(e.target.value)} />
+                      <span style={{ fontSize: '0.78rem', fontFamily: 'monospace', opacity: 0.6, color: 'var(--md-sys-color-on-surface)' }}>{colorPalette.toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '1rem', position: 'relative', zIndex: 90 }}>
+                    <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>Typeface</label>
+                    <FontPicker value={profileData.font_family || globalFont || 'Inter'} onApply={(val) => { setProfileData({ ...profileData, font_family: val }); saveProfileSettings({ font_family: val }); }} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span className="settings-label">UI Scaling</span>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--md-sys-color-primary)' }}>{Math.round(uiScale * 100)}%</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--md-sys-color-on-surface)' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
+                      <input type="range" min="0.8" max="1.5" step="0.05" value={uiScale} onChange={(e) => setUiScale(parseFloat(e.target.value))} style={{ flex: 1, accentColor: 'var(--md-sys-color-primary)', cursor: 'pointer' }} />
+                      <span style={{ fontSize: '1.1rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ═══ SECURITY ═══ */}
+                <div className="settings-section">
+                  <div className="settings-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    Change Password
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <input className="settings-input" type="password" placeholder="Current password" value={pwChange.current} onChange={(e) => setPwChange(p => ({ ...p, current: e.target.value, msg: null }))} />
+                    <input className="settings-input" type="password" placeholder="New password" value={pwChange.next} onChange={(e) => setPwChange(p => ({ ...p, next: e.target.value, msg: null }))} />
+                  </div>
+                  <button type="button" className="btn-primary" style={{ width: '100%', padding: '0.6rem', borderRadius: '10px', fontSize: '0.85rem' }} onClick={async () => {
+                    if (!pwChange.current || !pwChange.next) return setPwChange(p => ({ ...p, msg: { ok: false, text: 'Both fields are required' } }));
+                    try {
+                      const res = await fetch(`${socketUrl}/api/profile/password`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ currentPassword: pwChange.current, newPassword: pwChange.next }) });
+                      const data = await res.json();
+                      setPwChange(res.ok ? { current: '', next: '', confirm: '', msg: { ok: true, text: 'Password updated successfully!' } } : (p => ({ ...p, msg: { ok: false, text: data.error } })));
+                      if (res.ok) setTimeout(() => setPwChange(p => ({ ...p, msg: null })), 3000);
+                    } catch { setPwChange(p => ({ ...p, msg: { ok: false, text: 'Network error' } })); }
+                  }}>Update Password</button>
+                  {pwChange.msg && (
+                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', textAlign: 'center', color: pwChange.msg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>{pwChange.msg.text}</p>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div style={{ marginBottom: '1.5rem', backgroundColor: 'var(--md-sys-color-surface-variant)', padding: '12px', borderRadius: '12px' }}>
-              <label style={{ fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 600 }}>
-                <span>UI Scaling</span>
-                <span style={{ color: 'var(--md-sys-color-primary)' }}>{Math.round(uiScale * 100)}%</span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--md-sys-color-on-surface)' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>A</span>
-                <input 
-                  type="range" 
-                  min="0.8" 
-                  max="1.5" 
-                  step="0.05" 
-                  value={uiScale} 
-                  onChange={(e) => setUiScale(parseFloat(e.target.value))}
-                  style={{ flex: 1, accentColor: 'var(--md-sys-color-primary)', cursor: 'pointer' }} 
-                />
-                <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>A</span>
-              </div>
-            </div>
-
-            <div style={{ margin: '0 0 0.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                Change Password
-              </h3>
-              <div className="form-grid" style={{ gridTemplateColumns: '1fr', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <div className="form-group" style={{ flex: 1, marginBottom: 0 }}><input type="password" placeholder="Current" value={pwChange.current} onChange={(e) => setPwChange(p => ({ ...p, current: e.target.value, msg: null }))} /></div>
-                  <div className="form-group" style={{ flex: 1, marginBottom: 0 }}><input type="password" placeholder="New" value={pwChange.next} onChange={(e) => setPwChange(p => ({ ...p, next: e.target.value, msg: null }))} /></div>
-                  <button type="button" className="btn-secondary" style={{ padding: '0.6rem 0.4rem', border: 'none', background: 'var(--md-sys-color-surface-variant)', flexShrink: 0, height: '100%', borderRadius: '8px' }} onClick={async () => {
-                    if (!pwChange.current || !pwChange.next) return setPwChange(p => ({ ...p, msg: { ok: false, text: 'Required' } }));
-                    const res = await fetch(`${socketUrl}/api/profile/password`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ currentPassword: pwChange.current, newPassword: pwChange.next }) });
-                    const data = await res.json();
-                    setPwChange(res.ok ? { current: '', next: '', confirm: '', msg: { ok: true, text: 'Updated!' } } : (p => ({ ...p, msg: { ok: false, text: data.error } })));
-                    if (res.ok) setTimeout(() => setPwChange(p => ({ ...p, msg: null })), 3000);
-                  }}>Save</button>
-                </div>
-                {pwChange.msg && (
-                  <p style={{ margin: '0', fontSize: '0.75rem', textAlign: 'center', color: pwChange.msg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>{pwChange.msg.text}</p>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}
