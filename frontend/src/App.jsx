@@ -5809,8 +5809,8 @@ function App() {
                       <div style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: isOnline ? '#22c55e' : '#9ca3af', border: '2px solid var(--md-sys-color-surface)' }} />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>{member.first_name || member.username}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{member.username} {isOnline ? '' : '(offline)'}</div>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>{member.first_name ? `${member.first_name}${member.last_name ? ' ' + member.last_name : ''}` : member.username}</div>
+                      <div style={{ fontSize: '0.72rem', color: isOnline ? '#22c55e' : 'var(--md-sys-color-outline)' }}>{isOnline ? 'Online' : 'Offline'}</div>
                     </div>
                   </label>
                 );
