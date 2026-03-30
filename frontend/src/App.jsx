@@ -1398,6 +1398,16 @@ function App() {
 
   const handleSpaceSelect = async (space) => {
     if (space.id === currentSpace?.id) return;
+    // Save draft for current space before switching
+    if (currentSpace?.id) {
+      const el = richInputRef.current;
+      const draftText = el ? serializeToMarkdown(el) : input;
+      if (draftText.trim()) {
+        localStorage.setItem(`draft_${currentSpace.id}`, draftText);
+      } else {
+        localStorage.removeItem(`draft_${currentSpace.id}`);
+      }
+    }
     setMessages([]);
     setHistoryLoaded(false);
     if (isEncryptedSpace(space) && !activeKeys[space.id] && privateKeyRef.current) {
@@ -1411,7 +1421,6 @@ function App() {
             setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
             await syncRoomKeyToIDB(space.id, roomKey);
           } else if (socket) {
-            // No key found — request it from online members who already have access
             socket.emit('request_room_key', { spaceId: space.id, requesterId: profileData.id, requesterPublicKey: profileData.public_key });
           }
         }
@@ -1419,7 +1428,19 @@ function App() {
         console.error("Silent key fetch failed for handleSpaceSelect", e);
       }
     }
-    
+    // Restore draft for target space
+    const savedDraft = localStorage.getItem(`draft_${space.id}`) || '';
+    setInput(savedDraft);
+    setTimeout(() => {
+      const el = richInputRef.current;
+      if (el) {
+        el.innerHTML = '';
+        if (savedDraft) {
+          el.textContent = savedDraft;
+          processAllMarkdownInNode(el);
+        }
+      }
+    }, 0);
     setCurrentSpace(space);
     setShowSidebar(false);
     setMobileView('chat');
@@ -2663,6 +2684,7 @@ function App() {
 
       socket.emit('chat message', { text: payloadText, spaceId: spaceObj.id, asset: pendingAsset });
       setInput('');
+      if (spaceObj?.id) localStorage.removeItem(`draft_${spaceObj.id}`);
       if (el) { el.innerHTML = ''; el.style.height = 'auto'; }
       setPendingAsset(null);
       socket.emit('stop typing', spaceObj.id);
