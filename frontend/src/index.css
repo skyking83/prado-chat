@@ -1414,7 +1414,7 @@ button {
   top: 60px;
   left: 0;
   width: 100%;
-  height: clamp(280px, 45vh, 520px);
+  height: clamp(340px, 60vh, 720px);
   background-color: #1a1a2e;
   z-index: 50;
   display: flex;
