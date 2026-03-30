@@ -180,7 +180,6 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
   const [pinnedUserId, setPinnedUserId] = useState(null);
   const [screenSharer, setScreenSharer] = useState(null);
   const [callDuration, setCallDuration] = useState(0);
-  const [showParticipantTray, setShowParticipantTray] = useState(true);
 
   const localVideoRef = useRef();
   const peerConnections = useRef({});
@@ -793,10 +792,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
             </div>
 
             <div className="controls-right">
-              <button className="video-btn participants-toggle" onClick={() => setShowParticipantTray(!showParticipantTray)} title="Participants">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                <span className="participant-count-badge">{totalParticipants}</span>
-              </button>
+              <span className="call-timer-inline" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{totalParticipants} in call</span>
             </div>
           </div>
         </>
