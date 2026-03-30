@@ -203,6 +203,17 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )`);
 
+      db.run(`CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        key_hash TEXT UNIQUE,
+        key_prefix TEXT,
+        permissions TEXT DEFAULT 'read',
+        created_by TEXT,
+        last_used DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
       db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
@@ -1062,6 +1073,84 @@ function checkWordFilters(text, callback) {
   });
 }
 
+// ═══ Phase 5: API Keys & Advanced Config ═══
+
+// -- API Keys --
+app.get('/api/admin/api-keys', authenticateToken, requireAdmin, (req, res) => {
+  db.all('SELECT id, name, key_prefix, permissions, created_by, last_used, created_at FROM api_keys ORDER BY created_at DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json(rows || []);
+  });
+});
+
+app.post('/api/admin/api-keys', authenticateToken, requireAdmin, (req, res) => {
+  const { name, permissions } = req.body;
+  if (!name) return res.status(400).json({ error: 'Key name required' });
+  
+  // Generate a secure API key  
+  const rawKey = 'prado_' + crypto.randomBytes(32).toString('hex');
+  const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+  const keyPrefix = rawKey.substring(0, 12) + '...';
+  const perm = ['read', 'write', 'admin'].includes(permissions) ? permissions : 'read';
+  
+  db.run('INSERT INTO api_keys (name, key_hash, key_prefix, permissions, created_by) VALUES (?, ?, ?, ?, ?)',
+    [name, keyHash, keyPrefix, perm, req.user.username], function(err) {
+      if (err) return res.status(500).json({ error: 'Key creation failed' });
+      logAudit(req.user.userId, req.user.username, 'create_api_key', 'api_key', this.lastID, name);
+      // Return the full key ONLY on creation - never again
+      res.json({ id: this.lastID, name, key: rawKey, key_prefix: keyPrefix, permissions: perm });
+    });
+});
+
+app.delete('/api/admin/api-keys/:id', authenticateToken, requireAdmin, (req, res) => {
+  db.run('DELETE FROM api_keys WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: 'Delete failed' });
+    logAudit(req.user.userId, req.user.username, 'revoke_api_key', 'api_key', req.params.id, null);
+    res.json({ success: true });
+  });
+});
+
+// -- Email Config Test --
+app.post('/api/admin/test-email', authenticateToken, requireAdmin, async (req, res) => {
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Email address required' });
+  try {
+    const result = await resend.emails.send({
+      from: 'Prado Chat <onboarding@resend.dev>',
+      to,
+      subject: 'Prado Chat — Test Email',
+      html: '<h2>✅ Email Configuration Working</h2><p>If you received this email, your Prado Chat email provider is configured correctly.</p><p style="color: #888; font-size: 12px;">Sent at ' + new Date().toISOString() + '</p>'
+    });
+    logAudit(req.user.userId, req.user.username, 'test_email', 'config', 'email', to);
+    res.json({ success: true, messageId: result?.data?.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Email send failed' });
+  }
+});
+
+// -- Environment Info --
+app.get('/api/admin/environment', authenticateToken, requireAdmin, (req, res) => {
+  const envInfo = {
+    nodeVersion: process.version,
+    platform: os.platform(),
+    arch: os.arch(),
+    hostname: os.hostname(),
+    cpus: os.cpus().length,
+    totalMemory: os.totalmem(),
+    freeMemory: os.freemem(),
+    uptime: process.uptime(),
+    env: {
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      JWT_SECRET: process.env.JWT_SECRET ? '••••••••' : '⚠️ Not set',
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? '••••' + process.env.RESEND_API_KEY.slice(-4) : '⚠️ Not set',
+      TURN_SERVER: process.env.TURN_SERVER || 'Not configured',
+      TURN_USERNAME: process.env.TURN_USERNAME || 'Not configured',
+      TURN_CREDENTIAL: process.env.TURN_CREDENTIAL ? '••••••••' : 'Not configured',
+    }
+  };
+  res.json(envInfo);
+});
+
 // -- Self-service password change (requires current password) --
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
@@ -1795,6 +1884,13 @@ app.delete('/api/spaces/:id', authenticateToken, (req, res) => {
 
 app.post('/api/upload', authenticateToken, upload.single('asset'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  // Check max upload size from admin config
+  const maxMb = parseInt(await getConfig('max_upload_size_mb', '100'));
+  if (maxMb > 0 && req.file.size > maxMb * 1024 * 1024) {
+    try { fs.unlinkSync(req.file.path); } catch(e) {}
+    return res.status(413).json({ error: `File exceeds maximum upload size of ${maxMb}MB` });
+  }
 
   const origName = req.file.originalname || 'asset';
   let baseName = path.parse(origName).name.replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 40) || 'asset';

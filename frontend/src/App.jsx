@@ -676,6 +676,13 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const [newFilterAction, setNewFilterAction] = useState('block');
   const [reportFilter, setReportFilter] = useState('pending');
   const [auditFilter, setAuditFilter] = useState('');
+  const [apiKeys, setApiKeys] = useState([]);
+  const [envInfo, setEnvInfo] = useState(null);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyPerm, setNewKeyPerm] = useState('read');
+  const [createdKey, setCreatedKey] = useState(null);
+  const [testEmailAddr, setTestEmailAddr] = useState('');
+  const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [serverConfig, setServerConfig] = useState(null);
   const [configSaveStatus, setConfigSaveStatus] = useState(null); // 'saving' | 'saved' | null
   const [userToDelete, setUserToDelete] = useState(null);
@@ -827,6 +834,64 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     } catch (e) { console.error('Delete filter failed', e); }
   };
 
+  // Phase 5: API Keys & Environment
+  const fetchApiKeys = async () => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/api-keys`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setApiKeys(await res.json());
+    } catch (e) { console.error('API keys fetch failed', e); }
+  };
+
+  const handleCreateApiKey = async () => {
+    if (!newKeyName.trim()) return;
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: newKeyName, permissions: newKeyPerm })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCreatedKey(data.key);
+        setApiKeys(prev => [{ ...data, created_at: new Date().toISOString() }, ...prev]);
+        setNewKeyName('');
+      }
+    } catch (e) { console.error('Create key failed', e); }
+  };
+
+  const handleRevokeApiKey = async (id) => {
+    if (!confirm('Revoke this API key? Applications using it will lose access.')) return;
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/api-keys/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setApiKeys(prev => prev.filter(k => k.id !== id));
+    } catch (e) { console.error('Revoke key failed', e); }
+  };
+
+  const handleTestEmail = async () => {
+    if (!testEmailAddr.trim()) return;
+    setTestEmailStatus('sending');
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/test-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ to: testEmailAddr })
+      });
+      const data = await res.json();
+      setTestEmailStatus(res.ok ? 'sent' : `error: ${data.error}`);
+      setTimeout(() => setTestEmailStatus(null), 5000);
+    } catch (e) { setTestEmailStatus('error: Network failure'); }
+  };
+
+  const fetchEnvironment = async () => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/environment`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setEnvInfo(await res.json());
+    } catch (e) { console.error('Environment fetch failed', e); }
+  };
+
     const fetchLoginHistory = async (userId) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/${userId}/logins`, {
@@ -882,6 +947,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
         } else if (activeTab === 'config') {
           const res = await fetch(`${socketUrl}/api/admin/config`, { headers });
           if (res.ok) setServerConfig(await res.json());
+          fetchApiKeys();
         } else if (activeTab === 'spaces') {
           const res = await fetch(`${socketUrl}/api/spaces`, { headers });
           if (res.ok) setSpaces(await res.json());
@@ -1933,6 +1999,169 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   <InputRow label="Maintenance Mode" configKey="maintenance_mode" type="toggle" description="When enabled, non-admin users see a maintenance screen" />
                   <InputRow label="Maintenance Message" configKey="maintenance_message" type="textarea" placeholder="System is undergoing maintenance..." />
                 </div>
+              </div>
+
+              {/* ═══ API Keys ═══ */}
+              <div className="dash-section" style={{ marginTop: '0.85rem' }}>
+                <div className="dash-section-title">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                  API Keys
+                </div>
+
+                {/* Create Key */}
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                    <input type="text" placeholder="Key name (e.g. CI/CD, Monitoring)" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleCreateApiKey(); }}
+                      style={{ flex: 1, padding: '8px 12px 8px 32px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
+                  </div>
+                  <select value={newKeyPerm} onChange={(e) => setNewKeyPerm(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontFamily: 'inherit', fontSize: '0.82rem', cursor: 'pointer' }}>
+                    <option value="read">Read</option>
+                    <option value="write">Read + Write</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button onClick={handleCreateApiKey} disabled={!newKeyName.trim()} style={{
+                    padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: newKeyName.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                    background: newKeyName.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                    color: newKeyName.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Generate
+                  </button>
+                </div>
+
+                {/* Newly created key banner */}
+                {createdKey && (
+                  <div style={{ padding: '10px 14px', borderRadius: '10px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', marginBottom: '0.75rem', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                      <span style={{ fontWeight: 600, color: '#22c55e' }}>Key created! Copy it now — it won't be shown again.</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <code style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', background: 'var(--md-sys-color-surface)', fontSize: '0.75rem', wordBreak: 'break-all', color: 'var(--md-sys-color-on-surface)', fontFamily: 'monospace' }}>{createdKey}</code>
+                      <button onClick={() => { navigator.clipboard.writeText(createdKey); }} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        Copy
+                      </button>
+                      <button onClick={() => setCreatedKey(null)} style={{ padding: '6px', borderRadius: '6px', border: 'none', background: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Key list */}
+                {apiKeys.length === 0 ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>No API keys created yet</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {apiKeys.map(k => (
+                      <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.8rem' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{k.name}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', fontFamily: 'monospace' }}>{k.key_prefix}</div>
+                        </div>
+                        <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase',
+                          background: k.permissions === 'admin' ? 'rgba(239,68,68,0.12)' : k.permissions === 'write' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                          color: k.permissions === 'admin' ? '#ef4444' : k.permissions === 'write' ? '#f59e0b' : '#22c55e',
+                        }}>{k.permissions}</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>{new Date(k.created_at).toLocaleDateString()}</span>
+                        <button onClick={() => handleRevokeApiKey(k.id)} title="Revoke" style={{ padding: '4px', borderRadius: '6px', border: 'none', background: 'none', color: 'var(--md-sys-color-error)', cursor: 'pointer', display: 'flex' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ═══ Email & TURN/STUN ═══ */}
+              <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr', marginTop: '0.85rem' }}>
+                {/* Email Provider */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    Email Provider
+                  </div>
+                  <InputRow label="Resend API Key" configKey="resend_api_key" type="text" placeholder="re_••••••••" description="Used for password resets and notifications" />
+                  <InputRow label="From Address" configKey="email_from" type="text" placeholder="noreply@yourdomain.com" />
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>Test Email Delivery</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input type="email" placeholder="test@example.com" value={testEmailAddr} onChange={(e) => setTestEmailAddr(e.target.value)}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
+                      <button onClick={handleTestEmail} disabled={!testEmailAddr.trim() || testEmailStatus === 'sending'} style={{
+                        padding: '8px 12px', borderRadius: '8px', border: 'none', cursor: testEmailAddr.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                        background: testEmailAddr.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                        color: testEmailAddr.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                      }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        {testEmailStatus === 'sending' ? 'Sending...' : 'Send Test'}
+                      </button>
+                    </div>
+                    {testEmailStatus && testEmailStatus !== 'sending' && (
+                      <div style={{ marginTop: '6px', fontSize: '0.75rem', fontWeight: 500, color: testEmailStatus === 'sent' ? '#22c55e' : '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {testEmailStatus === 'sent' ? (
+                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg> Test email sent successfully</>
+                        ) : testEmailStatus}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* TURN/STUN */}
+                <div className="dash-section">
+                  <div className="dash-section-title">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.6 11.6L22 7v10l-6.4-4.6"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
+                    TURN / STUN (WebRTC)
+                  </div>
+                  <InputRow label="TURN Server URL" configKey="turn_server" type="text" placeholder="turn:your-server.com:3478" description="TURN relay for NAT traversal in video calls" />
+                  <InputRow label="TURN Username" configKey="turn_username" type="text" placeholder="username" />
+                  <InputRow label="TURN Credential" configKey="turn_credential" type="text" placeholder="••••••••" description="Shared secret for TURN authentication" />
+                  <InputRow label="STUN Server URL" configKey="stun_server" type="text" placeholder="stun:stun.l.google.com:19302" description="STUN server for connection discovery. Defaults to Google's." />
+                </div>
+              </div>
+
+              {/* ═══ Environment Overview ═══ */}
+              <div className="dash-section" style={{ marginTop: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    Environment
+                  </div>
+                  <button onClick={fetchEnvironment} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    {envInfo ? 'Refresh' : 'Load'}
+                  </button>
+                </div>
+                {!envInfo ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>Click "Load" to fetch environment details</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
+                    {[
+                      { label: 'Node.js', value: envInfo.nodeVersion, icon: '🟢' },
+                      { label: 'Platform', value: `${envInfo.platform} ${envInfo.arch}`, icon: '💻' },
+                      { label: 'Hostname', value: envInfo.hostname, icon: '🏠' },
+                      { label: 'CPUs', value: envInfo.cpus, icon: '⚡' },
+                      { label: 'Memory', value: `${(envInfo.freeMemory / 1e9).toFixed(1)} / ${(envInfo.totalMemory / 1e9).toFixed(1)} GB`, icon: '🧠' },
+                      { label: 'Uptime', value: `${Math.floor(envInfo.uptime / 3600)}h ${Math.floor((envInfo.uptime % 3600) / 60)}m`, icon: '⏱️' },
+                    ].map((item, i) => (
+                      <div key={i} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{item.icon} {item.label}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)', fontSize: '0.85rem' }}>{item.value}</div>
+                      </div>
+                    ))}
+                    {envInfo.env && Object.entries(envInfo.env).map(([key, val]) => (
+                      <div key={key} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{key.startsWith('⚠') ? '⚠️' : '🔒'} {key}</div>
+                        <div style={{ fontWeight: 500, color: val.includes('⚠') ? '#ef4444' : 'var(--md-sys-color-on-surface)', fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <style>{`@media (max-width: 700px) { .dash-section { margin-bottom: 0 !important; } }`}</style>
