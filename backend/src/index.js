@@ -1129,7 +1129,12 @@ app.post('/api/admin/test-email', authenticateToken, requireAdmin, async (req, r
 });
 
 // -- Environment Info --
-app.get('/api/admin/environment', authenticateToken, requireAdmin, (req, res) => {
+app.get('/api/admin/environment', authenticateToken, requireAdmin, async (req, res) => {
+  // Check admin config DB for TURN settings (these override env vars)
+  const turnServer = await getConfig('turn_server', '');
+  const turnUsername = await getConfig('turn_username', '');
+  const turnCredential = await getConfig('turn_credential', '');
+
   const envInfo = {
     nodeVersion: process.version,
     platform: os.platform(),
@@ -1141,11 +1146,11 @@ app.get('/api/admin/environment', authenticateToken, requireAdmin, (req, res) =>
     uptime: process.uptime(),
     env: {
       NODE_ENV: process.env.NODE_ENV || 'development',
-      JWT_SECRET: process.env.JWT_SECRET ? '••••••••' : '⚠️ Not set',
+      JWT_SECRET: process.env.JWT_SECRET ? '••••••••' : '⚙️ Using fallback',
       RESEND_API_KEY: process.env.RESEND_API_KEY ? '••••' + process.env.RESEND_API_KEY.slice(-4) : '⚠️ Not set',
-      TURN_SERVER: process.env.TURN_SERVER || 'Not configured',
-      TURN_USERNAME: process.env.TURN_USERNAME || 'Not configured',
-      TURN_CREDENTIAL: process.env.TURN_CREDENTIAL ? '••••••••' : 'Not configured',
+      TURN_SERVER: turnServer || process.env.TURN_SERVER || '⚠️ Not configured',
+      TURN_USERNAME: turnUsername || process.env.TURN_USERNAME || '⚠️ Not configured',
+      TURN_CREDENTIAL: (turnCredential || process.env.TURN_CREDENTIAL) ? '••••••••' : '⚠️ Not configured',
     }
   };
   res.json(envInfo);

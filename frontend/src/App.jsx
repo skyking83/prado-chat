@@ -2156,8 +2156,8 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     ))}
                     {envInfo.env && Object.entries(envInfo.env).map(([key, val]) => (
                       <div key={key} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{key.startsWith('⚠') ? '⚠️' : '🔒'} {key}</div>
-                        <div style={{ fontWeight: 500, color: val.includes('⚠') ? '#ef4444' : 'var(--md-sys-color-on-surface)', fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{val.includes('⚠') ? '⚠️' : val.includes('⚙') ? '⚙️' : '🔒'} {key}</div>
+                        <div style={{ fontWeight: 500, color: val.includes('⚠') ? '#ef4444' : val.includes('⚙') ? '#f59e0b' : 'var(--md-sys-color-on-surface)', fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
                       </div>
                     ))}
                   </div>
