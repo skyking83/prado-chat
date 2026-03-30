@@ -495,6 +495,8 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const locTimeoutRef = useRef(null);
   const [adminResetPw, setAdminResetPw] = useState('');
   const [adminResetMsg, setAdminResetMsg] = useState(null);
+  const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastSent, setBroadcastSent] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [assetToDelete, setAssetToDelete] = useState(null);
   const [spaceToDeleteAdmin, setSpaceToDeleteAdmin] = useState(null);
@@ -639,7 +641,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           </button>
         </h1>
         <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--md-sys-color-outline)', marginBottom: '1rem' }}>
-          {['users', 'assets', 'spaces'].map(tab => (
+          {['users', 'assets', 'spaces', 'broadcast'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: 'pointer', color: activeTab === tab ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)', borderBottom: activeTab === tab ? '2px solid var(--md-sys-color-primary)' : 'none', fontWeight: activeTab === tab ? 'bold' : 'normal' }}>
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
@@ -1083,6 +1085,37 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           </div>
         )}
 
+        {activeTab === 'broadcast' && (
+          <div style={{ backgroundColor: 'var(--md-sys-color-surface)', padding: 'min(5vw, 2rem)', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
+            <h2 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem' }}>📢 Broadcast Message</h2>
+            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', marginBottom: '1rem' }}>Send a message that will appear as a banner for all connected users in real-time.</p>
+            <textarea
+              value={broadcastText}
+              onChange={(e) => setBroadcastText(e.target.value)}
+              placeholder="Type your announcement..."
+              rows={3}
+              style={{ width: '100%', padding: '0.85rem', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontSize: '0.95rem', resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
+              <button
+                className="btn-primary"
+                disabled={!broadcastText.trim()}
+                onClick={() => {
+                  socket.emit('admin broadcast', { message: broadcastText.trim() });
+                  setBroadcastText('');
+                  setBroadcastSent(true);
+                  setTimeout(() => setBroadcastSent(false), 3000);
+                }}
+                style={{ padding: '0.75rem 2rem' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px', verticalAlign: 'middle' }}><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                Send Broadcast
+              </button>
+              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.85rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in' }}>✓ Broadcast sent!</span>}
+            </div>
+          </div>
+        )}
+
 
       </div>
       {adminCroppingImage && (
@@ -1125,6 +1158,7 @@ function App() {
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [gifs, setGifs] = useState([]);
   const [reactingToMsgId, setReactingToMsgId] = useState(null);
+  const [broadcastBanner, setBroadcastBanner] = useState(null);
 
   // Auth State
   const [token, setToken] = useState(localStorage.getItem('token') || null);
@@ -1790,6 +1824,11 @@ function App() {
 
     newSocket.on('presence', (users) => {
       setOnlineUsers(users);
+    });
+
+    newSocket.on('broadcast', (data) => {
+      setBroadcastBanner(data);
+      setTimeout(() => setBroadcastBanner(null), 15000);
     });
 
     newSocket.on('user typing', ({ username: typer, spaceId, avatar, first_name }) => {
@@ -2936,6 +2975,17 @@ function App() {
         // Main UI Container
         <div className={`app-container ${mobileView === 'list' ? 'show-list' : 'show-chat'}`} data-theme={theme} style={dynamicStyles}>
       
+      {/* Broadcast Banner */}
+      {broadcastBanner && (
+        <div className="broadcast-banner" onClick={() => setBroadcastBanner(null)}>
+          <div className="broadcast-banner-icon">📢</div>
+          <div className="broadcast-banner-content">
+            <strong>{broadcastBanner.sender}</strong>
+            <span>{broadcastBanner.message}</span>
+          </div>
+          <button className="broadcast-banner-close" onClick={(e) => { e.stopPropagation(); setBroadcastBanner(null); }}>✕</button>
+        </div>
+      )}
       {/* Sidebar Overlay - Legacy/Optional depending on CSS */}
       <div
         className={`sidebar-overlay ${showSidebar ? 'active' : ''}`}

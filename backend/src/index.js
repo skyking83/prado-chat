@@ -1691,6 +1691,20 @@ io.on('connection', (socket) => {
     if (socket.videoSpaceId) {
       cleanupVideoRoom(socket.videoSpaceId);
     }
+
+    // ─── Admin Broadcast ───
+    socket.on('admin broadcast', (data) => {
+      if (!data?.message?.trim()) return;
+      db.get('SELECT role, first_name, last_name FROM users WHERE username = ?', [username], (err, row) => {
+        if (err || !row || row.role !== 'admin') return;
+        io.emit('broadcast', {
+          message: data.message.trim(),
+          sender: row.first_name ? `${row.first_name} ${row.last_name || ''}`.trim() : username,
+          timestamp: new Date().toISOString()
+        });
+      });
+    });
+
     console.log('User disconnected:', socket.id);
 
     // Decrement session count and update Global Presence
