@@ -1604,6 +1604,10 @@ button {
   object-fit: contain;
 }
 
+.video-box video.mirror-video {
+  transform: scaleX(-1);
+}
+
 /* Avatar Fallback (audio-only / camera off) */
 .video-avatar-fallback {
   display: flex;

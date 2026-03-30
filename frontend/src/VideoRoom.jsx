@@ -105,7 +105,7 @@ const QualityDots = ({ level, rtt, packetLoss, bitrate }) => {
 };
 
 // ─── Peer Video Tile ───
-const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, pc, isPinned, onPin, isScreenShare }) => {
+const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, isVideoOff, pc, isPinned, onPin, isScreenShare }) => {
   const videoRef = useRef();
   const isSpeaking = useAudioLevel(stream);
   const quality = useConnectionQuality(pc);
@@ -117,15 +117,16 @@ const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, p
   }, [stream]);
 
   const displayName = first_name ? `${first_name} ${last_name || ''}`.trim() : username;
+  const showAvatar = !stream || isVideoOff;
 
   return (
     <div
       className={`video-box ${isSpeaking ? 'speaking' : ''} ${isPinned ? 'pinned' : ''} ${isScreenShare ? 'screen-share' : ''}`}
       onClick={onPin}
     >
-      {stream ? (
-        <video ref={videoRef} autoPlay playsInline />
-      ) : (
+      {/* Always mount the video element so srcObject stays attached */}
+      {stream && <video ref={videoRef} autoPlay playsInline style={isVideoOff ? { display: 'none' } : undefined} />}
+      {showAvatar && (
         <div className="video-avatar-fallback">
           {avatar ? (
             <img src={avatar} alt={displayName} className="video-avatar-img" />
@@ -463,6 +464,13 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
       }
     };
 
+    const handleCameraToggled = ({ userId, isVideoOff: off }) => {
+      setPeers(prev => {
+        if (!prev[userId]) return prev;
+        return { ...prev, [userId]: { ...prev[userId], isVideoOff: off } };
+      });
+    };
+
     socket.on('user-joined-video', handleUserJoined);
     socket.on('video-offer', handleVideoOffer);
     socket.on('video-answer', handleVideoAnswer);
@@ -470,6 +478,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     socket.on('user-left-video', handleUserLeft);
     socket.on('screen-share-started', handleScreenShareStarted);
     socket.on('screen-share-stopped', handleScreenShareStopped);
+    socket.on('camera-toggled', handleCameraToggled);
 
     return () => {
       socket.off('user-joined-video', handleUserJoined);
@@ -479,6 +488,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
       socket.off('user-left-video', handleUserLeft);
       socket.off('screen-share-started', handleScreenShareStarted);
       socket.off('screen-share-stopped', handleScreenShareStopped);
+      socket.off('camera-toggled', handleCameraToggled);
     };
   }, [localStream, socket, createPeerConnection, pinnedUserId, screenSharer]);
 
@@ -492,8 +502,49 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
 
   const toggleVideo = () => {
     if (localStream) {
-      localStream.getVideoTracks().forEach(t => t.enabled = !t.enabled);
-      setIsVideoOff(!isVideoOff);
+      const newState = !isVideoOff;
+      localStream.getVideoTracks().forEach(t => t.enabled = !newState);
+      setIsVideoOff(newState);
+      socket.emit('camera-toggled', { spaceId, isVideoOff: newState });
+    }
+  };
+
+  const switchCamera = async () => {
+    if (!localStream || audioOnly) return;
+    try {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = allDevices.filter(d => d.kind === 'videoinput');
+      if (cameras.length <= 1) return;
+      const currentTrack = localStream.getVideoTracks()[0];
+      const currentDeviceId = currentTrack?.getSettings()?.deviceId;
+      const currentIdx = cameras.findIndex(c => c.deviceId === currentDeviceId);
+      const nextIdx = (currentIdx + 1) % cameras.length;
+      const nextDeviceId = cameras[nextIdx].deviceId;
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      const newTrack = newStream.getVideoTracks()[0];
+
+      // Replace track in all peer connections
+      Object.values(peerConnections.current).forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(newTrack);
+      });
+
+      // Replace in local stream
+      if (currentTrack) {
+        localStream.removeTrack(currentTrack);
+        currentTrack.stop();
+      }
+      localStream.addTrack(newTrack);
+
+      // Update self-preview
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+      setSelectedCamera(nextDeviceId);
+    } catch (err) {
+      console.error('Failed to switch camera:', err);
     }
   };
 
@@ -686,6 +737,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
                   last_name={peers[pinnedUserId].last_name}
                   avatar={peers[pinnedUserId].avatar}
                   isMuted={false}
+                  isVideoOff={peers[pinnedUserId].isVideoOff}
                   pc={peerConnections.current[pinnedUserId]}
                   isPinned={true}
                   onPin={() => setPinnedUserId(null)}
@@ -701,9 +753,14 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
                 className={`video-box local ${localIsSpeaking ? 'speaking' : ''}`}
                 onClick={() => setPinnedUserId(null)}
               >
-                {!audioOnly && !isVideoOff ? (
-                  <video ref={localVideoRef} autoPlay muted playsInline />
-                ) : (
+                {/* Always keep video mounted so srcObject survives toggle */}
+                {!audioOnly && (
+                  <video ref={localVideoRef} autoPlay muted playsInline
+                    className="mirror-video"
+                    style={isVideoOff ? { display: 'none' } : undefined}
+                  />
+                )}
+                {(audioOnly || isVideoOff) && (
                   <div className="video-avatar-fallback">
                     {myAvatar ? (
                       <img src={myAvatar} alt="You" className="video-avatar-img" />
@@ -734,6 +791,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
                     last_name={peer.last_name}
                     avatar={peer.avatar}
                     isMuted={false}
+                    isVideoOff={peer.isVideoOff}
                     pc={peerConnections.current[userId]}
                     isPinned={false}
                     onPin={() => setPinnedUserId(userId)}
@@ -765,6 +823,12 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
                 )}
               </button>
+
+              {!audioOnly && !isVideoOff && devices.videoinput.length > 1 && (
+                <button className="video-btn" onClick={switchCamera} title="Switch Camera">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"></path><polygon points="23 7 16 12 23 17 23 7"></polygon><path d="M14 5l3 3-3 3"></path><path d="M10 19l-3-3 3-3"></path></svg>
+                </button>
+              )}
 
               {canScreenShare && (
                 <button className={`video-btn ${isScreenSharing ? 'active screen-active' : ''}`} onClick={toggleScreenShare} title={isScreenSharing ? 'Stop sharing' : 'Share screen'}>

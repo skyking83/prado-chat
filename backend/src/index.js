@@ -1626,6 +1626,11 @@ io.on('connection', (socket) => {
     socket.to(room).emit('screen-share-stopped', { userId: socket.id });
   });
 
+  socket.on('camera-toggled', ({ spaceId, isVideoOff }) => {
+    const room = `video-${spaceId}`;
+    socket.to(room).emit('camera-toggled', { userId: socket.id, isVideoOff });
+  });
+
   socket.on('video-offer', (data) => {
     io.to(data.targetUserId).emit('video-offer', {
       senderId: socket.id,
