@@ -30,7 +30,12 @@ dotenv.config();
 
 // VAPID keys are set up below from data/vapid.json (persistent across restarts)
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Resend client created on-demand from admin config
+async function getResendClient() {
+  const apiKey = await getConfig('resend_api_key', process.env.RESEND_API_KEY || '');
+  if (!apiKey) return null;
+  return new Resend(apiKey);
+}
 
 const app = express();
 app.use(cors());
@@ -491,8 +496,14 @@ app.post('/api/register', async (req, res) => {
         if (isVerified === 0) {
           // Dispatch Resend Email
           try {
-            await resend.emails.send({
-              from: 'Prado Chat Security <admin@pradolane.com>',
+            const fromAddr = await getConfig('email_from', 'onboarding@resend.dev');
+            const resendClient = await getResendClient();
+            if (!resendClient) {
+              console.error('Resend API key not configured — cannot send verification email');
+              return res.status(201).json({ message: 'Account created but email verification could not be sent. Contact admin.', role });
+            }
+            await resendClient.emails.send({
+              from: `Prado Chat Security <${fromAddr}>`,
               to: email,
               subject: 'Verify your Prado Chat Account',
               html: `
@@ -1115,12 +1126,20 @@ app.post('/api/admin/test-email', authenticateToken, requireAdmin, async (req, r
   const { to } = req.body;
   if (!to) return res.status(400).json({ error: 'Email address required' });
   try {
-    const result = await resend.emails.send({
-      from: 'Prado Chat <onboarding@resend.dev>',
+    // Use admin-configured API key and from address (fall back to env var / defaults)
+    const apiKey = await getConfig('resend_api_key', process.env.RESEND_API_KEY || '');
+    const fromAddr = await getConfig('email_from', 'onboarding@resend.dev');
+    if (!apiKey) return res.status(400).json({ error: 'No Resend API key configured. Set it in Config → Email Provider.' });
+
+    const { Resend: ResendClient } = await import('resend');
+    const testResend = new ResendClient(apiKey);
+    const result = await testResend.emails.send({
+      from: `Prado Chat <${fromAddr}>`,
       to,
       subject: 'Prado Chat — Test Email',
       html: '<h2>✅ Email Configuration Working</h2><p>If you received this email, your Prado Chat email provider is configured correctly.</p><p style="color: #888; font-size: 12px;">Sent at ' + new Date().toISOString() + '</p>'
     });
+    if (result?.error) return res.status(500).json({ error: result.error.message || 'Resend API error' });
     logAudit(req.user.userId, req.user.username, 'test_email', 'config', 'email', to);
     res.json({ success: true, messageId: result?.data?.id });
   } catch (err) {
@@ -1130,10 +1149,12 @@ app.post('/api/admin/test-email', authenticateToken, requireAdmin, async (req, r
 
 // -- Environment Info --
 app.get('/api/admin/environment', authenticateToken, requireAdmin, async (req, res) => {
-  // Check admin config DB for TURN settings (these override env vars)
+  // Check admin config DB for settings
   const turnServer = await getConfig('turn_server', '');
   const turnUsername = await getConfig('turn_username', '');
   const turnCredential = await getConfig('turn_credential', '');
+  const resendKey = await getConfig('resend_api_key', process.env.RESEND_API_KEY || '');
+  const giphyKey = await getConfig('giphy_api_key', process.env.GIPHY_API_KEY || '');
 
   const envInfo = {
     nodeVersion: process.version,
@@ -1149,9 +1170,12 @@ app.get('/api/admin/environment', authenticateToken, requireAdmin, async (req, r
       JWT_SECRET: process.env.JWT_SECRET
         ? { value: '••••••••', status: 'ok' }
         : { value: 'Using fallback', status: 'warn' },
-      RESEND_API_KEY: process.env.RESEND_API_KEY
-        ? { value: '••••' + process.env.RESEND_API_KEY.slice(-4), status: 'ok' }
-        : { value: 'Not set', status: 'error' },
+      RESEND_API_KEY: resendKey
+        ? { value: '••••' + resendKey.slice(-4), status: 'ok' }
+        : { value: 'Not configured', status: 'error' },
+      GIPHY_API_KEY: giphyKey
+        ? { value: '••••' + giphyKey.slice(-4), status: 'ok' }
+        : { value: 'Not configured', status: 'error' },
       TURN_SERVER: (turnServer || process.env.TURN_SERVER)
         ? { value: turnServer || process.env.TURN_SERVER, status: 'ok' }
         : { value: 'Not configured', status: 'error' },
@@ -1687,7 +1711,8 @@ app.get('/api/messages/:spaceId', authenticateToken, (req, res) => {
 app.get('/api/gifs', authenticateToken, async (req, res) => {
   const { q } = req.query;
   if (!q) return res.json([]);
-  const apiKey = process.env.GIPHY_API_KEY;
+  const apiKey = await getConfig('giphy_api_key', process.env.GIPHY_API_KEY || '');
+  if (!apiKey) return res.status(400).json({ error: 'Giphy API key not configured' });
   try {
     const response = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(q)}&limit=20&rating=g`);
     const data = await response.json();
