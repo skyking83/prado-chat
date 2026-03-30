@@ -10,6 +10,7 @@
 
   [Features](#-features) •
   [Video Rooms](#-webrtc-video-rooms) •
+  [Admin Console](#-admin-console) •
   [Tech Stack](#-tech-stack) •
   [Quick Start (Docker)](#-quick-start-with-docker) •
   [Development Setup](#-local-development)
@@ -20,7 +21,7 @@
 ## ✨ Features
 
 ### 🔐 Zero-Trust End-to-End Encryption (E2EE)
-Messages and keys are mathematically secured locally in the browser utilizing native `WebCrypto` primitives (`RSA-OAEP` for PKI identity, `AES-GCM` for Room Keys). The SQLite backend stores purely encrypted ciphertexts — the server **never** has access to plaintext message content.
+Messages and keys are mathematically secured locally in the browser utilizing native `WebCrypto` primitives (`RSA-OAEP` for PKI identity, `AES-GCM` for Room Keys). The SQLite backend stores purely encrypted ciphertexts — the server **never** has access to plaintext message content. Includes server-side E2EE key escrow for multi-device recovery.
 
 ### 💬 Real-Time Communication
 Instant messaging powered by ultra-low-latency WebSockets via `Socket.io` with resilient reconnection handling, real-time typing indicators, and online/offline presence detection.
@@ -32,7 +33,7 @@ Create public channels for everyone or secure, lock-protected private spaces. Bu
 Beautifully crafted Dual-Pane layout with responsive sidebar, floating chat inputs, infinite scroll message history, pinned messages board, and seamless mobile transitions.
 
 ### 📹 WebRTC Video & Audio Rooms
-Full-featured peer-to-peer video conferencing built right into your chat spaces — see [detailed breakdown below](#-webrtc-video-rooms).
+Full-featured peer-to-peer video conferencing with self-hosted TURN relay support — see [detailed breakdown below](#-webrtc-video-rooms).
 
 ### ✍️ Slack-Style Rich Text Editor
 ContentEditable input with **live inline formatting** — type `**bold**`, `*italic*`, `` `code` ``, or `~~strike~~` and watch the syntax markers vanish as formatting appears in-place. Features:
@@ -58,10 +59,8 @@ E2EE-aware Web Push with grouped notification stacking per-space, inline reply a
 - **Profile Hover Cards**: Hover over any avatar in the sidebar to see a rich floating card with avatar, display name, @username, status icon + text, bio (3-line clamp), and local time
 - **Real-time status sync**: Status changes broadcast instantly to all connected clients via WebSocket
 
-### 🛡️ Admin Dashboard
-Full internal control panel with a redesigned user edit form matching the Settings modal's visual language — hero avatar, responsive 2-column grid, section cards (Profile, Status & Bio, Role & Preferences, Security), and metadata bar.
-- **📢 Broadcast System**: Send real-time announcements to all connected users via an animated top-of-screen banner with auto-dismiss countdown
-- **Location → Timezone inference**: Selecting a location auto-populates timezone for users who haven't set one
+### 🛡️ Admin Console
+Full-featured admin dashboard with five management tabs — see [detailed breakdown below](#-admin-console).
 
 ### 📱 Progressive Web App (PWA)
 Installable as a native app on iOS, Android, macOS, and Windows:
@@ -102,7 +101,7 @@ Real-time network detection seamlessly swapping avatar states, suppressing activ
 
 ## 📹 WebRTC Video Rooms
 
-Prado Chat includes a complete, browser-native video conferencing system — no external services, no plugins, fully peer-to-peer.
+Prado Chat includes a complete, browser-native video conferencing system — no external services, no plugins, fully peer-to-peer with optional TURN relay.
 
 ### Pre-Join Lobby
 - Live camera preview with mirror effect
@@ -122,10 +121,19 @@ Prado Chat includes a complete, browser-native video conferencing system — no 
 - **Call Duration Timer** displayed in header (MM:SS / HH:MM:SS)
 - **Audio Processing**: noise suppression, echo cancellation, and auto gain control
 - **ICE Reconnection**: automatic `restartIce` on connection failure
+- **Dynamic ICE Configuration**: TURN/STUN servers loaded from admin config on each call
 - **Muted Indicators**: per-tile SVG badge when a participant is muted
+- **Camera-Off Avatars**: participant avatars shown when camera is disabled
 - **Push-to-Talk**: hold spacebar while muted for momentary unmute (walkie-talkie style)
 - **In-Call Chat Panel**: side panel showing the current space's chat with E2EE decryption and full Markdown rendering
 - **Theme-Aware UI**: all video call components respect the global light/dark theme via CSS variables
+
+### TURN/STUN Relay
+- Self-hosted **coturn** container included in Docker Compose
+- Admin-configurable TURN server URL, credentials, and STUN server
+- Dynamic ICE server discovery via `GET /api/ice-servers`
+- Built-in **connectivity test** in admin panel — verifies Host, STUN (srflx), and TURN (relay) candidates
+- Enables reliable connections behind symmetric NATs / corporate firewalls
 
 ### Incoming Call Flow
 - Animated ringing banner with caller info
@@ -141,6 +149,52 @@ Prado Chat includes a complete, browser-native video conferencing system — no 
 
 ---
 
+## 🛡️ Admin Console
+
+The admin console is accessible from the avatar dropdown menu by users with the `admin` role. It provides five management tabs:
+
+### 👥 Users Tab
+- Searchable user list with real-time status, role badges, and creation dates
+- **Edit User**: hero avatar, responsive 2-column form with profile, status & bio, role & preferences, and security sections
+- **Login History**: modal with timestamped session log per user
+- **Export**: CSV download of the full user database
+- **Delete User**: confirmation dialog with cascade delete of messages and memberships
+
+### 🏠 Spaces Tab
+- Full space inventory with member counts, creator info, and type badges (Public/Private/DM/Self)
+- **Delete Space**: confirmation modal with full data cascade
+
+### 📢 Moderation Tab
+- **User Reports**: flagged message queue with reporter info, timestamps, and one-click dismiss
+- **Word Filter**: add/remove filtered words, auto-applied to new messages server-side
+- **Audit Log**: paginated, timestamped log of all admin actions (user edits, config changes, deletions, broadcasts)
+- **Broadcast System**: send real-time announcements to all connected users via an animated top-of-screen banner with auto-dismiss countdown
+
+### ⚙️ Config Tab
+All settings auto-save on blur/change with a visual "Saving…/Saved" indicator.
+
+| Section | Settings |
+|---------|----------|
+| **Registration** | Registration mode (open/closed), email verification toggle, domain whitelist |
+| **Branding** | App name, default theme (dark/light), accent color (circular color picker) |
+| **Uploads** | Max upload size (MB) — enforced server-side by multer middleware |
+| **Maintenance** | Maintenance mode toggle + custom message (non-admin users see a branded maintenance screen) |
+| **API Keys** | Generate/revoke API keys with read/write scopes, stored as SHA-256 hashes |
+| **Email Provider** | Resend API key, from address, test email delivery with inline status |
+| **TURN/STUN** | TURN server URL, username, credential, STUN server URL, **connectivity test button** |
+| **Giphy** | Giphy API key for GIF search integration |
+
+> **Note**: Resend and Giphy API keys are managed entirely from the admin panel — no environment variables needed.
+
+### 🔍 Environment Overview
+- System diagnostics: Node.js version, platform, hostname, CPU count, memory, uptime
+- Configuration status for all secrets and integrations with color-coded SVG status icons:
+  - 🟢 Green shield = configured
+  - 🟡 Amber circle = using fallback
+  - 🔴 Red triangle = not configured
+
+---
+
 ## 🛠 Tech Stack
 
 | Layer | Technology |
@@ -148,13 +202,15 @@ Prado Chat includes a complete, browser-native video conferencing system — no 
 | **Frontend** | React 18 / Vite ⚡️ |
 | **Styling** | Vanilla CSS (CSS Grid + Custom Properties) |
 | **Encryption** | WebCrypto API (AES-GCM / RSA-OAEP) |
-| **Video/Audio** | `simple-peer` (WebRTC) |
+| **Video/Audio** | Native WebRTC (`RTCPeerConnection`) |
+| **TURN Relay** | coturn (self-hosted, containerized) |
 | **Rich Text** | `marked` + `DOMPurify` |
 | **Emoji** | `emoji-picker-react` |
 | **Backend** | Node.js & Express |
 | **Database** | SQLite3 (zero-config local persistence) |
 | **Real-Time** | `Socket.io` (WebSocket engine) |
 | **Auth** | JSON Web Tokens (JWT) & bcrypt |
+| **Email** | Resend (transactional email API) |
 | **Push** | `web-push` (VAPID protocol) |
 | **Transcoding** | FFmpeg (server-side media processing) |
 | **Deployment** | Docker & Docker Compose |
@@ -171,7 +227,7 @@ The easiest way to run Prado Chat is via Docker Compose. Pre-built images are ho
 
 | Image | Description |
 |-------|-------------|
-| [`skyking83/prado-chat-backend`](https://hub.docker.com/r/skyking83/prado-chat-backend) | Node.js API + SQLite + Socket.io + WebRTC signaling |
+| [`skyking83/prado-chat-backend`](https://hub.docker.com/r/skyking83/prado-chat-backend) | Node.js API + SQLite + Socket.io + WebRTC signaling + coturn |
 | [`skyking83/prado-chat-frontend`](https://hub.docker.com/r/skyking83/prado-chat-frontend) | Vite-built React SPA served via Nginx |
 
 ### 1. Clone the repository
@@ -184,9 +240,9 @@ cd prado-chat
 Create a `.env` file in the project root:
 ```env
 JWT_SECRET=super_secret_key_change_me
-RESEND_API_KEY=your_resend_api_key
-GIPHY_API_KEY=your_giphy_api_key
 ```
+
+> **API keys (Resend, Giphy) and TURN/STUN settings** are configured via the Admin Panel → Config tab after first login. No environment variables needed.
 
 ### 3. Spin up the stack
 ```bash
@@ -195,6 +251,13 @@ docker-compose up -d
 
 ### 4. Access the App
 Open your browser and navigate to `http://localhost:30099`.
+
+### 5. First-Time Setup
+1. Register your admin account (first user gets `admin` role automatically)
+2. Open **Admin Panel → Config** to configure:
+   - **Email Provider**: Add your Resend API key for email verification
+   - **Giphy**: Add your Giphy API key for GIF search
+   - **TURN/STUN**: Configure your TURN relay for NAT traversal (optional but recommended)
 
 > **TrueNAS / NAS Users**: The `docker-compose.yml` includes bind mounts to `/mnt/pool1/app_data/` for persistent data that survives container rebuilds. Adjust the paths to match your storage pool.
 
@@ -220,6 +283,11 @@ npm install
 npm run dev
 ```
 *(Runs on `http://localhost:5173` — proxies API/WebSocket to the backend)*
+
+### 3. Start coturn (optional, for TURN relay testing)
+```bash
+docker-compose -f docker-compose.dev.yml up coturn -d
+```
 
 ---
 
