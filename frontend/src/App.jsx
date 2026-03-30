@@ -2140,32 +2140,73 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   <div style={{ marginTop: '0.5rem' }}>
                     <button onClick={async () => {
                       setTurnTestStatus('testing');
-                      const iceServers = [];
                       const stunUrl = serverConfig.stun_server || 'stun:stun.l.google.com:19302';
-                      iceServers.push({ urls: stunUrl });
+                      const iceServers = [{ urls: stunUrl }];
                       if (serverConfig.turn_server) {
                         iceServers.push({ urls: serverConfig.turn_server, username: serverConfig.turn_username || '', credential: serverConfig.turn_credential || '' });
                       }
-                      const found = { host: false, srflx: false, relay: false };
+                      const result = { host: false, srflx: false, relay: false, candidates: [], errors: [], config: iceServers, elapsed: 0 };
+                      const start = Date.now();
+
+                      // Phase 1: Full ICE gathering (STUN + TURN)
                       try {
                         const pc = new RTCPeerConnection({ iceServers });
                         pc.createDataChannel('test');
+                        pc.onicecandidateerror = (e) => {
+                          result.errors.push(`[${e.errorCode}] ${e.errorText || 'ICE candidate error'} (${e.url || 'unknown URL'})`);
+                        };
                         const offer = await pc.createOffer();
                         await pc.setLocalDescription(offer);
                         await new Promise((resolve) => {
-                          const timeout = setTimeout(() => { pc.onicecandidate = null; resolve(); }, 5000);
+                          const timeout = setTimeout(() => { pc.onicecandidate = null; resolve(); }, 8000);
                           pc.onicecandidate = (e) => {
-                            if (e.candidate) {
-                              const typ = e.candidate.candidate.match(/typ (\w+)/);
-                              if (typ) found[typ[1]] = true;
+                            if (e.candidate && e.candidate.candidate) {
+                              const c = e.candidate.candidate;
+                              const typ = c.match(/typ (\w+)/);
+                              const addr = c.match(/(\d+\.\d+\.\d+\.\d+)/);
+                              if (typ) {
+                                result[typ[1]] = true;
+                                result.candidates.push({ type: typ[1], address: addr ? addr[1] : '?', full: c.substring(0, 80) });
+                              }
                             } else { clearTimeout(timeout); resolve(); }
                           };
                         });
                         pc.close();
-                        setTurnTestStatus(found);
                       } catch (err) {
-                        setTurnTestStatus({ host: false, srflx: false, relay: false, error: err.message });
+                        result.errors.push('Phase 1: ' + err.message);
                       }
+
+                      // Phase 2: TURN-only isolation test
+                      if (serverConfig.turn_server && !result.relay) {
+                        try {
+                          const turnOnly = [{ urls: serverConfig.turn_server, username: serverConfig.turn_username || '', credential: serverConfig.turn_credential || '' }];
+                          const pc2 = new RTCPeerConnection({ iceServers: turnOnly, iceTransportPolicy: 'relay' });
+                          pc2.createDataChannel('turn-test');
+                          pc2.onicecandidateerror = (e) => {
+                            result.errors.push(`[TURN-only ${e.errorCode}] ${e.errorText || 'error'} (${e.url || ''})`);
+                          };
+                          const offer2 = await pc2.createOffer();
+                          await pc2.setLocalDescription(offer2);
+                          await new Promise((resolve) => {
+                            const timeout = setTimeout(() => { pc2.onicecandidate = null; resolve(); }, 6000);
+                            pc2.onicecandidate = (e) => {
+                              if (e.candidate && e.candidate.candidate) {
+                                const typ = e.candidate.candidate.match(/typ (\w+)/);
+                                if (typ && typ[1] === 'relay') {
+                                  result.relay = true;
+                                  result.candidates.push({ type: 'relay (isolated)', address: e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1] || '?', full: '' });
+                                }
+                              } else { clearTimeout(timeout); resolve(); }
+                            };
+                          });
+                          pc2.close();
+                        } catch (err) {
+                          result.errors.push('TURN-only: ' + err.message);
+                        }
+                      }
+
+                      result.elapsed = ((Date.now() - start) / 1000).toFixed(1);
+                      setTurnTestStatus(result);
                     }} disabled={turnTestStatus === 'testing'} style={{
                       padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: turnTestStatus === 'testing' ? 'not-allowed' : 'pointer',
                       fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px',
@@ -2173,19 +2214,20 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                       opacity: turnTestStatus === 'testing' ? 0.7 : 1,
                     }}>
                       {turnTestStatus === 'testing' ? (
-                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Testing...</>
+                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Testing (up to 14s)...</>
                       ) : (
                         <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Test Connectivity</>
                       )}
                     </button>
                     {turnTestStatus && turnTestStatus !== 'testing' && (
-                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem' }}>
+                        {/* Status summary */}
                         {[
                           { label: 'Host (local)', ok: turnTestStatus.host },
                           { label: 'STUN (srflx)', ok: turnTestStatus.srflx },
                           { label: 'TURN (relay)', ok: turnTestStatus.relay },
                         ].map(item => (
-                          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 500, color: item.ok ? '#22c55e' : '#ef4444' }}>
+                          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, color: item.ok ? '#22c55e' : '#ef4444' }}>
                             {item.ok
                               ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                               : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -2193,9 +2235,45 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                             {item.label}
                           </div>
                         ))}
-                        {turnTestStatus.error && (
-                          <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>{turnTestStatus.error}</div>
+
+                        {/* Timing */}
+                        <div style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem', marginTop: '4px' }}>Completed in {turnTestStatus.elapsed}s</div>
+
+                        {/* Candidates discovered */}
+                        {turnTestStatus.candidates?.length > 0 && (
+                          <details style={{ marginTop: '4px' }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 500, fontSize: '0.75rem' }}>
+                              {turnTestStatus.candidates.length} candidate(s) discovered
+                            </summary>
+                            <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontFamily: 'monospace', fontSize: '0.68rem', lineHeight: 1.6, overflowX: 'auto', maxHeight: '150px', overflowY: 'auto' }}>
+                              {turnTestStatus.candidates.map((c, i) => (
+                                <div key={i} style={{ color: c.type === 'relay' || c.type === 'relay (isolated)' ? '#22c55e' : c.type === 'srflx' ? '#3b82f6' : 'var(--md-sys-color-on-surface-variant)' }}>
+                                  {c.type} → {c.address} {c.full ? `(${c.full})` : ''}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
                         )}
+
+                        {/* Errors */}
+                        {turnTestStatus.errors?.length > 0 && (
+                          <details open style={{ marginTop: '2px' }}>
+                            <summary style={{ cursor: 'pointer', color: '#ef4444', fontWeight: 500, fontSize: '0.75rem' }}>
+                              {turnTestStatus.errors.length} error(s)
+                            </summary>
+                            <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', fontFamily: 'monospace', fontSize: '0.68rem', lineHeight: 1.6, color: '#ef4444' }}>
+                              {turnTestStatus.errors.map((e, i) => <div key={i}>{e}</div>)}
+                            </div>
+                          </details>
+                        )}
+
+                        {/* Config used */}
+                        <details style={{ marginTop: '2px' }}>
+                          <summary style={{ cursor: 'pointer', color: 'var(--md-sys-color-outline)', fontWeight: 500, fontSize: '0.72rem' }}>ICE config used</summary>
+                          <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontFamily: 'monospace', fontSize: '0.65rem', lineHeight: 1.5, overflowX: 'auto', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                            {JSON.stringify(turnTestStatus.config?.map(s => ({ ...s, credential: s.credential ? '••••' : undefined })), null, 2)}
+                          </div>
+                        </details>
                       </div>
                     )}
                   </div>
