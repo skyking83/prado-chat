@@ -2624,8 +2624,14 @@ function App() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showVideoRoom, setShowVideoRoom] = useState(false);
   const [videoAudioOnly, setVideoAudioOnly] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { spaceId, caller: { username, first_name, avatar } }
+  const [incomingCall, setIncomingCall] = useState(null); // { spaceId, caller: { username, first_name, avatar }, audioOnly }
   const [iceServers, setIceServers] = useState(null);
+  const [showCallInvite, setShowCallInvite] = useState(null); // null | { audioOnly: boolean }
+  const [callInviteMembers, setCallInviteMembers] = useState([]);
+  const [callInviteSelected, setCallInviteSelected] = useState([]);
+  const [ringCountdown, setRingCountdown] = useState(0);
+  const ringtoneRef = useRef(null);
+  const ringCountdownRef = useRef(null);
   const [globalFont, setGlobalFont] = useState('Roboto');
   const [uiScale, setUiScale] = useState(() => parseFloat(localStorage.getItem('uiScale')) || 1.0);
 
@@ -3332,17 +3338,71 @@ function App() {
     });
 
     // WebRTC: Incoming call ringing
-    newSocket.on('call-ringing', ({ spaceId: ringSpaceId, caller }) => {
+    newSocket.on('call-ringing', ({ spaceId: ringSpaceId, caller, audioOnly }) => {
       // Don't show ringing if we're already in a call
       if (!showVideoRoom) {
-        setIncomingCall({ spaceId: ringSpaceId, caller });
-        // Auto-dismiss after 30 seconds
-        setTimeout(() => setIncomingCall(prev => prev?.spaceId === ringSpaceId ? null : prev), 30000);
+        setIncomingCall({ spaceId: ringSpaceId, caller, audioOnly: !!audioOnly });
+        setRingCountdown(30);
+
+        // Start ringtone (Web Audio API two-tone ring)
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const gainNode = ctx.createGain();
+          gainNode.gain.value = 0.15;
+          gainNode.connect(ctx.destination);
+          let ringInterval;
+          const playRing = () => {
+            const osc1 = ctx.createOscillator();
+            const osc2 = ctx.createOscillator();
+            osc1.frequency.value = 440;
+            osc2.frequency.value = 480;
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            osc1.start();
+            osc2.start();
+            osc1.stop(ctx.currentTime + 0.8);
+            osc2.stop(ctx.currentTime + 0.8);
+          };
+          playRing();
+          ringInterval = setInterval(playRing, 2500);
+          ringtoneRef.current = { ctx, interval: ringInterval };
+        } catch (e) { console.warn('Ringtone failed:', e); }
+
+        // Start countdown timer
+        if (ringCountdownRef.current) clearInterval(ringCountdownRef.current);
+        let count = 30;
+        ringCountdownRef.current = setInterval(() => {
+          count--;
+          setRingCountdown(count);
+          if (count <= 0) {
+            clearInterval(ringCountdownRef.current);
+            ringCountdownRef.current = null;
+            // Stop ringtone
+            if (ringtoneRef.current) {
+              clearInterval(ringtoneRef.current.interval);
+              ringtoneRef.current.ctx.close().catch(() => {});
+              ringtoneRef.current = null;
+            }
+            setIncomingCall(prev => prev?.spaceId === ringSpaceId ? null : prev);
+          }
+        }, 1000);
       }
     });
 
     newSocket.on('call-ended', ({ spaceId: endedSpaceId }) => {
-      setIncomingCall(prev => prev?.spaceId === endedSpaceId ? null : prev);
+      setIncomingCall(prev => {
+        if (prev?.spaceId === endedSpaceId) {
+          // Stop ringtone + countdown
+          if (ringtoneRef.current) {
+            clearInterval(ringtoneRef.current.interval);
+            ringtoneRef.current.ctx.close().catch(() => {});
+            ringtoneRef.current = null;
+          }
+          if (ringCountdownRef.current) { clearInterval(ringCountdownRef.current); ringCountdownRef.current = null; }
+          return null;
+        }
+        return prev;
+      });
     });
 
     newSocket.on('space history', async (history) => {
@@ -4829,7 +4889,16 @@ function App() {
                  {isConnected && !showVideoRoom && (
                     <>
                     <button 
-                      onClick={() => { setVideoAudioOnly(false); setShowVideoRoom(true); }}
+                      onClick={() => {
+                        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+                          .then(res => res.json())
+                          .then(data => {
+                            const members = (data || []).filter(m => m.username !== username);
+                            setCallInviteMembers(members);
+                            setCallInviteSelected(members.map(m => m.id)); // Select all by default
+                          }).catch(() => setCallInviteMembers([]));
+                        setShowCallInvite({ audioOnly: false });
+                      }}
                       title="Video Call"
                       style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
@@ -4838,7 +4907,16 @@ function App() {
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
                     </button>
                     <button 
-                      onClick={() => { setVideoAudioOnly(true); setShowVideoRoom(true); }}
+                      onClick={() => {
+                        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+                          .then(res => res.json())
+                          .then(data => {
+                            const members = (data || []).filter(m => m.username !== username);
+                            setCallInviteMembers(members);
+                            setCallInviteSelected(members.map(m => m.id));
+                          }).catch(() => setCallInviteMembers([]));
+                        setShowCallInvite({ audioOnly: true });
+                      }}
                       title="Audio Only Call"
                       style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
@@ -4869,29 +4947,64 @@ function App() {
 
       <main className="chat-window">
         {/* Incoming Call Ringing Banner */}
-        {incomingCall && !showVideoRoom && (
+        {incomingCall && !showVideoRoom && (() => {
+          const stopRing = () => {
+            if (ringtoneRef.current) { clearInterval(ringtoneRef.current.interval); ringtoneRef.current.ctx.close().catch(() => {}); ringtoneRef.current = null; }
+            if (ringCountdownRef.current) { clearInterval(ringCountdownRef.current); ringCountdownRef.current = null; }
+          };
+          const acceptCall = (audioOnly) => {
+            const targetSpace = spaces.find(s => Number(s.id) === Number(incomingCall.spaceId));
+            if (targetSpace) { handleSpaceSelect(targetSpace); }
+            setVideoAudioOnly(audioOnly);
+            setShowVideoRoom(true);
+            stopRing();
+            setIncomingCall(null);
+          };
+          const spaceName = (() => {
+            const s = spaces.find(sp => Number(sp.id) === Number(incomingCall.spaceId));
+            if (!s) return '';
+            if (s.is_dm === 1) return '';
+            return s.name;
+          })();
+          return (
           <div className="call-ringing-banner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+              {/* Caller Avatar */}
+              {incomingCall.caller.avatar ? (
+                <img src={`${socketUrl}${incomingCall.caller.avatar}`} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(76,175,80,0.5)' }} />
+              ) : (
+                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 600 }}>
+                  {(incomingCall.caller.first_name || incomingCall.caller.username || '?')[0].toUpperCase()}
+                </div>
+              )}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                  {incomingCall.caller.first_name || incomingCall.caller.username} is calling...
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {spaceName && <span>in #{spaceName}</span>}
+                  <span>{incomingCall.audioOnly ? 'Audio call' : 'Video call'}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>0:{ringCountdown < 10 ? '0' : ''}{ringCountdown}</span>
+                </div>
+              </div>
+            </div>
             <div className="ring-icon">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
             </div>
-            <div className="caller-info">
-              <strong>{incomingCall.caller.first_name || incomingCall.caller.username}</strong> is calling...
-            </div>
             <div className="ring-actions">
-              <button className="ring-accept" onClick={() => {
-                const targetSpace = spaces.find(s => Number(s.id) === Number(incomingCall.spaceId));
-                if (targetSpace) { handleSpaceSelect(targetSpace); }
-                setVideoAudioOnly(false);
-                setShowVideoRoom(true);
-                setIncomingCall(null);
-              }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', verticalAlign: 'middle' }}><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                Join
+              <button className="ring-accept" onClick={() => acceptCall(false)} title="Join with video">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                Video
               </button>
-              <button className="ring-decline" onClick={() => setIncomingCall(null)}>Dismiss</button>
+              <button className="ring-accept ring-accept-audio" onClick={() => acceptCall(true)} title="Join with audio only">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                Audio
+              </button>
+              <button className="ring-decline" onClick={() => { stopRing(); setIncomingCall(null); }}>Dismiss</button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8, color: 'var(--md-sys-color-outline)' }}>
@@ -5629,6 +5742,107 @@ function App() {
         />
       )}
 
+      {/* Call Invite Modal */}
+      {showCallInvite && currentSpace && (
+        <div className="modal-overlay" onClick={() => setShowCallInvite(null)}>
+          <div className="modal-content" style={{ maxWidth: '400px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {showCallInvite.audioOnly ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                )}
+                {showCallInvite.audioOnly ? 'Audio Call' : 'Video Call'}
+              </h2>
+              <button onClick={() => setShowCallInvite(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-outline)', padding: '4px' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', margin: '0 0 1rem' }}>
+              Select members to ring in <strong>{currentSpace.is_dm === 1 ? getSpaceDisplayName() : '#' + currentSpace.name}</strong>
+            </p>
+
+            {/* Select All / None toggle */}
+            {callInviteMembers.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                  <input
+                    type="checkbox"
+                    checked={callInviteSelected.length === callInviteMembers.length}
+                    onChange={(e) => setCallInviteSelected(e.target.checked ? callInviteMembers.map(m => m.id) : [])}
+                    style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
+                  />
+                  Ring all ({callInviteMembers.length})
+                </label>
+              </div>
+            )}
+
+            {/* Member list */}
+            <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {callInviteMembers.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--md-sys-color-outline)' }}>Loading members...</div>
+              ) : callInviteMembers.map(member => {
+                const isOnline = onlineUsers.some(u => u.username === member.username);
+                const isSelected = callInviteSelected.includes(member.id);
+                return (
+                  <label key={member.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '10px', cursor: 'pointer', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)' : 'transparent' }}
+                    onMouseEnter={e => e.currentTarget.style.background = isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.12)' : 'var(--md-sys-color-surface-variant)'}
+                    onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)' : 'transparent'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => setCallInviteSelected(prev => isSelected ? prev.filter(id => id !== member.id) : [...prev, member.id])}
+                      style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
+                    />
+                    <div style={{ position: 'relative' }}>
+                      {member.avatar ? (
+                        <img src={`${socketUrl}${member.avatar}`} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                      ) : (
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
+                          {(member.first_name || member.username)[0].toUpperCase()}
+                        </div>
+                      )}
+                      {/* Online dot */}
+                      <div style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: isOnline ? '#22c55e' : '#9ca3af', border: '2px solid var(--md-sys-color-surface)' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>{member.first_name || member.username}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{member.username} {isOnline ? '' : '(offline)'}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '1rem', flexWrap: 'wrap' }}>
+              <button onClick={() => {
+                // Start call and ring selected users
+                setVideoAudioOnly(showCallInvite.audioOnly);
+                setShowVideoRoom(true);
+                if (callInviteSelected.length > 0 && socket) {
+                  socket.emit('call-invite', { spaceId: Number(currentSpace.id), targetUserIds: callInviteSelected, audioOnly: showCallInvite.audioOnly });
+                }
+                setShowCallInvite(null);
+              }} style={{ flex: 1, padding: '10px', borderRadius: '12px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                Ring {callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''} & Join
+              </button>
+              <button onClick={() => {
+                // Start call without ringing anyone
+                setVideoAudioOnly(showCallInvite.audioOnly);
+                setShowVideoRoom(true);
+                setShowCallInvite(null);
+              }} style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface)', fontSize: '0.82rem', cursor: 'pointer' }}>
+                Join Quietly
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {!appReady && (
         <div className={`loading-screen ${appReady ? 'fade-out' : ''}`}>
           <img src="/icon.png" alt="Logo" style={{ width: '120px', height: '120px', marginBottom: '2rem', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }} />

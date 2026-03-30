@@ -359,9 +359,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
         setLocalStream(stream);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         
-        // Emit ringing notification to the space
-        socket.emit('call-ringing', { spaceId });
-        // Join the video room
+        // Join the video room (ringing is handled by the call invite modal)
         socket.emit('join-video-room', spaceId);
       } catch (err) {
         if (isMounted) {

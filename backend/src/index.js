@@ -1725,9 +1725,26 @@ app.get('/api/gifs', authenticateToken, async (req, res) => {
 
 app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
   const spaceId = req.params.id;
-  db.all('SELECT user_id FROM space_members WHERE space_id = ?', [spaceId], (err, rows) => {
+  // Check if space is private (has members table) or public (all users can see it)
+  db.get('SELECT is_private, is_dm FROM spaces WHERE id = ?', [spaceId], (err, space) => {
     if (err) return res.status(500).json({ error: 'Database error' });
-    res.json(rows.map(r => r.user_id));
+    if (!space) return res.status(404).json({ error: 'Space not found' });
+
+    if (space.is_private || space.is_dm) {
+      // Private/DM: return actual members
+      db.all(`SELECT u.id, u.username, u.first_name, u.last_name, u.avatar 
+              FROM users u JOIN space_members sm ON u.id = sm.user_id 
+              WHERE sm.space_id = ?`, [spaceId], (err2, rows) => {
+        if (err2) return res.status(500).json({ error: 'Database error' });
+        res.json(rows || []);
+      });
+    } else {
+      // Public: return all users (they can all join)
+      db.all(`SELECT id, username, first_name, last_name, avatar FROM users`, [], (err2, rows) => {
+        if (err2) return res.status(500).json({ error: 'Database error' });
+        res.json(rows || []);
+      });
+    }
   });
 });
 
@@ -2383,6 +2400,51 @@ io.on('connection', (socket) => {
         avatar: socket.userProfile?.avatar
       }
     });
+  });
+
+  // Targeted call invite — ring only specific users
+  socket.on('call-invite', ({ spaceId, targetUserIds, audioOnly }) => {
+    const caller = {
+      username: socket.user.username,
+      first_name: socket.userProfile?.first_name,
+      last_name: socket.userProfile?.last_name,
+      avatar: socket.userProfile?.avatar
+    };
+    const payload = { spaceId, caller, audioOnly: !!audioOnly };
+
+    // Find sockets for targeted users and emit directly
+    for (const [socketId, s] of io.of('/').sockets) {
+      if (s.user && targetUserIds.includes(s.user.userId) && socketId !== socket.id) {
+        s.emit('call-ringing', payload);
+      }
+    }
+
+    // Also send push notifications to targeted users
+    if (targetUserIds.length > 0) {
+      const placeholders = targetUserIds.map(() => '?').join(',');
+      db.all(`SELECT ps.subscription FROM push_subscriptions ps
+              JOIN users u ON ps.user_id = u.id
+              WHERE u.id IN (${placeholders})`, targetUserIds, (err, rows) => {
+        if (!err && rows) {
+          const callerName = caller.first_name || caller.username;
+          rows.forEach(row => {
+            try {
+              const sub = JSON.parse(row.subscription);
+              webpush.sendNotification(sub, JSON.stringify({
+                title: `${callerName} is calling`,
+                body: audioOnly ? 'Audio call' : 'Video call',
+                data: { spaceId, type: 'call' }
+              })).catch(() => {});
+            } catch (e) {}
+          });
+        }
+      });
+
+      // Look up the space name for logging
+      db.get('SELECT name FROM spaces WHERE id = ?', [spaceId], (err, space) => {
+        console.log(`[CALL] ${caller.username} invited ${targetUserIds.length} user(s) to ${audioOnly ? 'audio' : 'video'} call in space ${space?.name || spaceId}`);
+      });
+    }
   });
 
   socket.on('screen-share-started', ({ spaceId }) => {

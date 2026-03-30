@@ -1960,9 +1960,22 @@ button {
   cursor: pointer;
   font-size: 0.85rem;
   transition: transform 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .ring-accept:hover { transform: scale(1.05); }
+
+.ring-accept-audio {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.ring-accept-audio:hover {
+  background: var(--md-sys-color-secondary);
+  color: var(--md-sys-color-on-secondary);
+}
 
 .ring-decline {
   padding: 6px 16px;
