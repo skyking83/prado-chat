@@ -1,10 +1,28 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { decryptMessage, encryptMessage } from './crypto';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 const STUN_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ]
+};
+
+// ─── Markdown for in-call chat ───
+const chatRenderer = new marked.Renderer();
+chatRenderer.link = ({ href, title, text }) => {
+  const t = title ? ` title="${title}"` : '';
+  return `<a href="${href}"${t} target="_blank" rel="noopener noreferrer" style="color:var(--md-sys-color-primary);text-decoration:underline">${text}</a>`;
+};
+const renderChatMarkdown = (text) => {
+  if (!text) return '';
+  const raw = marked.parse(text, { renderer: chatRenderer, breaks: true, gfm: true });
+  const trimmed = raw.trim();
+  const unwrapped = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') && trimmed.indexOf('<p>', 1) === -1
+    ? trimmed.slice(3, -4) : trimmed;
+  return DOMPurify.sanitize(unwrapped, { ADD_ATTR: ['target'] });
 };
 
 // ─── Audio Level Analyzer ───
@@ -147,7 +165,7 @@ const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, i
 };
 
 // ─── Main VideoRoom Component ───
-const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar }) => {
+const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar, e2eeKey }) => {
   // Media State
   const [localStream, setLocalStream] = useState(null);
   const [screenStream, setScreenStream] = useState(null);
@@ -181,6 +199,14 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
   const [pinnedUserId, setPinnedUserId] = useState(null);
   const [screenSharer, setScreenSharer] = useState(null);
   const [callDuration, setCallDuration] = useState(0);
+
+  // In-call Chat State
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [unreadChat, setUnreadChat] = useState(0);
+  const chatEndRef = useRef(null);
+  const chatInputRef = useRef(null);
 
   const localVideoRef = useRef();
   const peerConnections = useRef({});
@@ -680,6 +706,74 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     setIsPiP(!isPiP);
   };
 
+  // ─── In-call Chat ───
+  const tryDecrypt = useCallback(async (text) => {
+    if (!e2eeKey || !text) return text;
+    try {
+      return await decryptMessage(text, e2eeKey);
+    } catch {
+      return text; // Return raw if decryption fails (unencrypted msg)
+    }
+  }, [e2eeKey]);
+
+  useEffect(() => {
+    if (inLobby) return;
+
+    // Load recent messages for this space
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/messages/${spaceId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(r => r.json())
+        .then(async (msgs) => {
+          if (Array.isArray(msgs)) {
+            const decrypted = await Promise.all(
+              msgs.slice(-50).map(async (msg) => ({
+                ...msg,
+                text: await tryDecrypt(msg.text)
+              }))
+            );
+            setChatMessages(decrypted);
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Listen for new messages in this space
+    const handleChatMessage = async (msg) => {
+      if (msg.spaceId === Number(spaceId)) {
+        const decryptedText = await tryDecrypt(msg.text);
+        setChatMessages(prev => [...prev.slice(-100), { ...msg, text: decryptedText }]);
+        setUnreadChat(prev => prev + 1);
+      }
+    };
+
+    socket.on('chat message', handleChatMessage);
+    return () => socket.off('chat message', handleChatMessage);
+  }, [inLobby, socket, spaceId, tryDecrypt]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    if (showChat && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, showChat]);
+
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text) return;
+    const payload = e2eeKey ? await encryptMessage(text, e2eeKey) : text;
+    socket.emit('chat message', { text: payload, spaceId: Number(spaceId) });
+    setChatInput('');
+    if (chatInputRef.current) chatInputRef.current.focus();
+  };
+
+  const toggleChat = () => {
+    setShowChat(prev => !prev);
+    setUnreadChat(0);
+  };
+
   // ─── Layout Logic ───
   const peerEntries = Object.entries(peers);
   const totalParticipants = peerEntries.length + 1; // +1 for self
@@ -731,7 +825,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
           </div>
 
           <div className="lobby-controls">
-            <h3 style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>Ready to join?</h3>
+            <h3 style={{ margin: '0 0 12px', color: 'var(--md-sys-color-on-background)', fontWeight: 500 }}>Ready to join?</h3>
 
             {/* Device Selectors */}
             {devices.audioinput.length > 1 && (
@@ -783,7 +877,8 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
           </div>
         </div>
       ) : (
-        <>
+        <div className="call-content-row">
+          <div className="call-main-area">
           {/* Call Header (fullscreen / PiP) */}
           {(isFullscreen || isPiP) && (
             <div className="video-header">
@@ -917,6 +1012,11 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2"></rect><rect x="11" y="11" width="9" height="9" rx="1" fill="currentColor" opacity="0.3"></rect></svg>
               </button>
 
+              <button className={`video-btn ${showChat ? 'active' : ''}`} onClick={toggleChat} title="Chat" style={{ position: 'relative' }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                {unreadChat > 0 && <span className="chat-unread-badge">{unreadChat}</span>}
+              </button>
+
               <button className="video-btn danger" onClick={onClose} title="Leave Call">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg>
               </button>
@@ -926,7 +1026,43 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
               <span className="call-timer-inline" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{totalParticipants} in call</span>
             </div>
           </div>
-        </>
+          </div>
+
+          {/* In-call Chat Panel */}
+          {showChat && (
+            <div className="call-chat-panel">
+              <div className="call-chat-header">
+                <span>Chat</span>
+                <button className="call-chat-close" onClick={toggleChat}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+              <div className="call-chat-messages">
+                {chatMessages.map((msg, i) => (
+                  <div key={msg.id || i} className="call-chat-msg">
+                    <span className="call-chat-sender">{msg.first_name || msg.sender}</span>
+                    <span className="call-chat-text" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(msg.text) }} />
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="call-chat-input-row">
+                <input
+                  ref={chatInputRef}
+                  type="text"
+                  className="call-chat-input"
+                  placeholder="Send a message..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+                />
+                <button className="call-chat-send" onClick={sendChatMessage}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -3811,6 +3811,7 @@ function App() {
           audioOnly={videoAudioOnly}
           profileData={profileData}
           avatar={avatar}
+          e2eeKey={activeKeys[currentSpace.id]}
         />
       )}
 
