@@ -1918,7 +1918,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
               }
             } catch (_) { setConfigSaveStatus(null); }
           };
-          const InputRow = ({ label, description, configKey, type, options, placeholder }) => (
+          const inputRow = (label, configKey, type, { description, options, placeholder } = {}) => (
             <div style={{ marginBottom: '0.85rem' }}>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>{label}</label>
               {description && <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginBottom: '6px' }}>{description}</div>}
@@ -1936,9 +1936,22 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
               ) : type === 'textarea' ? (
                 <textarea value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} rows={2} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }} />
               ) : type === 'color' ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input type="color" value={serverConfig[configKey] || '#4CAF50'} onChange={(e) => updateConfig(configKey, e.target.value)} style={{ width: '36px', height: '36px', border: '2px solid var(--md-sys-color-outline-variant)', borderRadius: '8px', cursor: 'pointer', padding: 0, background: 'none' }} />
-                  <span style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)', fontFamily: 'monospace' }}>{serverConfig[configKey] || '#4CAF50'}</span>
+                <div data-color-row style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '2px solid var(--md-sys-color-outline-variant)', overflow: 'hidden', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+                    <input type="color" defaultValue={serverConfig[configKey] || '#4CAF50'}
+                      ref={(el) => {
+                        if (el && !el._prado) {
+                          el._prado = true;
+                          el.addEventListener('input', () => {
+                            const span = el.closest('[data-color-row]')?.querySelector('[data-color-hex]');
+                            if (span) span.textContent = el.value;
+                          });
+                          el.addEventListener('change', () => updateConfig(configKey, el.value));
+                        }
+                      }}
+                      style={{ position: 'absolute', top: '-8px', left: '-8px', width: '52px', height: '52px', border: 'none', padding: 0, cursor: 'pointer', WebkitAppearance: 'none', MozAppearance: 'none' }} />
+                  </div>
+                  <span data-color-hex style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)', fontFamily: 'monospace' }}>{serverConfig[configKey] || '#4CAF50'}</span>
                 </div>
               ) : (
                 <input type={type || 'text'} value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', boxSizing: 'border-box' }} />
@@ -1965,9 +1978,9 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
                     Registration
                   </div>
-                  <InputRow label="Registration Mode" configKey="registration_mode" type="select" options={[{ value: 'open', label: 'Open (anyone can register)' }, { value: 'closed', label: 'Closed (no new registrations)' }]} />
-                  <InputRow label="Require Email Verification" configKey="require_email_verification" type="toggle" description="New users must verify their email before logging in" />
-                  <InputRow label="Email Domain Whitelist" configKey="email_domain_whitelist" type="text" placeholder="e.g. company.com, example.org" description="Comma-separated list of allowed email domains. Leave empty for no restriction." />
+                  {inputRow('Registration Mode', 'registration_mode', 'select', { options: [{ value: 'open', label: 'Open (anyone can register)' }, { value: 'closed', label: 'Closed (no new registrations)' }] })}
+                  {inputRow('Require Email Verification', 'require_email_verification', 'toggle', { description: 'New users must verify their email before logging in' })}
+                  {inputRow('Email Domain Whitelist', 'email_domain_whitelist', 'text', { placeholder: 'e.g. company.com, example.org', description: 'Comma-separated list of allowed email domains. Leave empty for no restriction.' })}
                 </div>
 
                 {/* Branding */}
@@ -1976,9 +1989,9 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
                     Branding
                   </div>
-                  <InputRow label="App Name" configKey="app_name" type="text" placeholder="Prado Chat" />
-                  <InputRow label="Default Theme" configKey="default_theme" type="select" options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} description="Theme applied to new users on first login" />
-                  <InputRow label="Default Accent Color" configKey="default_accent_color" type="color" />
+                  {inputRow('App Name', 'app_name', 'text', { placeholder: 'Prado Chat' })}
+                  {inputRow('Default Theme', 'default_theme', 'select', { options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], description: 'Theme applied to new users on first login' })}
+                  {inputRow('Default Accent Color', 'default_accent_color', 'color')}
                 </div>
 
                 {/* Uploads */}
@@ -1987,7 +2000,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     Uploads
                   </div>
-                  <InputRow label="Max Upload Size (MB)" configKey="max_upload_size_mb" type="number" description="Maximum file size for uploads in megabytes" />
+                  {inputRow('Max Upload Size (MB)', 'max_upload_size_mb', 'number', { description: 'Maximum file size for uploads in megabytes' })}
                 </div>
 
                 {/* Maintenance */}
@@ -1996,8 +2009,8 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
                     Maintenance Mode
                   </div>
-                  <InputRow label="Maintenance Mode" configKey="maintenance_mode" type="toggle" description="When enabled, non-admin users see a maintenance screen" />
-                  <InputRow label="Maintenance Message" configKey="maintenance_message" type="textarea" placeholder="System is undergoing maintenance..." />
+                  {inputRow('Maintenance Mode', 'maintenance_mode', 'toggle', { description: 'When enabled, non-admin users see a maintenance screen' })}
+                  {inputRow('Maintenance Message', 'maintenance_message', 'textarea', { placeholder: 'System is undergoing maintenance...' })}
                 </div>
               </div>
 
@@ -2086,8 +2099,8 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     Email Provider
                   </div>
-                  <InputRow label="Resend API Key" configKey="resend_api_key" type="text" placeholder="re_••••••••" description="Used for password resets and notifications" />
-                  <InputRow label="From Address" configKey="email_from" type="text" placeholder="noreply@yourdomain.com" />
+                  {inputRow('Resend API Key', 'resend_api_key', 'text', { placeholder: 're_••••••••', description: 'Used for password resets and notifications' })}
+                  {inputRow('From Address', 'email_from', 'text', { placeholder: 'noreply@yourdomain.com' })}
                   <div style={{ marginTop: '0.5rem' }}>
                     <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>Test Email Delivery</label>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -2118,10 +2131,10 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.6 11.6L22 7v10l-6.4-4.6"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
                     TURN / STUN (WebRTC)
                   </div>
-                  <InputRow label="TURN Server URL" configKey="turn_server" type="text" placeholder="turn:your-server.com:3478" description="TURN relay for NAT traversal in video calls" />
-                  <InputRow label="TURN Username" configKey="turn_username" type="text" placeholder="username" />
-                  <InputRow label="TURN Credential" configKey="turn_credential" type="text" placeholder="••••••••" description="Shared secret for TURN authentication" />
-                  <InputRow label="STUN Server URL" configKey="stun_server" type="text" placeholder="stun:stun.l.google.com:19302" description="STUN server for connection discovery. Defaults to Google's." />
+                  {inputRow('TURN Server URL', 'turn_server', 'text', { placeholder: 'turn:your-server.com:3478', description: 'TURN relay for NAT traversal in video calls' })}
+                  {inputRow('TURN Username', 'turn_username', 'text', { placeholder: 'username' })}
+                  {inputRow('TURN Credential', 'turn_credential', 'text', { placeholder: '••••••••', description: 'Shared secret for TURN authentication' })}
+                  {inputRow('STUN Server URL', 'stun_server', 'text', { placeholder: 'stun:stun.l.google.com:19302', description: "STUN server for connection discovery. Defaults to Google's." })}
                 </div>
               </div>
 
