@@ -603,6 +603,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
   };
 
   // ─── In-call keyboard shortcuts ───
+  const pttActiveRef = useRef(false);
   useEffect(() => {
     const handleCallKeys = (e) => {
       // Ctrl+Shift+M — Toggle mute
@@ -620,11 +621,12 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
         return;
       }
       // Spacebar — Push-to-talk (momentary unmute while held)
-      if (e.key === ' ' && !e.repeat) {
+      if (e.key === ' ' && !e.repeat && !pttActiveRef.current) {
         const tag = e.target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
         if (isMuted && localStream) {
           e.preventDefault();
+          pttActiveRef.current = true;
           localStream.getAudioTracks().forEach(t => t.enabled = true);
           setIsMuted(false);
         }
@@ -632,10 +634,10 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     };
     const handleCallKeyUp = (e) => {
       // Spacebar release — re-mute (push-to-talk release)
-      if (e.key === ' ') {
-        const tag = e.target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
-        if (localStream && !isMuted) {
+      if (e.key === ' ' && pttActiveRef.current) {
+        e.preventDefault();
+        pttActiveRef.current = false;
+        if (localStream) {
           localStream.getAudioTracks().forEach(t => t.enabled = false);
           setIsMuted(true);
         }

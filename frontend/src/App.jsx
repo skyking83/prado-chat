@@ -1351,8 +1351,8 @@ function App() {
         return;
       }
 
-      // Ctrl+Shift+N — New Space modal (Ctrl+N is reserved by browser)
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+      // Ctrl+Shift+S — New Space modal
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         setShowSpaceModal(true);
         return;
