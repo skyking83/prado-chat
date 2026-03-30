@@ -1208,15 +1208,18 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 {users.length} Users
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <input type="text" placeholder="Search users..." value={userSearchQuery} onChange={(e) => setUserSearchQuery(e.target.value)}
-                  style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.8rem', width: '140px' }} />
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '8px', pointerEvents: 'none' }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" placeholder="Search users..." value={userSearchQuery} onChange={(e) => setUserSearchQuery(e.target.value)}
+                    style={{ padding: '6px 12px 6px 28px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.8rem', width: '160px' }} />
+                </div>
                 <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
                   style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}>
                   <option value="">All Roles</option>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
-                <button onClick={() => handleExportUsers('csv')} className="icon-btn" title="Export CSV" style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>
+                <button onClick={() => handleExportUsers('csv')} title="Export CSV" style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 500, transition: 'background 0.15s' }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Export
                 </button>
@@ -1337,7 +1340,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   <h2 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Edit User</h2>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <button type="button" onClick={() => fetchLoginHistory(editingUser.id)} className="icon-btn" title="Login History" style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>
+                    <button type="button" onClick={() => fetchLoginHistory(editingUser.id)} title="Login History" style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 500, transition: 'background 0.15s' }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                       History
                     </button>
