@@ -1274,6 +1274,13 @@ app.post('/api/upload', authenticateToken, upload.single('asset'), async (req, r
   res.json({ url: `/uploads/${filename}` });
 });
 
+// -- Video Room Participants REST --
+app.get('/api/spaces/:id/video-participants', authenticateToken, (req, res) => {
+  const spaceId = req.params.id;
+  const participants = activeVideoRooms.get(spaceId) || [];
+  res.json(Array.from(participants));
+});
+
 // -- Socket IO Auth Middleware --
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
@@ -1292,6 +1299,7 @@ io.use((socket, next) => {
 });
 
 const activeUsers = new Map();
+const activeVideoRooms = new Map(); // spaceId -> Set of { socketId, username, first_name, last_name, avatar }
 
 io.on('connection', (socket) => {
   const user = socket.user;
@@ -1564,13 +1572,58 @@ io.on('connection', (socket) => {
   socket.on('join-video-room', (spaceId) => {
     const room = `video-${spaceId}`;
     socket.join(room);
-    socket.to(room).emit('user-joined-video', {
-      userId: socket.id,
+    socket.videoSpaceId = spaceId;
+    
+    const participant = {
+      socketId: socket.id,
       username: socket.user.username,
       first_name: socket.userProfile?.first_name,
       last_name: socket.userProfile?.last_name,
       avatar: socket.userProfile?.avatar || socket.user.avatar
+    };
+    
+    // Track in activeVideoRooms
+    if (!activeVideoRooms.has(spaceId)) activeVideoRooms.set(spaceId, []);
+    activeVideoRooms.get(spaceId).push(participant);
+    
+    // Notify existing participants
+    socket.to(room).emit('user-joined-video', {
+      userId: socket.id,
+      ...participant
     });
+    
+    // Broadcast updated participant list to the space (for call badge in sidebar)
+    io.to(spaceId.toString()).emit('video-room-update', {
+      spaceId,
+      participants: activeVideoRooms.get(spaceId)
+    });
+  });
+
+  socket.on('call-ringing', ({ spaceId }) => {
+    // Broadcast ringing event to everyone in the space (not just video room)
+    socket.to(spaceId.toString()).emit('call-ringing', {
+      spaceId,
+      caller: {
+        username: socket.user.username,
+        first_name: socket.userProfile?.first_name,
+        last_name: socket.userProfile?.last_name,
+        avatar: socket.userProfile?.avatar
+      }
+    });
+  });
+
+  socket.on('screen-share-started', ({ spaceId }) => {
+    const room = `video-${spaceId}`;
+    socket.to(room).emit('screen-share-started', {
+      userId: socket.id,
+      username: socket.user.username,
+      first_name: socket.userProfile?.first_name
+    });
+  });
+
+  socket.on('screen-share-stopped', ({ spaceId }) => {
+    const room = `video-${spaceId}`;
+    socket.to(room).emit('screen-share-stopped', { userId: socket.id });
   });
 
   socket.on('video-offer', (data) => {
@@ -1579,7 +1632,8 @@ io.on('connection', (socket) => {
       offer: data.offer,
       username: socket.user.username,
       first_name: socket.userProfile?.first_name,
-      last_name: socket.userProfile?.last_name
+      last_name: socket.userProfile?.last_name,
+      avatar: socket.userProfile?.avatar
     });
   });
 
@@ -1597,15 +1651,40 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('leave-video-room', (spaceId) => {
+  const cleanupVideoRoom = (spaceId) => {
+    if (!spaceId) return;
     const room = `video-${spaceId}`;
     socket.leave(room);
     socket.to(room).emit('user-left-video', socket.id);
+    
+    // Remove from tracking
+    const participants = activeVideoRooms.get(spaceId);
+    if (participants) {
+      const filtered = participants.filter(p => p.socketId !== socket.id);
+      if (filtered.length === 0) {
+        activeVideoRooms.delete(spaceId);
+        // Notify space that call has ended
+        io.to(spaceId.toString()).emit('call-ended', { spaceId });
+      } else {
+        activeVideoRooms.set(spaceId, filtered);
+      }
+      // Broadcast updated participant list
+      io.to(spaceId.toString()).emit('video-room-update', {
+        spaceId,
+        participants: activeVideoRooms.get(spaceId) || []
+      });
+    }
+  };
+
+  socket.on('leave-video-room', (spaceId) => {
+    cleanupVideoRoom(spaceId);
+    socket.videoSpaceId = null;
   });
 
   socket.on('disconnect', () => {
-    if (socket.currentSpace) {
-      socket.to(`video-${socket.currentSpace}`).emit('user-left-video', socket.id);
+    // Clean up video room on disconnect
+    if (socket.videoSpaceId) {
+      cleanupVideoRoom(socket.videoSpaceId);
     }
     console.log('User disconnected:', socket.id);
 

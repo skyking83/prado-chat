@@ -1165,6 +1165,8 @@ function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showVideoRoom, setShowVideoRoom] = useState(false);
+  const [videoAudioOnly, setVideoAudioOnly] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null); // { spaceId, caller: { username, first_name, avatar } }
   const [globalFont, setGlobalFont] = useState('Roboto');
   const [uiScale, setUiScale] = useState(() => parseFloat(localStorage.getItem('uiScale')) || 1.0);
 
@@ -1697,6 +1699,20 @@ function App() {
 
     newSocket.on('user stopped typing', ({ username: typer, spaceId }) => {
       setTypingUsers(prev => prev.filter(u => !(u.username === typer && Number(u.spaceId) === Number(spaceId))));
+    });
+
+    // WebRTC: Incoming call ringing
+    newSocket.on('call-ringing', ({ spaceId: ringSpaceId, caller }) => {
+      // Don't show ringing if we're already in a call
+      if (!showVideoRoom) {
+        setIncomingCall({ spaceId: ringSpaceId, caller });
+        // Auto-dismiss after 30 seconds
+        setTimeout(() => setIncomingCall(prev => prev?.spaceId === ringSpaceId ? null : prev), 30000);
+      }
+    });
+
+    newSocket.on('call-ended', ({ spaceId: endedSpaceId }) => {
+      setIncomingCall(prev => prev?.spaceId === endedSpaceId ? null : prev);
     });
 
     newSocket.on('space history', async (history) => {
@@ -3107,16 +3123,27 @@ function App() {
                    </button>
                  )}
                  {isConnected && !showVideoRoom && (
-                   <button 
-                     onClick={() => setShowVideoRoom(true)}
-                     title="Join Video Call"
-                     style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
-                     onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
-                     onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-outline)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-                   >
-                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                   </button>
-                 )}
+                    <>
+                    <button 
+                      onClick={() => { setVideoAudioOnly(false); setShowVideoRoom(true); }}
+                      title="Video Call"
+                      style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-outline)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                    </button>
+                    <button 
+                      onClick={() => { setVideoAudioOnly(true); setShowVideoRoom(true); }}
+                      title="Audio Only Call"
+                      style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-outline)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                    </button>
+                    </>
+                  )}
                  {isConnected && currentSpace.is_private === 1 && currentSpace.is_dm !== 1 && (
                    <button 
                      onClick={() => {
@@ -3137,6 +3164,31 @@ function App() {
             </header>
 
       <main className="chat-window">
+        {/* Incoming Call Ringing Banner */}
+        {incomingCall && !showVideoRoom && (
+          <div className="call-ringing-banner">
+            <div className="ring-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            </div>
+            <div className="caller-info">
+              <strong>{incomingCall.caller.first_name || incomingCall.caller.username}</strong> is calling...
+            </div>
+            <div className="ring-actions">
+              <button className="ring-accept" onClick={() => {
+                const targetSpace = spaces.find(s => Number(s.id) === Number(incomingCall.spaceId));
+                if (targetSpace) { handleSpaceSelect(targetSpace); }
+                setVideoAudioOnly(false);
+                setShowVideoRoom(true);
+                setIncomingCall(null);
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', verticalAlign: 'middle' }}><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                Join
+              </button>
+              <button className="ring-decline" onClick={() => setIncomingCall(null)}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8, color: 'var(--md-sys-color-outline)' }}>
             No messages in {currentSpace.is_dm === 1 ? '' : '#'}{getSpaceDisplayName()} yet.
@@ -3755,7 +3807,10 @@ function App() {
         <VideoRoom
           socket={socket}
           spaceId={currentSpace.id}
-          onClose={() => setShowVideoRoom(false)}
+          onClose={() => { setShowVideoRoom(false); setIncomingCall(null); }}
+          audioOnly={videoAudioOnly}
+          profileData={profileData}
+          avatar={avatar}
         />
       )}
 
