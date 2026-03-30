@@ -38,3 +38,12 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: prado-coturn-dev
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf"]

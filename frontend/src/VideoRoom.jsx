@@ -3,7 +3,7 @@ import { decryptMessage, encryptMessage } from './crypto';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
-const STUN_SERVERS = {
+const DEFAULT_ICE_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
@@ -165,7 +165,14 @@ const PeerVideo = ({ stream, username, first_name, last_name, avatar, isMuted, i
 };
 
 // ─── Main VideoRoom Component ───
-const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar, e2eeKey }) => {
+const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = false, profileData, avatar: myAvatar, e2eeKey, iceServers: iceServersProp }) => {
+  // Build ICE configuration from admin-configured servers or fall back to defaults
+  const iceConfig = React.useMemo(() => {
+    if (iceServersProp && iceServersProp.length > 0) {
+      return { iceServers: iceServersProp };
+    }
+    return DEFAULT_ICE_CONFIG;
+  }, [iceServersProp]);
   // Media State
   const [localStream, setLocalStream] = useState(null);
   const [screenStream, setScreenStream] = useState(null);
@@ -384,7 +391,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
       delete peerConnections.current[userId];
     }
 
-    const pc = new RTCPeerConnection(STUN_SERVERS);
+    const pc = new RTCPeerConnection(iceConfig);
     peerConnections.current[userId] = pc;
 
     // Add local tracks
@@ -432,7 +439,7 @@ const VideoRoom = ({ socket, spaceId, onClose, audioOnly: initialAudioOnly = fal
     };
 
     return pc;
-  }, [localStream, socket]);
+  }, [localStream, socket, iceConfig]);
 
   // Store our socket ID for polite peer comparison
   const mySocketIdRef = useRef(socket?.id);

@@ -39,3 +39,11 @@ services:
       - WATCHTOWER_POLL_INTERVAL=3600
     restart: unless-stopped
 
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+      - /mnt/pool1/app_data/prado-chat-coturn:/var/lib/coturn
+    command: ["-c", "/etc/turnserver.conf"]

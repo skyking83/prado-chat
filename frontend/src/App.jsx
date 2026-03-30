@@ -2451,6 +2451,7 @@ function App() {
   const [showVideoRoom, setShowVideoRoom] = useState(false);
   const [videoAudioOnly, setVideoAudioOnly] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null); // { spaceId, caller: { username, first_name, avatar } }
+  const [iceServers, setIceServers] = useState(null);
   const [globalFont, setGlobalFont] = useState('Roboto');
   const [uiScale, setUiScale] = useState(() => parseFloat(localStorage.getItem('uiScale')) || 1.0);
 
@@ -3111,7 +3112,14 @@ function App() {
     });
     setSocket(newSocket);
 
-    newSocket.on('connect', () => setIsConnected(true));
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      // Fetch ICE servers (TURN/STUN) config for WebRTC
+      fetch(`${socketUrl}/api/ice-servers`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(data => { if (data.iceServers) setIceServers(data.iceServers); })
+        .catch(() => {});
+    });
     newSocket.on('disconnect', () => setIsConnected(false));
     newSocket.on('connect_error', (err) => {
       if (err.message && err.message.startsWith('Authentication error')) {
@@ -5484,6 +5492,7 @@ function App() {
           profileData={profileData}
           avatar={avatar}
           e2eeKey={activeKeys[currentSpace.id]}
+          iceServers={iceServers}
         />
       )}
 

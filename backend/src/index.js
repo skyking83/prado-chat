@@ -1151,6 +1151,48 @@ app.get('/api/admin/environment', authenticateToken, requireAdmin, (req, res) =>
   res.json(envInfo);
 });
 
+// -- ICE Servers for WebRTC (any authenticated user) --
+app.get('/api/ice-servers', authenticateToken, async (req, res) => {
+  const iceServers = [];
+
+  // STUN server (from admin config or default)
+  const stunServer = await getConfig('stun_server', 'stun:stun.l.google.com:19302');
+  if (stunServer) {
+    iceServers.push({ urls: stunServer });
+  }
+
+  // TURN server (from admin config)
+  const turnServer = await getConfig('turn_server', '');
+  const turnUsername = await getConfig('turn_username', '');
+  const turnCredential = await getConfig('turn_credential', '');
+
+  if (turnServer) {
+    const turnEntry = { urls: turnServer };
+    if (turnUsername) turnEntry.username = turnUsername;
+    if (turnCredential) turnEntry.credential = turnCredential;
+    iceServers.push(turnEntry);
+
+    // Also add a UDP-based TURN entry if not already specified
+    if (!turnServer.includes('?transport=')) {
+      iceServers.push({
+        urls: turnServer.replace('turn:', 'turns:').replace(':3478', ':5349'),
+        username: turnUsername || undefined,
+        credential: turnCredential || undefined,
+      });
+    }
+  }
+
+  // Fallback: always include Google STUN
+  if (iceServers.length === 0) {
+    iceServers.push(
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    );
+  }
+
+  res.json({ iceServers });
+});
+
 // -- Self-service password change (requires current password) --
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
