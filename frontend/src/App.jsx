@@ -679,6 +679,10 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const [roleFilter, setRoleFilter] = useState('');
   const [creatorFilter, setCreatorFilter] = useState('');
   const [sortConfig, setSortConfig] = useState(null);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
+  const [loginHistory, setLoginHistory] = useState(null);
+  const [loginHistoryUser, setLoginHistoryUser] = useState(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
 
   const requestSort = (key) => {
     let direction = 'ascending';
@@ -686,6 +690,79 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
       direction = 'descending';
     }
     setSortConfig({ key, direction });
+  };
+
+  const handleSuspendUser = async (userId) => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/${userId}/suspend`, {
+        method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, suspended: data.suspended } : u));
+      }
+    } catch (e) { console.error('Suspend failed', e); }
+  };
+
+  const handleBulkSuspend = async (suspend) => {
+    if (selectedUsers.size === 0) return;
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/bulk-suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userIds: Array.from(selectedUsers), suspend })
+      });
+      if (res.ok) {
+        setUsers(prev => prev.map(u => selectedUsers.has(u.id) ? { ...u, suspended: suspend ? 1 : 0 } : u));
+        setSelectedUsers(new Set());
+      }
+    } catch (e) { console.error('Bulk suspend failed', e); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedUsers.size === 0) return;
+    if (!confirm(`Delete ${selectedUsers.size} user(s)? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userIds: Array.from(selectedUsers) })
+      });
+      if (res.ok) {
+        setUsers(prev => prev.filter(u => !selectedUsers.has(u.id)));
+        setSelectedUsers(new Set());
+      }
+    } catch (e) { console.error('Bulk delete failed', e); }
+  };
+
+  const handleExportUsers = async (format = 'csv') => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/export?format=${format}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `users_export.${format === 'csv' ? 'csv' : 'json'}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) { console.error('Export failed', e); }
+  };
+
+  const fetchLoginHistory = async (userId) => {
+    try {
+      const res = await fetch(`${socketUrl}/api/admin/users/${userId}/logins`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLoginHistory(data);
+        setLoginHistoryUser(userId);
+      }
+    } catch (e) { console.error('Login history fetch failed', e); }
   };
 
   const fetchLocSuggestions = async (query) => {
@@ -1124,57 +1201,117 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
         {activeTab === 'users' && !editingUser && (
           <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+            {/* Header row with title, search, filters, and actions */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
               <div className="dash-section-title" style={{ marginBottom: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                 {users.length} Users
               </div>
-              <select 
-                value={roleFilter} 
-                onChange={(e) => setRoleFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
-              >
-                <option value="">All Roles</option>
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <input type="text" placeholder="Search users..." value={userSearchQuery} onChange={(e) => setUserSearchQuery(e.target.value)}
+                  style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.8rem', width: '140px' }} />
+                <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
+                  style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}>
+                  <option value="">All Roles</option>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button onClick={() => handleExportUsers('csv')} className="icon-btn" title="Export CSV" style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+              </div>
             </div>
+
+            {/* Bulk action bar */}
+            {selectedUsers.size > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '10px', background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)', marginBottom: '0.75rem', fontSize: '0.82rem', flexWrap: 'wrap' }}>
+                <strong>{selectedUsers.size} selected</strong>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => handleBulkSuspend(true)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#f59e0b', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Suspend</button>
+                <button onClick={() => handleBulkSuspend(false)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Unsuspend</button>
+                <button onClick={handleBulkDelete} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Delete</button>
+                <button onClick={() => setSelectedUsers(new Set())} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-primary-container)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>Clear</button>
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {[...users].filter(u => !roleFilter || u.role === roleFilter).sort((a, b) => {
-                if (!sortConfig) return 0;
-                let valA = a[sortConfig.key] || '';
-                let valB = b[sortConfig.key] || '';
-                valA = String(valA).toLowerCase();
-                valB = String(valB).toLowerCase();
-                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-                return 0;
-              }).map(u => {
-                const displayName = (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username) || u.username;
-                return (
-                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '12px', background: 'var(--md-sys-color-surface-variant)', cursor: 'pointer', transition: 'background 0.15s' }} onClick={() => setEditingUser(u)}>
-                    {u.avatar ? (
-                      <img src={u.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} alt="" />
-                    ) : (
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 'bold', flexShrink: 0 }}>
-                        {displayName[0]?.toUpperCase() || '?'}
+              {(() => {
+                const q = userSearchQuery.toLowerCase();
+                return [...users].filter(u => {
+                  if (roleFilter && u.role !== roleFilter) return false;
+                  if (q) {
+                    const haystack = `${u.username} ${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase();
+                    if (!haystack.includes(q)) return false;
+                  }
+                  return true;
+                }).sort((a, b) => {
+                  if (!sortConfig) return 0;
+                  let valA = String(a[sortConfig.key] || '').toLowerCase();
+                  let valB = String(b[sortConfig.key] || '').toLowerCase();
+                  if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                  if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                  return 0;
+                }).map(u => {
+                  const displayName = (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username) || u.username;
+                  const hasName = !!u.first_name;
+                  const hasAvatar = !!u.avatar;
+                  const hasEmail = !!u.email;
+                  const onboardScore = [hasName, hasAvatar, hasEmail].filter(Boolean).length;
+                  const isSelected = selectedUsers.has(u.id);
+                  return (
+                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '12px', background: isSelected ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', cursor: 'pointer', transition: 'background 0.15s', opacity: u.suspended ? 0.6 : 1 }} onClick={() => setEditingUser(u)}>
+                      {/* Checkbox */}
+                      <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); const next = new Set(selectedUsers); if (isSelected) next.delete(u.id); else next.add(u.id); setSelectedUsers(next); }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--md-sys-color-primary)', flexShrink: 0 }} />
+                      {/* Avatar */}
+                      {u.avatar ? (
+                        <img src={u.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} alt="" />
+                      ) : (
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 'bold', flexShrink: 0 }}>
+                          {displayName[0]?.toUpperCase() || '?'}
+                        </div>
+                      )}
+                      {/* User info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
+                          {u.suspended ? <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: 700, background: '#f59e0b', color: '#fff', letterSpacing: '0.04em' }}>SUSPENDED</span> : null}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{u.username} · {u.email || 'no email'}</div>
                       </div>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{u.username} · {u.email}</div>
+                      {/* Onboarding ring */}
+                      <div title={`Profile ${onboardScore}/3 complete`} style={{ position: 'relative', width: '28px', height: '28px', flexShrink: 0 }}>
+                        <svg viewBox="0 0 36 36" width="28" height="28">
+                          <circle cx="18" cy="18" r="15" fill="none" stroke="var(--md-sys-color-outline-variant)" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="15" fill="none" stroke={onboardScore === 3 ? 'var(--md-sys-color-primary)' : '#f59e0b'} strokeWidth="3"
+                            strokeDasharray={`${(onboardScore / 3) * 94.2} 94.2`} strokeLinecap="round" transform="rotate(-90 18 18)" />
+                        </svg>
+                        <span style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--md-sys-color-on-surface)' }}>{onboardScore}</span>
+                      </div>
+                      {/* Role badge */}
+                      <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', flexShrink: 0,
+                        backgroundColor: u.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
+                        color: u.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
+                        {u.role}
+                      </span>
+                      {/* Suspend button */}
+                      <button onClick={(e) => { e.stopPropagation(); handleSuspendUser(u.id); }} className="icon-btn" title={u.suspended ? 'Unsuspend' : 'Suspend'} style={{ padding: '4px', flexShrink: 0, color: u.suspended ? 'var(--md-sys-color-primary)' : '#f59e0b' }}>
+                        {u.suspended ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                        )}
+                      </button>
+                      {/* Delete button */}
+                      <button onClick={(e) => { e.stopPropagation(); setUserToDelete(u); }} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
                     </div>
-                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', flexShrink: 0,
-                      backgroundColor: u.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
-                      color: u.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
-                      {u.role}
-                    </span>
-                    <button onClick={(e) => { e.stopPropagation(); setUserToDelete(u); }} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
@@ -1198,6 +1335,12 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                   <h2 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Edit User</h2>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button type="button" onClick={() => fetchLoginHistory(editingUser.id)} className="icon-btn" title="Login History" style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      History
+                    </button>
                 </div>
                 <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="icon-btn" title="Back to Users" style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--md-sys-color-surface)', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -1521,6 +1664,54 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Login History Modal */}
+        {loginHistory && (
+          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={() => { setLoginHistory(null); setLoginHistoryUser(null); }}>
+            <div className="auth-card" style={{ maxWidth: '560px', width: '90vw', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--md-sys-color-on-surface)' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '6px' }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Login History ({loginHistory.total} total)
+                </h2>
+                <button type="button" onClick={() => { setLoginHistory(null); setLoginHistoryUser(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)', padding: '4px' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                {loginHistory.logins.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: 'var(--md-sys-color-outline)', padding: '2rem 0' }}>No login records found.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {loginHistory.logins.map((entry, i) => {
+                      const ua = entry.user_agent || '';
+                      const isMobile = /mobile|android|iphone|ipad/i.test(ua);
+                      const browser = /chrome/i.test(ua) ? 'Chrome' : /firefox/i.test(ua) ? 'Firefox' : /safari/i.test(ua) ? 'Safari' : /edge/i.test(ua) ? 'Edge' : 'Unknown';
+                      return (
+                        <div key={entry.id || i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.8rem' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            {isMobile ? (
+                              <><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></>
+                            ) : (
+                              <><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></>
+                            )}
+                          </svg>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{browser} · {isMobile ? 'Mobile' : 'Desktop'}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>{entry.ip_address}</div>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', textAlign: 'right', flexShrink: 0 }}>
+                            {new Date(entry.timestamp).toLocaleDateString()} {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -2453,6 +2644,12 @@ function App() {
       if (err.message && err.message.startsWith('Authentication error')) {
         handleLogout();
       }
+    });
+
+        newSocket.on('force_logout', (data) => {
+      alert(data.reason || 'You have been disconnected by an administrator.');
+      localStorage.clear();
+      window.location.reload();
     });
 
     newSocket.on('presence', (users) => {

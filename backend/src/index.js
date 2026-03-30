@@ -130,6 +130,7 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
           db.run(`ALTER TABLE users ADD COLUMN status_text TEXT`, () => { });
           db.run(`ALTER TABLE users ADD COLUMN status_emoji TEXT`, () => { });
           db.run(`ALTER TABLE users ADD COLUMN timezone TEXT`, () => { });
+          db.run(`ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0`, () => { });
         }
       });
 
@@ -142,6 +143,15 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
       )`, (err) => {
          if (err) console.error('Failed to create space_members table:', err);
       });
+
+      db.run(`CREATE TABLE IF NOT EXISTS login_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        ip_address TEXT,
+        user_agent TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`);
 
       db.run(`CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
@@ -482,8 +492,17 @@ app.post('/api/login', (req, res) => {
       return res.status(403).json({ error: 'Check your email to verify your account before logging in.' });
     }
 
+    if (user.suspended) {
+      return res.status(403).json({ error: 'Account suspended. Contact administrator.' });
+    }
+
     const role = user.role || 'user';
     const token = jwt.sign({ userId: user.id, username: user.username, role }, JWT_SECRET, { expiresIn: '7d' });
+    
+    // Record login history
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.ip;
+    const ua = req.headers['user-agent'] || 'Unknown';
+    db.run('INSERT INTO login_history (user_id, ip_address, user_agent) VALUES (?, ?, ?)', [user.id, ip, ua]);
     res.json({
       token,
       username: user.username,
@@ -587,8 +606,9 @@ const authenticateToken = (req, res, next) => {
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
     
-    db.get('SELECT id FROM users WHERE id = ?', [user.userId], (dbErr, dbUser) => {
+    db.get('SELECT id, suspended FROM users WHERE id = ?', [user.userId], (dbErr, dbUser) => {
       if (dbErr || !dbUser) return res.status(401).json({ error: 'User missing' });
+      if (dbUser.suspended) return res.status(403).json({ error: 'Account suspended. Contact administrator.' });
       req.user = user;
       next();
     });
@@ -705,7 +725,7 @@ app.put('/api/admin/settings', authenticateToken, requireAdmin, (req, res) => {
 });
 
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
-  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, bio, status_text, status_emoji, timezone, public_key, created_at FROM users ORDER BY id ASC', [], (err, rows) => {
+  db.all('SELECT id, username, role, first_name, last_name, email, location, avatar, theme, color_palette, font_family, bio, status_text, status_emoji, timezone, public_key, created_at, suspended FROM users ORDER BY id ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     res.json(rows);
   });
@@ -773,6 +793,101 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) =
   db.run('DELETE FROM users WHERE id = ?', [targetId], function(err) {
     if (err) return res.status(500).json({ error: 'Delete failed' });
     res.json({ success: true });
+  });
+});
+
+// -- Suspend/Unsuspend user --
+app.put('/api/admin/users/:id/suspend', authenticateToken, requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  if (targetId == req.user.userId) return res.status(400).json({ error: 'Cannot suspend yourself' });
+  db.get('SELECT suspended FROM users WHERE id = ?', [targetId], (err, user) => {
+    if (err || !user) return res.status(404).json({ error: 'User not found' });
+    const newStatus = user.suspended ? 0 : 1;
+    db.run('UPDATE users SET suspended = ? WHERE id = ?', [newStatus, targetId], function(err) {
+      if (err) return res.status(500).json({ error: 'Update failed' });
+      // If suspending, disconnect their active sockets
+      if (newStatus === 1) {
+        for (const [, socket] of io.sockets.sockets) {
+          if (socket.user && socket.user.userId == targetId) {
+            socket.emit('force_logout', { reason: 'Account suspended by administrator' });
+            socket.disconnect(true);
+          }
+        }
+      }
+      res.json({ suspended: newStatus });
+    });
+  });
+});
+
+// -- Login history for a user --
+app.get('/api/admin/users/:id/logins', authenticateToken, requireAdmin, (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  const offset = parseInt(req.query.offset) || 0;
+  db.all('SELECT * FROM login_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?', 
+    [req.params.id, limit, offset], (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      db.get('SELECT COUNT(*) as total FROM login_history WHERE user_id = ?', [req.params.id], (err2, countRow) => {
+        res.json({ logins: rows || [], total: countRow?.total || 0 });
+      });
+  });
+});
+
+// -- Export all users as JSON --
+app.get('/api/admin/users/export', authenticateToken, requireAdmin, (req, res) => {
+  const format = req.query.format || 'csv';
+  db.all('SELECT id, username, email, role, first_name, last_name, location, bio, suspended, created_at FROM users ORDER BY id', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    if (format === 'csv') {
+      const headers = ['id','username','email','role','first_name','last_name','location','bio','suspended','created_at'];
+      const csvLines = [headers.join(',')];
+      rows.forEach(r => {
+        csvLines.push(headers.map(h => {
+          let val = r[h] ?? '';
+          val = String(val).replace(/"/g, '""');
+          return val.includes(',') || val.includes('"') || val.includes('\n') ? '"' + val + '"' : val;
+        }).join(','));
+      });
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=users_export.csv');
+      res.send(csvLines.join('\n'));
+    } else {
+      res.json(rows);
+    }
+  });
+});
+
+// -- Bulk suspend users --
+app.post('/api/admin/users/bulk-suspend', authenticateToken, requireAdmin, (req, res) => {
+  const { userIds, suspend } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: 'No users specified' });
+  const filtered = userIds.filter(id => id != req.user.userId);
+  if (filtered.length === 0) return res.status(400).json({ error: 'Cannot suspend yourself' });
+  const placeholders = filtered.map(() => '?').join(',');
+  db.run(`UPDATE users SET suspended = ? WHERE id IN (${placeholders})`, [suspend ? 1 : 0, ...filtered], function(err) {
+    if (err) return res.status(500).json({ error: 'Update failed' });
+    // Disconnect suspended users
+    if (suspend) {
+      for (const [, socket] of io.sockets.sockets) {
+        if (socket.user && filtered.includes(socket.user.userId)) {
+          socket.emit('force_logout', { reason: 'Account suspended by administrator' });
+          socket.disconnect(true);
+        }
+      }
+    }
+    res.json({ updated: this.changes });
+  });
+});
+
+// -- Bulk delete users --
+app.post('/api/admin/users/bulk-delete', authenticateToken, requireAdmin, (req, res) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: 'No users specified' });
+  const filtered = userIds.filter(id => id != req.user.userId);
+  if (filtered.length === 0) return res.status(400).json({ error: 'Cannot delete yourself' });
+  const placeholders = filtered.map(() => '?').join(',');
+  db.run(`DELETE FROM users WHERE id IN (${placeholders})`, filtered, function(err) {
+    if (err) return res.status(500).json({ error: 'Delete failed' });
+    res.json({ deleted: this.changes });
   });
 });
 
