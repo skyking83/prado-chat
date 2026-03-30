@@ -4583,6 +4583,23 @@ function App() {
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                   )}
+                  {!isMe && (
+                    <button onClick={() => {
+                      const reason = prompt('Why are you reporting this message?');
+                      if (reason && reason.trim()) {
+                        fetch(`${socketUrl}/api/messages/${msg.id}/report`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                          body: JSON.stringify({ reason: reason.trim(), spaceId: selectedSpace })
+                        }).then(r => r.json()).then(data => {
+                          if (data.error) alert(data.error);
+                          else alert('Report submitted — an admin will review it.');
+                        }).catch(() => alert('Failed to submit report'));
+                      }
+                    }} title="Report" className="report-action">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                    </button>
+                  )}
                 </div>
                 {reactingToMsgId === msg.id && (
                   <>
