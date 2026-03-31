@@ -1,6 +1,7 @@
 /* eslint-env serviceworker */
 
 // -- App Shell Cache & Offline Fallback --
+const SW_VERSION = '2.1.0-e2ee-push';
 const CACHE_NAME = 'prado-v1';
 const OFFLINE_ASSETS = ['/icon.png'];
 
@@ -84,11 +85,12 @@ self.addEventListener('push', (event) => {
   if (!data) return;
 
   event.waitUntil((async () => {
-    let plainText = '🔒 [Encrypted Message]';
+    let plainText = data.body || 'Sent a message';
     const spaceId = data.data?.spaceId;
+    const encryptedBody = data.data?.encryptedBody;
     
-    // Attempt E2EE decryption using IndexedDB room keys
-    if (spaceId && data.body && data.body.length > 20) {
+    // Try client-side E2EE decryption using cached IDB room keys
+    if (spaceId && encryptedBody) {
       try {
         const jwkObj = await getRoomKey(spaceId);
         if (jwkObj) {
@@ -96,28 +98,32 @@ self.addEventListener('push', (event) => {
             "jwk", jwkObj, { name: "AES-GCM" }, false, ["decrypt"]
           );
           
-          const rawData = base64ToUint8Array(data.body);
+          const rawData = base64ToUint8Array(encryptedBody);
           const iv = rawData.slice(0, 12);
           const ciphertext = rawData.slice(12);
           
           const decBuffer = await self.crypto.subtle.decrypt(
             { name: "AES-GCM", iv: iv }, aesKey, ciphertext
           );
-          plainText = new TextDecoder().decode(decBuffer);
+          let decrypted = new TextDecoder().decode(decBuffer);
+          // Strip markdown for clean notification text
+          decrypted = decrypted.replace(/\*\*(.*?)\*\*/g, '$1')
+                               .replace(/\*(.*?)\*/g, '$1')
+                               .replace(/~~(.*?)~~/g, '$1')
+                               .replace(/`([^`]+)`/g, '$1')
+                               .replace(/^#+\s*/gm, '')
+                               .replace(/\n/g, ' ')
+                               .trim();
+          if (decrypted) plainText = decrypted.substring(0, 200);
         }
       } catch (e) {
-        console.error('SW Decryption Error', e);
-        plainText = '🔒 [Decryption Failed]';
+        // Decryption failed — use fallback body (already set)
+        console.error('SW E2EE decryption failed, using fallback', e);
       }
-    } else if (data.body) {
-      plainText = data.body;
     }
 
     // Build notification tag for grouping by space
     const tag = `prado-space-${spaceId || 'unknown'}`;
-    const senderName = data.data?.senderDisplayName || data.title || 'Someone';
-    const isDm = data.data?.isDm;
-    const spaceName = data.data?.spaceName;
 
     // Check for existing notifications in this group to stack them
     const existingNotifications = await self.registration.getNotifications({ tag });

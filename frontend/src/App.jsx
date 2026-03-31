@@ -32,11 +32,11 @@ async function escrowRoomKey(spaceId, aesKey, token, socketUrl) {
 
 async function tryDecryptMsg(text, aesKey) {
   if (!text || typeof text !== 'string') return { text, raw_text: null };
-  if (!aesKey) return { text: '🔒 [Encrypted Message]', raw_text: text };
+  if (!aesKey) return { text: null, raw_text: text, pending: true };
   try {
     return { text: await decryptMessage(text, aesKey), raw_text: null };
   } catch (e) {
-    return { text: '🔒 [Decryption Failed]', raw_text: null };
+    return { text: null, raw_text: text, pending: true };
   }
 }
 
@@ -654,7 +654,7 @@ const useWeather = (location) => {
   return weather;
 };
 
-const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset, appLogo, setAppLogo }) => {
+const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset, appLogo, setAppLogo, setAppName }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -1916,6 +1916,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
               if (res.ok) {
                 setConfigSaveStatus('saved');
                 setTimeout(() => setConfigSaveStatus(null), 2000);
+                if (key === 'app_name') setAppName(value || 'Prado Chat');
               }
             } catch (_) { setConfigSaveStatus(null); }
           };
@@ -2013,7 +2014,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                       </label>
                       {appLogo && (
                         <button onClick={async () => {
-                          await fetch(`${socketUrl}/api/admin/config`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ key: 'custom_logo', value: '' }) });
+                          await updateConfig('custom_logo', '');
                           setAppLogo(null);
                         }} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-error)', cursor: 'pointer', fontSize: '0.75rem' }}>Remove</button>
                       )}
@@ -2765,8 +2766,7 @@ function App() {
   useEffect(() => { activeKeysRef.current = activeKeys; }, [activeKeys]);
   const spacesRef = useRef([]);
   useEffect(() => { spacesRef.current = spaces; }, [spaces]);
-  const [showE2EEPrompt, setShowE2EEPrompt] = useState(null);
-  const [e2eeDecryptError, setE2eeDecryptError] = useState(false);
+
   const [showDMModal, setShowDMModal] = useState(false);
   const [showStartChatMenu, setShowStartChatMenu] = useState(false);
   const [activeSpaceMenu, setActiveSpaceMenu] = useState(null);
@@ -2841,7 +2841,7 @@ function App() {
         if (msgToDelete) { setMsgToDelete(null); return; }
         if (spaceToDelete) { setSpaceToDelete(null); return; }
         if (spaceToLeave) { setSpaceToLeave(null); return; }
-        if (showE2EEPrompt) { setShowE2EEPrompt(null); return; }
+
         if (selectedAsset) { setSelectedAsset(null); return; }
         if (showPinnedBoard) { setShowPinnedBoard(false); return; }
         if (formatToolbar) { setFormatToolbar(null); return; }
@@ -2902,7 +2902,7 @@ function App() {
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
   }, [spaces, currentSpace, showSettings, showSpaceModal, showDMModal, showRoomSettingsModal,
-      showAdminPanel, editingId, msgToDelete, spaceToDelete, spaceToLeave, showE2EEPrompt,
+      showAdminPanel, editingId, msgToDelete, spaceToDelete, spaceToLeave,
       selectedAsset, showPinnedBoard, formatToolbar]);
 
   const handleSpaceSelect = async (space) => {
@@ -3302,17 +3302,17 @@ function App() {
     if (isDecryptingRef.current) return;
     if (!activeKeys[currentSpace?.id] || messages.length === 0) return;
     const key = activeKeys[currentSpace.id];
-    const hasEncrypted = messages.some(m => m.raw_text && m.text === '🔒 [Encrypted Message]');
+    const hasEncrypted = messages.some(m => m.pending || (m.raw_text && !m.text));
     if (!hasEncrypted) return;
     
     isDecryptingRef.current = true;
     Promise.all(messages.map(async (msg) => {
-      if (msg.raw_text && msg.text === '🔒 [Encrypted Message]') {
+      if (msg.pending || (msg.raw_text && !msg.text)) {
         try {
           const dec = await decryptMessage(msg.raw_text, key);
-          return { ...msg, text: dec, raw_text: null };
+          return { ...msg, text: dec, raw_text: null, pending: false };
         } catch(e) {
-          return { ...msg, text: '🔒 [Decryption Failed]', raw_text: null };
+          return msg; // Keep pending — key might still be wrong, retry later
         }
       }
       return msg;
@@ -3546,6 +3546,52 @@ function App() {
         await syncRoomKeyToIDB(spaceId, roomKey);
       } catch (e) {
         console.error('Failed to import granted room key', e);
+      }
+    });
+
+    // Background re-keying: generate new room key when a member is removed
+    const rekeyingRef = new Set();
+    newSocket.on('rekey_space', async (data) => {
+      const { spaceId } = data;
+      if (!privateKeyRef.current || rekeyingRef.has(spaceId)) return;
+      rekeyingRef.add(spaceId);
+      try {
+        // Fetch remaining members with their public keys
+        const membersRes = await fetch(`${socketUrl}/api/spaces/${spaceId}/members`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!membersRes.ok) return;
+        const members = await membersRes.json();
+        const membersWithKeys = members.filter(m => m.public_key);
+        if (membersWithKeys.length === 0) return;
+
+        // Generate new room key
+        const newRoomKey = await generateRoomKey();
+        
+        // Encrypt for each remaining member
+        const keyShares = {};
+        for (const m of membersWithKeys) {
+          try {
+            keyShares[m.id] = await encryptRoomKeyWithPublicKey(newRoomKey, m.public_key);
+          } catch (e) { console.error(`[E2EE] Failed to encrypt key for member ${m.id}`, e); }
+        }
+
+        // Upload key shares
+        await fetch(`${socketUrl}/api/spaces/${spaceId}/invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ invited_users: Object.keys(keyShares).map(Number), keyShares })
+        });
+
+        // Update local key and escrow
+        setActiveKeys(prev => ({ ...prev, [spaceId]: newRoomKey }));
+        await syncRoomKeyToIDB(spaceId, newRoomKey);
+        await escrowRoomKey(spaceId, newRoomKey, token, socketUrl);
+        console.log(`[E2EE] Re-keyed space ${spaceId} with ${membersWithKeys.length} members`);
+      } catch (e) {
+        console.error(`[E2EE] Re-key failed for space ${spaceId}`, e);
+      } finally {
+        rekeyingRef.delete(spaceId);
       }
     });
 
@@ -5235,7 +5281,12 @@ function App() {
                     </form>
                   ) : (
                     <>
-                      {!msg.asset && <div className="message-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) + (msg.edited === 1 ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>' : '') }} />}
+                      {!msg.asset && (msg.pending ? (
+                        <div className="encrypted-shimmer">
+                          <div className="shimmer-line" style={{width: '70%'}} />
+                          <div className="shimmer-line" style={{width: '45%'}} />
+                        </div>
+                      ) : msg.text && <div className="message-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) + (msg.edited === 1 ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>' : '') }} />)}
                       {msg.reactions && msg.reactions !== '{}' && (
                         <div className="message-reactions" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                           {Object.entries(JSON.parse(msg.reactions || '{}')).map(([emoji, usersArr]) => (
@@ -5907,6 +5958,7 @@ function App() {
           onSelfUpdate={() => fetchProfile()}
           appLogo={appLogo}
           setAppLogo={setAppLogo}
+          setAppName={setAppName}
           onPreviewAsset={(asset) => setSelectedAsset(
             asset.file.startsWith('http') ? asset.file :
             asset.file.startsWith('/uploads/') ? `${socketUrl}${asset.file}` :
@@ -5961,44 +6013,7 @@ function App() {
         </div>
       )}
 
-      {showE2EEPrompt && (
-        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowE2EEPrompt(null); }}>
-          <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '400px', margin: 'auto' }}>
-            <h2 style={{ marginTop: 0, color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-              Encrypted Space
-            </h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-              <strong>#{showE2EEPrompt.name}</strong> is End-to-End Encrypted. Enter the shared passkey to decrypt and read incoming messages.
-            </p>
-             <form onSubmit={async (e) => {
-              e.preventDefault();
-              setE2eeDecryptError(false);
-              try {
-                const derivedKey = await deriveKeyFromPassword(e2eePromptPasskey, showE2EEPrompt.e2ee_salt);
-                setActiveKeys(prev => ({ ...prev, [showE2EEPrompt.id]: derivedKey }));
-                setCurrentSpace(showE2EEPrompt);
-                setShowSidebar(false);
-                setMobileView('chat');
-                setShowE2EEPrompt(null);
-                setE2eePromptPasskey('');
-              } catch(err) {
-                console.error(err);
-                setE2eeDecryptError(true);
-              }
-            }}>
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                 <input type="password" placeholder="Passkey" className="text-input" style={{ width: '100%' }} value={e2eePromptPasskey} onChange={(e) => setE2eePromptPasskey(e.target.value)} required autoFocus />
-                 {e2eeDecryptError && <p style={{ color: 'var(--md-sys-color-error)', fontSize: '0.85rem', marginTop: '0.5rem', fontWeight: 500 }}>Invalid derivation. Check the passkey.</p>}
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button type="button" className="btn-secondary" onClick={() => { setShowE2EEPrompt(null); setE2eePromptPasskey(''); setE2eeDecryptError(false); }} style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
-                <button type="submit" className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Unlock Space</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+
 
       {showRoomSettingsModal && (
         <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowRoomSettingsModal(false); }}>

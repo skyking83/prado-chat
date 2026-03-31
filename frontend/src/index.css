@@ -657,6 +657,17 @@ button {
   border-bottom-left-radius: 4px;
 }
 
+/* ─── Encrypted Message Shimmer Placeholder ─── */
+.encrypted-shimmer { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.shimmer-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--md-sys-color-surface-variant) 25%, var(--md-sys-color-outline-variant) 50%, var(--md-sys-color-surface-variant) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
 /* ─── Markdown Styles Inside Chat Bubbles ─── */
 .message-text {
   word-wrap: break-word;

@@ -227,6 +227,14 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         keys_auth TEXT,
         FOREIGN KEY (user_id) REFERENCES users(id)
       )`);
+
+      db.run(`CREATE TABLE IF NOT EXISTS pending_key_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        space_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(space_id, user_id)
+      )`);
       db.run(`CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         text TEXT,
@@ -1510,7 +1518,11 @@ app.get('/api/spaces/:id/request-key', authenticateToken, (req, res) => {
     if (!access) return res.status(403).json({ error: 'Not a member of this space' });
       // Get escrow key and user's public key
       db.get('SELECT escrow_key FROM spaces WHERE id = ?', [spaceId], (err, space) => {
-        if (!space?.escrow_key) return res.status(404).json({ error: 'No escrow key available for this space' });
+        if (!space?.escrow_key) {
+          // Queue the request for when a keyholder connects
+          db.run('INSERT OR IGNORE INTO pending_key_requests (space_id, user_id) VALUES (?, ?)', [spaceId, userId], () => {});
+          return res.status(404).json({ error: 'No escrow key available — request queued' });
+        }
         db.get('SELECT public_key FROM users WHERE id = ?', [userId], async (err, user) => {
           if (!user?.public_key) return res.status(404).json({ error: 'User has no public key' });
           try {
@@ -1529,6 +1541,8 @@ app.get('/api/spaces/:id/request-key', authenticateToken, (req, res) => {
             db.run('INSERT OR REPLACE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES (?, ?, ?)',
               [spaceId, userId, wrappedB64], (err) => {
                 if (err) console.error('Failed to store re-wrapped key', err);
+                // Clear any pending request since we fulfilled it
+                db.run('DELETE FROM pending_key_requests WHERE space_id = ? AND user_id = ?', [spaceId, userId], () => {});
                 res.json({ encrypted_room_key: wrappedB64 });
               });
           } catch (e) {
@@ -1751,7 +1765,7 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
 
     if (space.is_private || space.is_dm) {
       // Private/DM: return actual members
-      db.all(`SELECT u.id, u.username, u.first_name, u.last_name, u.avatar 
+      db.all(`SELECT u.id, u.username, u.first_name, u.last_name, u.avatar, u.public_key 
               FROM users u JOIN space_members sm ON u.id = sm.user_id 
               WHERE sm.space_id = ?`, [spaceId], (err2, rows) => {
         if (err2) return res.status(500).json({ error: 'Database error' });
@@ -1759,7 +1773,7 @@ app.get('/api/spaces/:id/members', authenticateToken, (req, res) => {
       });
     } else {
       // Public: return all users (they can all join)
-      db.all(`SELECT id, username, first_name, last_name, avatar FROM users`, [], (err2, rows) => {
+      db.all(`SELECT id, username, first_name, last_name, avatar, public_key FROM users`, [], (err2, rows) => {
         if (err2) return res.status(500).json({ error: 'Database error' });
         res.json(rows || []);
       });
@@ -1949,7 +1963,10 @@ app.post('/api/spaces/:id/remove', authenticateToken, (req, res) => {
         console.error('REMOVE ERROR: No rows deleted for spaceId=', spaceId, 'userId=', userId);
         return res.status(400).json({ error: 'User is not in this space' });
       }
+      // Revoke removed member's room key and trigger re-key for forward secrecy
+      db.run('DELETE FROM space_keys WHERE space_id = ? AND user_id = ?', [spaceId, parseInt(userId, 10)], () => {});
       io.sockets.emit('space left', { spaceId, userId });
+      io.to(spaceId.toString()).emit('rekey_space', { spaceId });
       res.json({ success: true });
     });
   });
@@ -1966,7 +1983,10 @@ app.post('/api/spaces/:id/leave', authenticateToken, (req, res) => {
       console.error('LEAVE ERROR: No rows deleted. spaceId=', spaceId, 'uId=', uId, 'req.user=', req.user);
       return res.status(400).json({ error: 'You are not in this space' });
     }
+    // Revoke leaving member's key and trigger re-key
+    db.run('DELETE FROM space_keys WHERE space_id = ? AND user_id = ?', [spaceId, uId], () => {});
     io.sockets.emit('space left', { spaceId, userId: uId });
+    io.to(spaceId.toString()).emit('rekey_space', { spaceId });
     res.json({ success: true });
   });
 });
@@ -2130,6 +2150,45 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Fulfill pending key requests from escrow when a keyholder connects
+  db.all(`SELECT pkr.space_id, pkr.user_id, u.public_key 
+          FROM pending_key_requests pkr 
+          JOIN users u ON u.id = pkr.user_id 
+          JOIN spaces s ON s.id = pkr.space_id 
+          WHERE s.escrow_key IS NOT NULL AND u.public_key IS NOT NULL`, [], (err, pending) => {
+    if (err || !pending || pending.length === 0) return;
+    pending.forEach(async (req) => {
+      try {
+        const space = await new Promise((resolve, reject) => {
+          db.get('SELECT escrow_key FROM spaces WHERE id = ?', [req.space_id], (e, r) => e ? reject(e) : resolve(r));
+        });
+        if (!space?.escrow_key) return;
+        const rawKeyBase64 = serverDecrypt(space.escrow_key);
+        const rawKeyBuffer = Buffer.from(rawKeyBase64, 'base64');
+        const pubKeyJWK = JSON.parse(req.public_key);
+        const publicKey = crypto.createPublicKey({ key: pubKeyJWK, format: 'jwk' });
+        const encryptedForUser = crypto.publicEncrypt(
+          { key: publicKey, oaepHash: 'sha256', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+          rawKeyBuffer
+        );
+        const wrappedB64 = encryptedForUser.toString('base64');
+        db.run('INSERT OR REPLACE INTO space_keys (space_id, user_id, encrypted_room_key) VALUES (?, ?, ?)',
+          [req.space_id, req.user_id, wrappedB64], () => {});
+        db.run('DELETE FROM pending_key_requests WHERE space_id = ? AND user_id = ?',
+          [req.space_id, req.user_id], () => {});
+        // Push the key to the requesting user if they're online
+        for (const [, s] of io.sockets.sockets) {
+          if (s.user && s.user.userId === req.user_id) {
+            s.emit('grant_room_key', { spaceId: req.space_id, encryptedRoomKey: wrappedB64 });
+          }
+        }
+        console.log(`[E2EE] Fulfilled pending key request: space ${req.space_id} -> user ${req.user_id}`);
+      } catch (e) {
+        console.error(`[E2EE] Failed to fulfill pending key for space ${req.space_id}`, e);
+      }
+    });
+  });
+
   // Automatically subscribe sockets to all authorized background Spaces for unread badge dispatches
   db.all('SELECT id FROM spaces WHERE is_private = 0', [], (err, publicRows) => {
     if (!err && publicRows) publicRows.forEach(r => socket.join(r.id.toString()));
@@ -2276,9 +2335,20 @@ io.on('connection', (socket) => {
               title = `${displayName} in #${spaceName}`;
             }
 
+            // For E2EE spaces, send ciphertext in data for SW decryption, with generic fallback body
+            const isEncrypted = spaceName !== 'General';
+            let notifBody;
+            if (outgoingMsg.asset) {
+              notifBody = '📎 Sent an attachment';
+            } else if (isEncrypted) {
+              notifBody = 'Sent a message';
+            } else {
+              notifBody = (outgoingMsg.text || '').substring(0, 200);
+            }
+
             const pushPayload = {
               title,
-              body: (outgoingMsg.text || (outgoingMsg.asset ? '📎 Sent an attachment' : '')).substring(0, 200),
+              body: notifBody,
               icon: (outgoingMsg.avatar && !outgoingMsg.avatar.startsWith('data:')) ? outgoingMsg.avatar : '/icon.png',
               data: {
                 spaceId,
@@ -2286,7 +2356,9 @@ io.on('connection', (socket) => {
                 isDm,
                 senderUsername: sender,
                 senderDisplayName: displayName,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                // Include ciphertext so SW can try client-side decryption with cached keys
+                encryptedBody: isEncrypted ? outgoingMsg.text : null
               }
             };
 

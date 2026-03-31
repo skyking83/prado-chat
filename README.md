@@ -20,8 +20,15 @@
 
 ## ✨ Features
 
-### 🔐 Zero-Trust End-to-End Encryption (E2EE)
-Messages and keys are mathematically secured locally in the browser utilizing native `WebCrypto` primitives (`RSA-OAEP` for PKI identity, `AES-GCM` for Room Keys). The SQLite backend stores purely encrypted ciphertexts — the server **never** has access to plaintext message content. Includes server-side E2EE key escrow for multi-device recovery.
+### 🔐 Zero-Friction End-to-End Encryption (E2EE)
+Completely invisible encryption — no passkey prompts, no lock icons, no "[Encrypted Message]" text. It just works.
+- **Automatic Key Exchange**: RSA-2048 identity keypairs generated on registration; AES-256-GCM room keys distributed via RSA public-key wrapping — no user action needed
+- **Server-Side Escrow**: Room keys backed up to server (encrypted with `JWT_SECRET`-derived key) for multi-device and offline recovery
+- **Offline Key Recovery**: `pending_key_requests` queue ensures users get their keys even when no peers are online — fulfilled automatically on next socket connection
+- **Multi-Device Sync**: Wrapped private key stored server-side, unwrapped with login password on any device/browser
+- **Forward Secrecy**: Member removal/leave triggers automatic room key rotation — removed members cannot decrypt future messages
+- **Graceful Degradation**: Shimmer placeholder animation while keys load; auto-retry decryption when keys arrive
+- **Push Privacy**: Push notifications show "Sent a message" fallback (no ciphertext leaks); service worker decrypts using IndexedDB-cached keys for real message previews on trusted devices
 
 ### 💬 Real-Time Communication
 Instant messaging powered by ultra-low-latency WebSockets via `Socket.io` with resilient reconnection handling, real-time typing indicators, and online/offline presence detection.
