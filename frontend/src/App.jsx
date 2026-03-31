@@ -4890,10 +4890,10 @@ function App() {
                     <>
                     <button 
                       onClick={() => {
-                        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+                        fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
                           .then(res => res.json())
                           .then(data => {
-                            const members = (data || []).filter(m => m.username !== username);
+                            const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
                             setCallInviteMembers(members);
                             setCallInviteSelected(members.map(m => m.id)); // Select all by default
                           }).catch(() => setCallInviteMembers([]));
@@ -4908,10 +4908,10 @@ function App() {
                     </button>
                     <button 
                       onClick={() => {
-                        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+                        fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
                           .then(res => res.json())
                           .then(data => {
-                            const members = (data || []).filter(m => m.username !== username);
+                            const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
                             setCallInviteMembers(members);
                             setCallInviteSelected(members.map(m => m.id));
                           }).catch(() => setCallInviteMembers([]));
@@ -5884,10 +5884,10 @@ function App() {
           e2eeKey={activeKeys[currentSpace.id]}
           iceServers={iceServers}
           onInvite={() => {
-            fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } })
+            fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
               .then(res => res.json())
               .then(data => {
-                const members = (data || []).filter(m => m.username !== username);
+                const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
                 setCallInviteMembers(members);
                 setCallInviteSelected(members.map(m => m.id));
               }).catch(() => setCallInviteMembers([]));
