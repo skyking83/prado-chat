@@ -1529,7 +1529,16 @@ const AdminPanel = ({
           .dash-section { background: var(--md-sys-color-surface); border-radius: 16px; padding: 1.15rem; border: 1px solid var(--md-sys-color-outline-variant); margin-bottom: 0.85rem; }
           .dash-section-title { font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-outline); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 8px; }
           .dash-two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 0.85rem; }
-          @media (max-width: 800px) { .dash-two-col { grid-template-columns: 1fr; } }
+          .dash-two-col-equal { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+          @media (max-width: 800px) {
+            .dash-two-col, .dash-two-col-equal { grid-template-columns: 1fr; }
+            .dash-section { padding: 0.85rem; }
+            .dash-grid { gap: 0.5rem; }
+          }
+          @media (max-width: 500px) {
+            .dash-section { padding: 0.65rem; }
+            .dash-section-title { font-size: 0.72rem; }
+          }
         `}</style>
         {/* Admin Panel Header */}
         <div
@@ -4456,7 +4465,7 @@ const AdminPanel = ({
                   </div>
                 )}
 
-                <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="dash-two-col-equal">
                   {/* Registration */}
                   <div className="dash-section">
                     <div className="dash-section-title">
@@ -4673,8 +4682,16 @@ const AdminPanel = ({
                   </div>
 
                   {/* Create Key */}
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        flex: 1,
+                        minWidth: '180px',
+                      }}
+                    >
                       <svg
                         width="14"
                         height="14"
@@ -4955,7 +4972,7 @@ const AdminPanel = ({
                 </div>
 
                 {/* ═══ Email & TURN/STUN ═══ */}
-                <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr', marginTop: '0.85rem' }}>
+                <div className="dash-two-col-equal" style={{ marginTop: '0.85rem' }}>
                   {/* Email Provider */}
                   <div className="dash-section">
                     <div className="dash-section-title">
@@ -5690,6 +5707,7 @@ const AdminPanel = ({
                             borderRadius: '8px',
                             background: 'var(--md-sys-color-surface-variant)',
                             fontSize: '0.78rem',
+                            overflow: 'hidden',
                           }}
                         >
                           <div
@@ -5707,7 +5725,12 @@ const AdminPanel = ({
                             {item.icon} {item.label}
                           </div>
                           <div
-                            style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)', fontSize: '0.85rem' }}
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--md-sys-color-on-surface)',
+                              fontSize: '0.85rem',
+                              wordBreak: 'break-all',
+                            }}
                           >
                             {item.value}
                           </div>
@@ -5773,6 +5796,7 @@ const AdminPanel = ({
                                 borderRadius: '8px',
                                 background: 'var(--md-sys-color-surface-variant)',
                                 fontSize: '0.78rem',
+                                overflow: 'hidden',
                               }}
                             >
                               <div
@@ -5795,6 +5819,7 @@ const AdminPanel = ({
                                   color: statusColor,
                                   fontSize: '0.8rem',
                                   fontFamily: val.includes('••') ? 'monospace' : 'inherit',
+                                  wordBreak: 'break-all',
                                 }}
                               >
                                 {val}
