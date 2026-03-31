@@ -257,6 +257,7 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
         edited INTEGER DEFAULT 0,
         is_pinned INTEGER DEFAULT 0,
         reactions TEXT DEFAULT '{}',
+        reply_to INTEGER DEFAULT NULL,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
         () => {
@@ -265,6 +266,7 @@ const db = new sqlite3.Database('./data/database.sqlite', (err) => {
           db.run(`ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0`, () => {});
           db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => {});
           db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'`, () => {});
+          db.run(`ALTER TABLE messages ADD COLUMN reply_to INTEGER DEFAULT NULL`, () => {});
 
           // Phase 13: Purge 'General' space completely
           // Moved here to guarantee 'messages' table exists before executing DELETE
@@ -2106,13 +2108,19 @@ app.get('/api/unfurl', authenticateToken, async (req, res) => {
     // oEmbed providers for sites that block HTML scraping or have dedicated APIs
     const oEmbedProviders = [
       // Video
-      { pattern: /(?:(?:music\.)?youtube\.com\/watch|youtu\.be\/|youtube\.com\/shorts\/)/i, endpoint: 'https://www.youtube.com/oembed?format=json&url=' },
+      {
+        pattern: /(?:(?:music\.)?youtube\.com\/watch|youtu\.be\/|youtube\.com\/shorts\/)/i,
+        endpoint: 'https://www.youtube.com/oembed?format=json&url=',
+      },
       { pattern: /vimeo\.com\//i, endpoint: 'https://vimeo.com/api/oembed.json?url=' },
       { pattern: /dailymotion\.com\//i, endpoint: 'https://www.dailymotion.com/services/oembed?format=json&url=' },
       { pattern: /tiktok\.com\//i, endpoint: 'https://www.tiktok.com/oembed?url=' },
       // Social
       { pattern: /(?:twitter\.com|x\.com)\//i, endpoint: 'https://publish.twitter.com/oembed?url=' },
-      { pattern: /instagram\.com\/(?:p|reel|tv)\//i, endpoint: 'https://graph.facebook.com/v18.0/instagram_oembed?url=' },
+      {
+        pattern: /instagram\.com\/(?:p|reel|tv)\//i,
+        endpoint: 'https://graph.facebook.com/v18.0/instagram_oembed?url=',
+      },
       { pattern: /facebook\.com\//i, endpoint: 'https://graph.facebook.com/v18.0/oembed_post?url=' },
       { pattern: /reddit\.com\/r\/.+\/comments\//i, endpoint: 'https://www.reddit.com/oembed?url=' },
       // Music & Audio
@@ -2134,7 +2142,9 @@ app.get('/api/unfurl', authenticateToken, async (req, res) => {
       try {
         const oController = new AbortController();
         const oTimeout = setTimeout(() => oController.abort(), 5000);
-        const oRes = await fetch(`${oEmbedMatch.endpoint}${encodeURIComponent(fetchUrl)}`, { signal: oController.signal });
+        const oRes = await fetch(`${oEmbedMatch.endpoint}${encodeURIComponent(fetchUrl)}`, {
+          signal: oController.signal,
+        });
         clearTimeout(oTimeout);
         if (oRes.ok) {
           const oembed = await oRes.json();
@@ -2149,20 +2159,24 @@ app.get('/api/unfurl', authenticateToken, async (req, res) => {
           unfurlCache.set(url, { data, ts: Date.now() });
           return res.json(data);
         }
-      } catch { /* fall through to HTML scraping */ }
+      } catch {
+        /* fall through to HTML scraping */
+      }
     }
 
     const isYouTube = /youtube\.com|youtu\.be/i.test(fetchUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), isYouTube ? 10000 : 5000);
     const fetchHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml',
       'Accept-Language': 'en-US,en;q=0.9',
     };
     // YouTube/Google consent wall bypass
     if (/youtube\.com|youtu\.be|google\.com/i.test(parsedUrl.hostname)) {
-      fetchHeaders['Cookie'] = 'CONSENT=PENDING+999; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnPpwY';
+      fetchHeaders['Cookie'] =
+        'CONSENT=PENDING+999; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnPpwY';
     }
     const response = await fetch(fetchUrl, {
       signal: controller.signal,
@@ -2232,7 +2246,9 @@ app.get('/api/unfurl', authenticateToken, async (req, res) => {
             data.siteName = data.siteName || 'YouTube';
           }
         }
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     }
 
     // Resolve relative image URLs
@@ -2801,7 +2817,7 @@ io.on('connection', (socket) => {
         // Send history for this space
         db.all(
           `
-          SELECT m.id, m.text, m.sender, m.timestamp, u.avatar, m.asset, m.edited, m.is_pinned, m.reactions, u.first_name, u.last_name
+          SELECT m.id, m.text, m.sender, m.timestamp, u.avatar, m.asset, m.edited, m.is_pinned, m.reactions, m.reply_to, u.first_name, u.last_name
           FROM messages m 
           LEFT JOIN users u ON m.sender = u.username 
           WHERE m.space_id = ?
@@ -2823,6 +2839,7 @@ io.on('connection', (socket) => {
                   edited: row.edited,
                   is_pinned: row.is_pinned,
                   reactions: row.reactions,
+                  reply_to: row.reply_to || null,
                   first_name: row.first_name,
                   last_name: row.last_name,
                   timestamp: row.timestamp ? row.timestamp + 'Z' : null,
@@ -2910,6 +2927,7 @@ io.on('connection', (socket) => {
     const sender = socket.user.username;
     const spaceId = msg.spaceId;
     const assetPath = msg.asset || null;
+    const replyTo = msg.replyTo || null;
 
     db.get('SELECT avatar, first_name, last_name FROM users WHERE username = ?', [sender], (err, user) => {
       const avatar = user ? user.avatar : null;
@@ -2918,8 +2936,8 @@ io.on('connection', (socket) => {
 
       // Save to db FIRST
       db.run(
-        'INSERT INTO messages (text, sender, space_id, asset) VALUES (?, ?, ?, ?)',
-        [msg.text, sender, spaceId, assetPath],
+        'INSERT INTO messages (text, sender, space_id, asset, reply_to) VALUES (?, ?, ?, ?, ?)',
+        [msg.text, sender, spaceId, assetPath, replyTo],
         function (err) {
           if (!err) {
             const outgoingMsg = {
@@ -2932,6 +2950,7 @@ io.on('connection', (socket) => {
               edited: 0,
               is_pinned: 0,
               reactions: '{}',
+              reply_to: replyTo,
               first_name: firstName,
               last_name: lastName,
               timestamp: new Date().toISOString(),

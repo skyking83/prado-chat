@@ -6552,6 +6552,8 @@ function App() {
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [gifs, setGifs] = useState([]);
   const [reactingToMsgId, setReactingToMsgId] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [collapsedThreads, setCollapsedThreads] = useState({});
   const [broadcastBanner, setBroadcastBanner] = useState(null);
 
   // Auth State
@@ -7037,6 +7039,7 @@ function App() {
     setCurrentSpace(space);
     setShowSidebar(false);
     setMobileView('chat');
+    setReplyingTo(null);
   };
 
   // Location Autocomplete State
@@ -8664,7 +8667,12 @@ function App() {
         }
       }
 
-      socket.emit('chat message', { text: payloadText, spaceId: spaceObj.id, asset: pendingAsset });
+      socket.emit('chat message', {
+        text: payloadText,
+        spaceId: spaceObj.id,
+        asset: pendingAsset,
+        replyTo: replyingTo?.id || null,
+      });
 
       // Emit mentions separately (plaintext usernames, not encrypted)
       if (mentionedUsers.length > 0) {
@@ -8679,6 +8687,7 @@ function App() {
         el.style.height = 'auto';
       }
       setPendingAsset(null);
+      setReplyingTo(null);
       socket.emit('stop typing', spaceObj.id);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     }
@@ -10801,605 +10810,225 @@ function App() {
                       ></div>
                     </div>
                   )}
-                  {messages.map((msg, idx) => {
-                    const isMe = msg.sender === username;
+                  {(() => {
+                    // Build thread tree: group replies under their root parent
+                    const childrenMap = {}; // parentId -> [reply msgs]
+                    const replyIds = new Set();
+                    const msgById = {};
+                    messages.forEach((m) => {
+                      msgById[m.id] = m;
+                    });
+                    messages.forEach((m) => {
+                      if (m.reply_to) {
+                        // Flatten: find root parent (max 1 level visual indent)
+                        let rootId = m.reply_to;
+                        const parent = msgById[rootId];
+                        if (parent && parent.reply_to) rootId = parent.reply_to;
+                        if (!childrenMap[rootId]) childrenMap[rootId] = [];
+                        childrenMap[rootId].push(m);
+                        replyIds.add(m.id);
+                      }
+                    });
+                    return messages
+                      .filter((m) => !replyIds.has(m.id))
+                      .map((msg, idx, rootMessages) => {
+                        const isMe = msg.sender === username;
 
-                    let showDateDivider = false;
-                    let dateString = '';
-                    if (msg.timestamp) {
-                      const msgDate = new Date(msg.timestamp);
-                      dateString = msgDate.toLocaleDateString(undefined, {
-                        weekday: 'long',
-                        month: 'long',
-                        day: 'numeric',
-                      });
-                      if (idx === 0) {
-                        showDateDivider = true;
-                      } else {
-                        const prevMsg = messages[idx - 1];
-                        if (prevMsg && prevMsg.timestamp) {
-                          const prevDate = new Date(prevMsg.timestamp).toLocaleDateString(undefined, {
+                        let showDateDivider = false;
+                        let dateString = '';
+                        if (msg.timestamp) {
+                          const msgDate = new Date(msg.timestamp);
+                          dateString = msgDate.toLocaleDateString(undefined, {
                             weekday: 'long',
                             month: 'long',
                             day: 'numeric',
                           });
-                          if (dateString !== prevDate) showDateDivider = true;
+                          if (idx === 0) {
+                            showDateDivider = true;
+                          } else {
+                            const prevMsg = rootMessages[idx - 1];
+                            if (prevMsg && prevMsg.timestamp) {
+                              const prevDate = new Date(prevMsg.timestamp).toLocaleDateString(undefined, {
+                                weekday: 'long',
+                                month: 'long',
+                                day: 'numeric',
+                              });
+                              if (dateString !== prevDate) showDateDivider = true;
+                            }
+                          }
                         }
-                      }
-                    }
 
-                    return (
-                      <React.Fragment key={msg.id || idx}>
-                        {showDateDivider && (
-                          <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', padding: '0 1rem' }}>
-                            <div
-                              style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}
-                            ></div>
-                            <div
-                              style={{
-                                padding: '4px 12px',
-                                fontSize: '0.85rem',
-                                fontWeight: 600,
-                                color: 'var(--md-sys-color-on-surface-variant)',
-                                border: '1px solid var(--md-sys-color-surface-variant)',
-                                borderRadius: '16px',
-                                backgroundColor: 'var(--md-sys-color-surface)',
-                              }}
-                            >
-                              {dateString}
-                            </div>
-                            <div
-                              style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}
-                            ></div>
-                          </div>
-                        )}
-                        <div
-                          className={`message-wrapper ${isMe ? 'me' : 'them'}${searchResults.some((r) => r.id === msg.id) ? ' search-highlight' : ''}${searchResults[searchHighlightIdx]?.id === msg.id ? ' search-active' : ''}`}
-                          id={`msg-${msg.id}`}
-                        >
-                          {!isMe &&
-                            (msg.avatar ? (
-                              <img
-                                loading="lazy"
-                                src={msg.avatar}
-                                style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  objectFit: 'cover',
-                                  flexShrink: 0,
-                                  marginBottom: '2px',
-                                }}
-                                alt={msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}
-                              />
-                            ) : (
+                        return (
+                          <React.Fragment key={msg.id || idx}>
+                            {showDateDivider && (
                               <div
-                                style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  backgroundColor: 'var(--md-sys-color-surface-variant)',
-                                  color: 'var(--md-sys-color-on-background)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '1rem',
-                                  fontWeight: 'bold',
-                                  flexShrink: 0,
-                                  marginBottom: '2px',
-                                }}
+                                style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', padding: '0 1rem' }}
                               >
-                                {msg.first_name
-                                  ? msg.first_name.charAt(0).toUpperCase()
-                                  : msg.sender.charAt(0).toUpperCase()}
-                              </div>
-                            ))}
-                          <div
-                            className={`message ${isMe ? 'sent' : 'received'}`}
-                            onClick={() => setShowTimestampId(showTimestampId === msg.id ? null : msg.id)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            {Object.entries(readReceipts).filter(([u, id]) => id === msg.id && u !== username).length >
-                              0 && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: '-6px',
-                                  right: '-6px',
-                                  display: 'flex',
-                                  gap: '2px',
-                                  zIndex: 10,
-                                }}
-                              >
-                                {Object.entries(readReceipts)
-                                  .filter(([u, id]) => id === msg.id && u !== username)
-                                  .map(([u]) => {
-                                    let av = null;
-                                    let displayName = u;
-                                    const ou = onlineUsers.find((o) => o.username === u);
-                                    if (ou) {
-                                      if (ou.avatar) av = ou.avatar;
-                                      if (ou.first_name) displayName = `${ou.first_name} ${ou.last_name || ''}`.trim();
-                                    }
-                                    if (!av || displayName === u) {
-                                      for (let i = messages.length - 1; i >= 0; i--) {
-                                        if (messages[i].sender === u) {
-                                          if (!av && messages[i].avatar) av = messages[i].avatar;
-                                          if (displayName === u && messages[i].first_name)
-                                            displayName =
-                                              `${messages[i].first_name} ${messages[i].last_name || ''}`.trim();
-                                          if (av && displayName !== u) break;
-                                        }
-                                      }
-                                    }
-                                    if (av) {
-                                      return (
-                                        <img
-                                          key={u}
-                                          src={av}
-                                          style={{
-                                            width: '16px',
-                                            height: '16px',
-                                            borderRadius: '50%',
-                                            objectFit: 'cover',
-                                            border: '1px solid var(--md-sys-color-background)',
-                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                          }}
-                                          title={`Read by ${displayName}`}
-                                        />
-                                      );
-                                    }
-                                    return (
-                                      <div
-                                        key={u}
-                                        style={{
-                                          width: '16px',
-                                          height: '16px',
-                                          borderRadius: '50%',
-                                          backgroundColor: 'var(--md-sys-color-primary)',
-                                          color: 'var(--md-sys-color-on-primary)',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          fontSize: '8px',
-                                          fontWeight: 'bold',
-                                          border: '1px solid var(--md-sys-color-background)',
-                                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                        }}
-                                        title={`Read by ${displayName}`}
-                                      >
-                                        {displayName.charAt(0).toUpperCase()}
-                                      </div>
-                                    );
-                                  })}
-                              </div>
-                            )}
-                            {!isMe && (
-                              <div className="sender-name">
-                                {msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}
-                              </div>
-                            )}
-                            <div
-                              className="message-actions"
-                              style={{ display: 'flex', gap: '4px', opacity: reactingToMsgId === msg.id ? 1 : '' }}
-                            >
-                              <button
-                                onClick={() => setReactingToMsgId(reactingToMsgId === msg.id ? null : msg.id)}
-                                title="React"
-                              >
-                                <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                >
-                                  <circle cx="12" cy="12" r="10"></circle>
-                                  <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
-                                  <line x1="9" y1="9" x2="9.01" y2="9"></line>
-                                  <line x1="15" y1="9" x2="15.01" y2="9"></line>
-                                </svg>
-                              </button>
-                              {(role === 'admin' || (currentSpace && currentSpace.created_by === username)) &&
-                                !msg.asset && (
-                                  <button
-                                    onClick={() => pinMessage(msg.id, msg.is_pinned === 1 ? 0 : 1)}
-                                    title={msg.is_pinned ? 'Unpin Message' : 'Pin Message'}
-                                  >
-                                    <svg
-                                      width="14"
-                                      height="14"
-                                      viewBox="0 0 24 24"
-                                      fill={msg.is_pinned ? 'currentColor' : 'none'}
-                                      stroke="currentColor"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth="2"
-                                    >
-                                      <path d="M12 17v5" />
-                                      <path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z" />
-                                    </svg>
-                                  </button>
-                                )}
-                              {isMe && !msg.asset && (
-                                <button onClick={() => startEditing(msg)} title="Edit">
-                                  <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                  >
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                  </svg>
-                                </button>
-                              )}
-                              {(isMe || role === 'admin' || (currentSpace && currentSpace.created_by === username)) &&
-                                !msg.asset && (
-                                  <button onClick={() => setMsgToDelete(msg)} title="Delete" className="delete-action">
-                                    <svg
-                                      width="14"
-                                      height="14"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                    >
-                                      <polyline points="3 6 5 6 21 6"></polyline>
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                    </svg>
-                                  </button>
-                                )}
-                              {!isMe && (
-                                <button
-                                  onClick={() => {
-                                    const reason = prompt('Why are you reporting this message?');
-                                    if (reason && reason.trim()) {
-                                      fetch(`${socketUrl}/api/messages/${msg.id}/report`, {
-                                        method: 'POST',
-                                        headers: {
-                                          'Content-Type': 'application/json',
-                                          Authorization: `Bearer ${token}`,
-                                        },
-                                        body: JSON.stringify({ reason: reason.trim(), spaceId: selectedSpace }),
-                                      })
-                                        .then((r) => r.json())
-                                        .then((data) => {
-                                          if (data.error) alert(data.error);
-                                          else alert('Report submitted — an admin will review it.');
-                                        })
-                                        .catch(() => alert('Failed to submit report'));
-                                    }
-                                  }}
-                                  title="Report"
-                                  className="report-action"
-                                >
-                                  <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                                    <line x1="4" y1="22" x2="4" y2="15" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                            {reactingToMsgId === msg.id && (
-                              <>
                                 <div
-                                  style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 140 }}
-                                  onClick={() => setReactingToMsgId(null)}
-                                />
-                                <div
-                                  className="reaction-picker-overlay"
                                   style={{
-                                    position: 'absolute',
-                                    zIndex: 150,
-                                    left: isMe ? 'auto' : 0,
-                                    right: isMe ? 0 : 'auto',
-                                    bottom: 'calc(100% + 4px)',
-                                    boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
-                                    borderRadius: '8px',
+                                    flex: 1,
+                                    height: '1px',
+                                    backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                  }}
+                                ></div>
+                                <div
+                                  style={{
+                                    padding: '4px 12px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    color: 'var(--md-sys-color-on-surface-variant)',
+                                    border: '1px solid var(--md-sys-color-surface-variant)',
+                                    borderRadius: '16px',
+                                    backgroundColor: 'var(--md-sys-color-surface)',
                                   }}
                                 >
-                                  <EmojiPicker
-                                    onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
-                                    theme={theme === 'light' ? 'light' : 'dark'}
-                                    width={300}
-                                    height={400}
-                                  />
+                                  {dateString}
                                 </div>
-                              </>
+                                <div
+                                  style={{
+                                    flex: 1,
+                                    height: '1px',
+                                    backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                  }}
+                                ></div>
+                              </div>
                             )}
-                            {msg.asset && (
-                              <div className="message-asset">
-                                {msg.asset.startsWith('data:image/') ||
-                                msg.asset.match(/\.(jpeg|jpg|gif|png|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
+                            <div
+                              className={`message-wrapper ${isMe ? 'me' : 'them'}${searchResults.some((r) => r.id === msg.id) ? ' search-highlight' : ''}${searchResults[searchHighlightIdx]?.id === msg.id ? ' search-active' : ''}`}
+                              id={`msg-${msg.id}`}
+                            >
+                              {!isMe &&
+                                (msg.avatar ? (
                                   <img
-                                    src={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset}
-                                    alt="Attachment"
-                                    onLoad={() => scrollToBottom(isInitialLoad.current)}
+                                    loading="lazy"
+                                    src={msg.avatar}
                                     style={{
-                                      maxWidth: '100%',
-                                      maxHeight: '400px',
-                                      borderRadius: '8px',
-                                      marginBottom: '8px',
-                                      display: 'block',
-                                      objectFit: 'contain',
-                                      cursor: 'pointer',
+                                      width: '32px',
+                                      height: '32px',
+                                      borderRadius: '50%',
+                                      objectFit: 'cover',
+                                      flexShrink: 0,
+                                      marginBottom: '2px',
                                     }}
-                                    onClick={() =>
-                                      setSelectedAsset(
-                                        msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
-                                      )
+                                    alt={
+                                      msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender
                                     }
                                   />
-                                ) : msg.asset.includes('voice-') ||
-                                  msg.asset.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) ? (
-                                  <div
-                                    className="voice-message-player"
-                                    ref={(el) => {
-                                      if (!el || el.dataset.audioInit) return;
-                                      el.dataset.audioInit = 'true';
-                                      const audio = document.createElement('audio');
-                                      const src = msg.asset.startsWith('/uploads/')
-                                        ? `${socketUrl}${msg.asset}`
-                                        : msg.asset;
-                                      audio.src = src;
-                                      audio.preload = 'auto';
-                                      audio.style.display = 'none';
-                                      el.appendChild(audio);
-                                      const updateDuration = () => {
-                                        const dur = el.querySelector('.voice-duration');
-                                        if (!dur) return;
-                                        const d = audio.duration;
-                                        if (d && isFinite(d) && !isNaN(d)) {
-                                          dur.textContent = `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, '0')}`;
-                                        }
-                                      };
-                                      audio.addEventListener('loadedmetadata', () => {
-                                        if (audio.duration === Infinity) {
-                                          audio.currentTime = 1e101;
-                                          audio.addEventListener(
-                                            'timeupdate',
-                                            function seekBack() {
-                                              audio.removeEventListener('timeupdate', seekBack);
-                                              audio.currentTime = 0;
-                                              updateDuration();
-                                            },
-                                            { once: true }
-                                          );
-                                        } else {
-                                          updateDuration();
-                                        }
-                                      });
-                                      audio.addEventListener('durationchange', updateDuration);
-                                      audio.addEventListener('timeupdate', () => {
-                                        const progress = el.querySelector('.voice-progress');
-                                        const dur = el.querySelector('.voice-duration');
-                                        const d = audio.duration;
-                                        if (progress && isFinite(d) && d > 0)
-                                          progress.style.width = `${(audio.currentTime / d) * 100}%`;
-                                        if (dur && (!isFinite(d) || isNaN(d))) {
-                                          const t = Math.floor(audio.currentTime);
-                                          dur.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-                                        }
-                                      });
-                                      audio.addEventListener('ended', () => {
-                                        const btn = el.querySelector('.voice-play-btn');
-                                        if (btn) btn.dataset.playing = 'false';
-                                        const progress = el.querySelector('.voice-progress');
-                                        if (progress) progress.style.width = '0%';
-                                        updateDuration();
-                                      });
-                                    }}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="voice-play-btn"
-                                      onClick={(e) => {
-                                        const container = e.currentTarget.closest('.voice-message-player');
-                                        const audio = container.querySelector('audio');
-                                        if (!audio) return;
-                                        const btn = e.currentTarget;
-                                        if (audio.paused) {
-                                          audio.play();
-                                          btn.dataset.playing = 'true';
-                                        } else {
-                                          audio.pause();
-                                          btn.dataset.playing = 'false';
-                                        }
-                                      }}
-                                      data-playing="false"
-                                    >
-                                      <svg
-                                        className="play-icon"
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 24 24"
-                                        fill="currentColor"
-                                      >
-                                        <polygon points="5 3 19 12 5 21 5 3" />
-                                      </svg>
-                                      <svg
-                                        className="pause-icon"
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 24 24"
-                                        fill="currentColor"
-                                      >
-                                        <rect x="6" y="4" width="4" height="16" />
-                                        <rect x="14" y="4" width="4" height="16" />
-                                      </svg>
-                                    </button>
-                                    <div className="voice-waveform">
-                                      {Array.from({ length: 24 }, (_, i) => (
-                                        <div
-                                          key={i}
-                                          className="voice-bar"
-                                          style={{ height: `${20 + Math.sin(i * 0.7) * 60 + Math.random() * 20}%` }}
-                                        />
-                                      ))}
-                                      <div className="voice-progress" />
-                                    </div>
-                                    <span className="voice-duration">0:00</span>
-                                  </div>
-                                ) : msg.asset.startsWith('data:video/') ||
-                                  msg.asset.match(/\.(mp4|webm|ogg|mov|qt|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) ||
-                                  msg.asset.includes('transcoded-') ? (
-                                  <VideoMessage src={msg.asset} />
-                                ) : msg.asset.match(/\.(pdf|txt)$/i) ? (
-                                  <div
-                                    style={{
-                                      position: 'relative',
-                                      cursor: 'pointer',
-                                      display: 'inline-block',
-                                      width: '100%',
-                                      marginBottom: '8px',
-                                    }}
-                                    onClick={() =>
-                                      setSelectedAsset(
-                                        msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
-                                      )
-                                    }
-                                  >
-                                    <iframe
-                                      src={
-                                        msg.asset.startsWith('/uploads/')
-                                          ? `${socketUrl}${msg.asset}#toolbar=0`
-                                          : msg.asset
-                                      }
-                                      title="PDF Viewer"
-                                      style={{
-                                        width: '100%',
-                                        height: '300px',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        backgroundColor: '#fff',
-                                        pointerEvents: 'none',
-                                      }}
-                                    />
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: '10px',
-                                        right: '10px',
-                                        backgroundColor: 'rgba(0,0,0,0.6)',
-                                        color: 'white',
-                                        padding: '4px 8px',
-                                        borderRadius: '4px',
-                                        fontSize: '0.8rem',
-                                        pointerEvents: 'none',
-                                      }}
-                                    >
-                                      Click to Fullscreen
-                                    </div>
-                                  </div>
                                 ) : (
-                                  <a
-                                    href={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    download="attachment"
+                                  <div
                                     style={{
+                                      width: '32px',
+                                      height: '32px',
+                                      borderRadius: '50%',
+                                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                      color: 'var(--md-sys-color-on-background)',
                                       display: 'flex',
                                       alignItems: 'center',
-                                      gap: '12px',
-                                      marginBottom: '8px',
-                                      color: 'inherit',
-                                      textDecoration: 'none',
-                                      backgroundColor: 'var(--md-sys-color-surface-variant)',
-                                      padding: '12px',
-                                      borderRadius: '12px',
-                                      border: '1px solid var(--md-sys-color-outline-variant)',
-                                      width: 'fit-content',
+                                      justifyContent: 'center',
+                                      fontSize: '1rem',
+                                      fontWeight: 'bold',
+                                      flexShrink: 0,
+                                      marginBottom: '2px',
                                     }}
                                   >
-                                    <div
-                                      style={{
-                                        width: '48px',
-                                        height: '56px',
-                                        backgroundColor: 'var(--md-sys-color-primary)',
-                                        borderRadius: '4px 14px 4px 4px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        position: 'relative',
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: '-1px',
-                                          right: '-1px',
-                                          width: '16px',
-                                          height: '16px',
-                                          backgroundColor: 'var(--md-sys-color-surface-variant)',
-                                          borderBottomLeftRadius: '8px',
-                                          borderLeft: '1px solid rgba(0,0,0,0.1)',
-                                          borderBottom: '1px solid rgba(0,0,0,0.1)',
-                                        }}
-                                      ></div>
-                                      <span
-                                        style={{
-                                          color: 'var(--md-sys-color-on-primary)',
-                                          fontSize: '0.75rem',
-                                          fontWeight: 'bold',
-                                          letterSpacing: '0.5px',
-                                          marginTop: '8px',
-                                          userSelect: 'none',
-                                        }}
-                                      >
-                                        {msg.asset.split('.').pop().toUpperCase().substring(0, 4)}
-                                      </span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                                      <span
-                                        style={{
-                                          fontSize: '0.95rem',
-                                          fontWeight: 600,
-                                          color: 'var(--md-sys-color-on-surface)',
-                                          whiteSpace: 'nowrap',
-                                          textOverflow: 'ellipsis',
-                                          overflow: 'hidden',
-                                          maxWidth: '200px',
-                                        }}
-                                      >
-                                        {msg.asset
-                                          .split('/')
-                                          .pop()
-                                          .replace(/^[^-]+-/, '') || 'Document'}
-                                      </span>
-                                      <span
-                                        style={{
-                                          fontSize: '0.8rem',
-                                          color: 'var(--md-sys-color-outline)',
-                                          marginTop: '2px',
-                                        }}
-                                      >
-                                        Click to download
-                                      </span>
-                                    </div>
-                                  </a>
+                                    {msg.first_name
+                                      ? msg.first_name.charAt(0).toUpperCase()
+                                      : msg.sender.charAt(0).toUpperCase()}
+                                  </div>
+                                ))}
+                              <div
+                                className={`message ${isMe ? 'sent' : 'received'}`}
+                                onClick={() => setShowTimestampId(showTimestampId === msg.id ? null : msg.id)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {Object.entries(readReceipts).filter(([u, id]) => id === msg.id && u !== username)
+                                  .length > 0 && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: '-6px',
+                                      right: '-6px',
+                                      display: 'flex',
+                                      gap: '2px',
+                                      zIndex: 10,
+                                    }}
+                                  >
+                                    {Object.entries(readReceipts)
+                                      .filter(([u, id]) => id === msg.id && u !== username)
+                                      .map(([u]) => {
+                                        let av = null;
+                                        let displayName = u;
+                                        const ou = onlineUsers.find((o) => o.username === u);
+                                        if (ou) {
+                                          if (ou.avatar) av = ou.avatar;
+                                          if (ou.first_name)
+                                            displayName = `${ou.first_name} ${ou.last_name || ''}`.trim();
+                                        }
+                                        if (!av || displayName === u) {
+                                          for (let i = messages.length - 1; i >= 0; i--) {
+                                            if (messages[i].sender === u) {
+                                              if (!av && messages[i].avatar) av = messages[i].avatar;
+                                              if (displayName === u && messages[i].first_name)
+                                                displayName =
+                                                  `${messages[i].first_name} ${messages[i].last_name || ''}`.trim();
+                                              if (av && displayName !== u) break;
+                                            }
+                                          }
+                                        }
+                                        if (av) {
+                                          return (
+                                            <img
+                                              key={u}
+                                              src={av}
+                                              style={{
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '50%',
+                                                objectFit: 'cover',
+                                                border: '1px solid var(--md-sys-color-background)',
+                                                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                              }}
+                                              title={`Read by ${displayName}`}
+                                            />
+                                          );
+                                        }
+                                        return (
+                                          <div
+                                            key={u}
+                                            style={{
+                                              width: '16px',
+                                              height: '16px',
+                                              borderRadius: '50%',
+                                              backgroundColor: 'var(--md-sys-color-primary)',
+                                              color: 'var(--md-sys-color-on-primary)',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              fontSize: '8px',
+                                              fontWeight: 'bold',
+                                              border: '1px solid var(--md-sys-color-background)',
+                                              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                            }}
+                                            title={`Read by ${displayName}`}
+                                          >
+                                            {displayName.charAt(0).toUpperCase()}
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
                                 )}
-                                {(isMe ||
-                                  role === 'admin' ||
-                                  (currentSpace && currentSpace.created_by === username)) && (
+                                {!isMe && (
+                                  <div className="sender-name">
+                                    {msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}
+                                  </div>
+                                )}
+                                <div
+                                  className="message-actions"
+                                  style={{ display: 'flex', gap: '4px', opacity: reactingToMsgId === msg.id ? 1 : '' }}
+                                >
                                   <button
-                                    onClick={() => setMsgToDelete(msg)}
-                                    title="Delete"
-                                    className="delete-asset-btn"
+                                    onClick={() => setReactingToMsgId(reactingToMsgId === msg.id ? null : msg.id)}
+                                    title="React"
                                   >
                                     <svg
                                       width="14"
@@ -11409,256 +11038,988 @@ function App() {
                                       stroke="currentColor"
                                       strokeWidth="2"
                                     >
-                                      <polyline points="3 6 5 6 21 6"></polyline>
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                      <circle cx="12" cy="12" r="10"></circle>
+                                      <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                      <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                      <line x1="15" y1="9" x2="15.01" y2="9"></line>
                                     </svg>
                                   </button>
+                                  <button
+                                    onClick={() => {
+                                      setReplyingTo(msg);
+                                      setTimeout(() => {
+                                        const el = document.querySelector('.rich-input');
+                                        if (el) el.focus();
+                                      }, 50);
+                                    }}
+                                    title="Reply"
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <polyline points="9 14 4 9 9 4"></polyline>
+                                      <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                                    </svg>
+                                  </button>
+                                  {(role === 'admin' || (currentSpace && currentSpace.created_by === username)) &&
+                                    !msg.asset && (
+                                      <button
+                                        onClick={() => pinMessage(msg.id, msg.is_pinned === 1 ? 0 : 1)}
+                                        title={msg.is_pinned ? 'Unpin Message' : 'Pin Message'}
+                                      >
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill={msg.is_pinned ? 'currentColor' : 'none'}
+                                          stroke="currentColor"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth="2"
+                                        >
+                                          <path d="M12 17v5" />
+                                          <path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  {isMe && !msg.asset && (
+                                    <button onClick={() => startEditing(msg)} title="Edit">
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                      >
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {(isMe ||
+                                    role === 'admin' ||
+                                    (currentSpace && currentSpace.created_by === username)) &&
+                                    !msg.asset && (
+                                      <button
+                                        onClick={() => setMsgToDelete(msg)}
+                                        title="Delete"
+                                        className="delete-action"
+                                      >
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                        >
+                                          <polyline points="3 6 5 6 21 6"></polyline>
+                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        </svg>
+                                      </button>
+                                    )}
+                                  {!isMe && (
+                                    <button
+                                      onClick={() => {
+                                        const reason = prompt('Why are you reporting this message?');
+                                        if (reason && reason.trim()) {
+                                          fetch(`${socketUrl}/api/messages/${msg.id}/report`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ reason: reason.trim(), spaceId: selectedSpace }),
+                                          })
+                                            .then((r) => r.json())
+                                            .then((data) => {
+                                              if (data.error) alert(data.error);
+                                              else alert('Report submitted — an admin will review it.');
+                                            })
+                                            .catch(() => alert('Failed to submit report'));
+                                        }
+                                      }}
+                                      title="Report"
+                                      className="report-action"
+                                    >
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                                        <line x1="4" y1="22" x2="4" y2="15" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                                {reactingToMsgId === msg.id && (
+                                  <>
+                                    <div
+                                      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 140 }}
+                                      onClick={() => setReactingToMsgId(null)}
+                                    />
+                                    <div
+                                      className="reaction-picker-overlay"
+                                      style={{
+                                        position: 'absolute',
+                                        zIndex: 150,
+                                        left: isMe ? 'auto' : 0,
+                                        right: isMe ? 0 : 'auto',
+                                        bottom: 'calc(100% + 4px)',
+                                        boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                                        borderRadius: '8px',
+                                      }}
+                                    >
+                                      <EmojiPicker
+                                        onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
+                                        theme={theme === 'light' ? 'light' : 'dark'}
+                                        width={300}
+                                        height={400}
+                                      />
+                                    </div>
+                                  </>
                                 )}
-                              </div>
-                            )}
-                            <div className="message-content">
-                              {editingId === msg.id ? (
-                                <form onSubmit={saveEdit} className="edit-form">
-                                  <div
-                                    ref={editInputRef}
-                                    className="edit-input"
-                                    contentEditable
-                                    suppressContentEditableWarning
-                                    onInput={() => {
-                                      const el = editInputRef.current;
-                                      if (el) {
-                                        processMarkdownShortcuts(el);
-                                        setEditInput(serializeToMarkdown(el));
-                                      }
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        saveEdit(e);
-                                      }
-                                      if (e.key === 'Escape') setEditingId(null);
-                                    }}
-                                    onMouseUp={handleTextSelect}
-                                    onKeyUp={handleTextSelect}
-                                    onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
-                                    onPaste={(e) => {
-                                      e.preventDefault();
-                                      const text = e.clipboardData.getData('text/plain');
-                                      document.execCommand('insertText', false, text);
-                                      const el = editInputRef.current;
-                                      if (el) {
-                                        processAllMarkdownInNode(el);
-                                        setEditInput(serializeToMarkdown(el));
-                                      }
-                                    }}
-                                  />
-                                  <div className="edit-btns">
-                                    <button type="submit" className="save-btn">
-                                      Save
-                                    </button>
-                                    <button type="button" className="cancel-btn" onClick={() => setEditingId(null)}>
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </form>
-                              ) : (
-                                <>
-                                  {!msg.asset &&
-                                    (msg.pending ? (
-                                      <div className="encrypted-shimmer">
-                                        <div className="shimmer-line" style={{ width: '70%' }} />
-                                        <div className="shimmer-line" style={{ width: '45%' }} />
-                                      </div>
-                                    ) : (
-                                      msg.text && (
-                                        <div
-                                          className="message-text"
-                                          dangerouslySetInnerHTML={{
-                                            __html:
-                                              renderMarkdown(msg.text) +
-                                              (msg.edited === 1
-                                                ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>'
-                                                : ''),
-                                          }}
-                                        />
-                                      )
-                                    ))}
-                                  {/* URL Link Preview */}
-                                  {unfurlData[msg.id] &&
-                                    (unfurlData[msg.id].description || unfurlData[msg.id].image) && (
-                                      <div style={{ position: 'relative', maxWidth: 400, marginTop: 6 }}>
+                                {msg.asset && (
+                                  <div className="message-asset">
+                                    {msg.asset.startsWith('data:image/') ||
+                                    msg.asset.match(/\.(jpeg|jpg|gif|png|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
+                                      <img
+                                        src={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset}
+                                        alt="Attachment"
+                                        onLoad={() => scrollToBottom(isInitialLoad.current)}
+                                        style={{
+                                          maxWidth: '100%',
+                                          maxHeight: '400px',
+                                          borderRadius: '8px',
+                                          marginBottom: '8px',
+                                          display: 'block',
+                                          objectFit: 'contain',
+                                          cursor: 'pointer',
+                                        }}
+                                        onClick={() =>
+                                          setSelectedAsset(
+                                            msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
+                                          )
+                                        }
+                                      />
+                                    ) : msg.asset.includes('voice-') ||
+                                      msg.asset.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) ? (
+                                      <div
+                                        className="voice-message-player"
+                                        ref={(el) => {
+                                          if (!el || el.dataset.audioInit) return;
+                                          el.dataset.audioInit = 'true';
+                                          const audio = document.createElement('audio');
+                                          const src = msg.asset.startsWith('/uploads/')
+                                            ? `${socketUrl}${msg.asset}`
+                                            : msg.asset;
+                                          audio.src = src;
+                                          audio.preload = 'auto';
+                                          audio.style.display = 'none';
+                                          el.appendChild(audio);
+                                          const updateDuration = () => {
+                                            const dur = el.querySelector('.voice-duration');
+                                            if (!dur) return;
+                                            const d = audio.duration;
+                                            if (d && isFinite(d) && !isNaN(d)) {
+                                              dur.textContent = `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, '0')}`;
+                                            }
+                                          };
+                                          audio.addEventListener('loadedmetadata', () => {
+                                            if (audio.duration === Infinity) {
+                                              audio.currentTime = 1e101;
+                                              audio.addEventListener(
+                                                'timeupdate',
+                                                function seekBack() {
+                                                  audio.removeEventListener('timeupdate', seekBack);
+                                                  audio.currentTime = 0;
+                                                  updateDuration();
+                                                },
+                                                { once: true }
+                                              );
+                                            } else {
+                                              updateDuration();
+                                            }
+                                          });
+                                          audio.addEventListener('durationchange', updateDuration);
+                                          audio.addEventListener('timeupdate', () => {
+                                            const progress = el.querySelector('.voice-progress');
+                                            const dur = el.querySelector('.voice-duration');
+                                            const d = audio.duration;
+                                            if (progress && isFinite(d) && d > 0)
+                                              progress.style.width = `${(audio.currentTime / d) * 100}%`;
+                                            if (dur && (!isFinite(d) || isNaN(d))) {
+                                              const t = Math.floor(audio.currentTime);
+                                              dur.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+                                            }
+                                          });
+                                          audio.addEventListener('ended', () => {
+                                            const btn = el.querySelector('.voice-play-btn');
+                                            if (btn) btn.dataset.playing = 'false';
+                                            const progress = el.querySelector('.voice-progress');
+                                            if (progress) progress.style.width = '0%';
+                                            updateDuration();
+                                          });
+                                        }}
+                                      >
                                         <button
-                                          className="link-preview-toggle"
+                                          type="button"
+                                          className="voice-play-btn"
                                           onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleUnfurl(msg.id);
+                                            const container = e.currentTarget.closest('.voice-message-player');
+                                            const audio = container.querySelector('audio');
+                                            if (!audio) return;
+                                            const btn = e.currentTarget;
+                                            if (audio.paused) {
+                                              audio.play();
+                                              btn.dataset.playing = 'true';
+                                            } else {
+                                              audio.pause();
+                                              btn.dataset.playing = 'false';
+                                            }
                                           }}
-                                          title={collapsedUnfurls[msg.id] ? 'Show preview' : 'Hide preview'}
-                                          aria-label="Toggle link preview"
+                                          data-playing="false"
                                         >
                                           <svg
-                                            width="10"
-                                            height="10"
+                                            className="play-icon"
+                                            width="18"
+                                            height="18"
                                             viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="2.5"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
+                                            fill="currentColor"
                                           >
-                                            {collapsedUnfurls[msg.id] ? (
-                                              <polyline points="6 9 12 15 18 9" />
-                                            ) : (
-                                              <polyline points="18 15 12 9 6 15" />
-                                            )}
+                                            <polygon points="5 3 19 12 5 21 5 3" />
+                                          </svg>
+                                          <svg
+                                            className="pause-icon"
+                                            width="18"
+                                            height="18"
+                                            viewBox="0 0 24 24"
+                                            fill="currentColor"
+                                          >
+                                            <rect x="6" y="4" width="4" height="16" />
+                                            <rect x="14" y="4" width="4" height="16" />
                                           </svg>
                                         </button>
-                                        {collapsedUnfurls[msg.id] ? (
-                                          <div
-                                            className="link-preview-collapsed"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              toggleUnfurl(msg.id);
-                                            }}
-                                          >
-                                            {unfurlData[msg.id].favicon && (
-                                              <img
-                                                src={unfurlData[msg.id].favicon}
-                                                alt=""
-                                                style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0 }}
-                                                onError={(e) => {
-                                                  e.target.style.display = 'none';
-                                                }}
-                                              />
-                                            )}
-                                            <span>
-                                              {(() => {
-                                                try {
-                                                  return new URL(unfurlData[msg.id].url).hostname;
-                                                } catch {
-                                                  return unfurlData[msg.id].url;
-                                                }
-                                              })()}
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <a
-                                            href={unfurlData[msg.id].url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="link-preview-card"
-                                            onClick={(e) => e.stopPropagation()}
-                                          >
-                                            {unfurlData[msg.id].image && (
-                                              <img
-                                                src={unfurlData[msg.id].image}
-                                                alt=""
-                                                className="link-preview-image"
-                                                onError={(e) => {
-                                                  e.target.style.display = 'none';
-                                                }}
-                                              />
-                                            )}
-                                            <div className="link-preview-body">
-                                              {unfurlData[msg.id].siteName && (
-                                                <span className="link-preview-site">
-                                                  {unfurlData[msg.id].favicon && (
-                                                    <img
-                                                      src={unfurlData[msg.id].favicon}
-                                                      alt=""
-                                                      style={{
-                                                        width: 12,
-                                                        height: 12,
-                                                        borderRadius: 2,
-                                                        marginRight: 4,
-                                                        verticalAlign: 'middle',
-                                                      }}
-                                                      onError={(e) => {
-                                                        e.target.style.display = 'none';
-                                                      }}
-                                                    />
-                                                  )}
-                                                  {unfurlData[msg.id].siteName}
-                                                </span>
-                                              )}
-                                              {unfurlData[msg.id].title && (
-                                                <span className="link-preview-title">{unfurlData[msg.id].title}</span>
-                                              )}
-                                              {unfurlData[msg.id].description && (
-                                                <span className="link-preview-desc">
-                                                  {unfurlData[msg.id].description}
-                                                </span>
-                                              )}
-                                            </div>
-                                          </a>
-                                        )}
+                                        <div className="voice-waveform">
+                                          {Array.from({ length: 24 }, (_, i) => (
+                                            <div
+                                              key={i}
+                                              className="voice-bar"
+                                              style={{ height: `${20 + Math.sin(i * 0.7) * 60 + Math.random() * 20}%` }}
+                                            />
+                                          ))}
+                                          <div className="voice-progress" />
+                                        </div>
+                                        <span className="voice-duration">0:00</span>
                                       </div>
-                                    )}
-                                  {msg.reactions && msg.reactions !== '{}' && (
-                                    <div
-                                      className="message-reactions"
-                                      style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}
-                                    >
-                                      {Object.entries(JSON.parse(msg.reactions || '{}')).map(([emoji, usersArr]) => (
-                                        <div
-                                          key={emoji}
-                                          onClick={() => handleReaction(msg.id, emoji)}
-                                          title={usersArr
-                                            .map((u) => {
-                                              const m = messages.find((mm) => mm.sender === u);
-                                              return m && m.first_name
-                                                ? `${m.first_name} ${m.last_name || ''}`.trim()
-                                                : u;
-                                            })
-                                            .join(', ')}
+                                    ) : msg.asset.startsWith('data:video/') ||
+                                      msg.asset.match(/\.(mp4|webm|ogg|mov|qt|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) ||
+                                      msg.asset.includes('transcoded-') ? (
+                                      <VideoMessage src={msg.asset} />
+                                    ) : msg.asset.match(/\.(pdf|txt)$/i) ? (
+                                      <div
+                                        style={{
+                                          position: 'relative',
+                                          cursor: 'pointer',
+                                          display: 'inline-block',
+                                          width: '100%',
+                                          marginBottom: '8px',
+                                        }}
+                                        onClick={() =>
+                                          setSelectedAsset(
+                                            msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
+                                          )
+                                        }
+                                      >
+                                        <iframe
+                                          src={
+                                            msg.asset.startsWith('/uploads/')
+                                              ? `${socketUrl}${msg.asset}#toolbar=0`
+                                              : msg.asset
+                                          }
+                                          title="PDF Viewer"
                                           style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                            backgroundColor: usersArr.includes(username)
-                                              ? 'var(--md-sys-color-primary-container)'
-                                              : 'var(--md-sys-color-surface-variant)',
-                                            color: usersArr.includes(username)
-                                              ? 'var(--md-sys-color-on-primary-container)'
-                                              : 'var(--md-sys-color-on-surface-variant)',
-                                            padding: '2px 6px',
-                                            borderRadius: '12px',
+                                            width: '100%',
+                                            height: '300px',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#fff',
+                                            pointerEvents: 'none',
+                                          }}
+                                        />
+                                        <div
+                                          style={{
+                                            position: 'absolute',
+                                            top: '10px',
+                                            right: '10px',
+                                            backgroundColor: 'rgba(0,0,0,0.6)',
+                                            color: 'white',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
                                             fontSize: '0.8rem',
-                                            cursor: 'pointer',
-                                            border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`,
-                                            userSelect: 'none',
+                                            pointerEvents: 'none',
                                           }}
                                         >
-                                          <span>{emoji}</span>
-                                          <span style={{ fontWeight: '600' }}>{usersArr.length}</span>
+                                          Click to Fullscreen
                                         </div>
-                                      ))}
+                                      </div>
+                                    ) : (
+                                      <a
+                                        href={
+                                          msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
+                                        }
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        download="attachment"
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '12px',
+                                          marginBottom: '8px',
+                                          color: 'inherit',
+                                          textDecoration: 'none',
+                                          backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                          padding: '12px',
+                                          borderRadius: '12px',
+                                          border: '1px solid var(--md-sys-color-outline-variant)',
+                                          width: 'fit-content',
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            width: '48px',
+                                            height: '56px',
+                                            backgroundColor: 'var(--md-sys-color-primary)',
+                                            borderRadius: '4px 14px 4px 4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            position: 'relative',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              position: 'absolute',
+                                              top: '-1px',
+                                              right: '-1px',
+                                              width: '16px',
+                                              height: '16px',
+                                              backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                              borderBottomLeftRadius: '8px',
+                                              borderLeft: '1px solid rgba(0,0,0,0.1)',
+                                              borderBottom: '1px solid rgba(0,0,0,0.1)',
+                                            }}
+                                          ></div>
+                                          <span
+                                            style={{
+                                              color: 'var(--md-sys-color-on-primary)',
+                                              fontSize: '0.75rem',
+                                              fontWeight: 'bold',
+                                              letterSpacing: '0.5px',
+                                              marginTop: '8px',
+                                              userSelect: 'none',
+                                            }}
+                                          >
+                                            {msg.asset.split('.').pop().toUpperCase().substring(0, 4)}
+                                          </span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                          <span
+                                            style={{
+                                              fontSize: '0.95rem',
+                                              fontWeight: 600,
+                                              color: 'var(--md-sys-color-on-surface)',
+                                              whiteSpace: 'nowrap',
+                                              textOverflow: 'ellipsis',
+                                              overflow: 'hidden',
+                                              maxWidth: '200px',
+                                            }}
+                                          >
+                                            {msg.asset
+                                              .split('/')
+                                              .pop()
+                                              .replace(/^[^-]+-/, '') || 'Document'}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontSize: '0.8rem',
+                                              color: 'var(--md-sys-color-outline)',
+                                              marginTop: '2px',
+                                            }}
+                                          >
+                                            Click to download
+                                          </span>
+                                        </div>
+                                      </a>
+                                    )}
+                                    {(isMe ||
+                                      role === 'admin' ||
+                                      (currentSpace && currentSpace.created_by === username)) && (
+                                      <button
+                                        onClick={() => setMsgToDelete(msg)}
+                                        title="Delete"
+                                        className="delete-asset-btn"
+                                      >
+                                        <svg
+                                          width="14"
+                                          height="14"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                        >
+                                          <polyline points="3 6 5 6 21 6"></polyline>
+                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="message-content">
+                                  {editingId === msg.id ? (
+                                    <form onSubmit={saveEdit} className="edit-form">
+                                      <div
+                                        ref={editInputRef}
+                                        className="edit-input"
+                                        contentEditable
+                                        suppressContentEditableWarning
+                                        onInput={() => {
+                                          const el = editInputRef.current;
+                                          if (el) {
+                                            processMarkdownShortcuts(el);
+                                            setEditInput(serializeToMarkdown(el));
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            saveEdit(e);
+                                          }
+                                          if (e.key === 'Escape') setEditingId(null);
+                                        }}
+                                        onMouseUp={handleTextSelect}
+                                        onKeyUp={handleTextSelect}
+                                        onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
+                                        onPaste={(e) => {
+                                          e.preventDefault();
+                                          const text = e.clipboardData.getData('text/plain');
+                                          document.execCommand('insertText', false, text);
+                                          const el = editInputRef.current;
+                                          if (el) {
+                                            processAllMarkdownInNode(el);
+                                            setEditInput(serializeToMarkdown(el));
+                                          }
+                                        }}
+                                      />
+                                      <div className="edit-btns">
+                                        <button type="submit" className="save-btn">
+                                          Save
+                                        </button>
+                                        <button type="button" className="cancel-btn" onClick={() => setEditingId(null)}>
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </form>
+                                  ) : (
+                                    <>
+                                      {!msg.asset &&
+                                        (msg.pending ? (
+                                          <div className="encrypted-shimmer">
+                                            <div className="shimmer-line" style={{ width: '70%' }} />
+                                            <div className="shimmer-line" style={{ width: '45%' }} />
+                                          </div>
+                                        ) : (
+                                          msg.text && (
+                                            <div
+                                              className="message-text"
+                                              dangerouslySetInnerHTML={{
+                                                __html:
+                                                  renderMarkdown(msg.text) +
+                                                  (msg.edited === 1
+                                                    ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>'
+                                                    : ''),
+                                              }}
+                                            />
+                                          )
+                                        ))}
+                                      {/* URL Link Preview */}
+                                      {unfurlData[msg.id] &&
+                                        (unfurlData[msg.id].description || unfurlData[msg.id].image) && (
+                                          <div style={{ position: 'relative', maxWidth: 400, marginTop: 6 }}>
+                                            <button
+                                              className="link-preview-toggle"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleUnfurl(msg.id);
+                                              }}
+                                              title={collapsedUnfurls[msg.id] ? 'Show preview' : 'Hide preview'}
+                                              aria-label="Toggle link preview"
+                                            >
+                                              <svg
+                                                width="10"
+                                                height="10"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              >
+                                                {collapsedUnfurls[msg.id] ? (
+                                                  <polyline points="6 9 12 15 18 9" />
+                                                ) : (
+                                                  <polyline points="18 15 12 9 6 15" />
+                                                )}
+                                              </svg>
+                                            </button>
+                                            {collapsedUnfurls[msg.id] ? (
+                                              <div
+                                                className="link-preview-collapsed"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleUnfurl(msg.id);
+                                                }}
+                                              >
+                                                {unfurlData[msg.id].favicon && (
+                                                  <img
+                                                    src={unfurlData[msg.id].favicon}
+                                                    alt=""
+                                                    style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0 }}
+                                                    onError={(e) => {
+                                                      e.target.style.display = 'none';
+                                                    }}
+                                                  />
+                                                )}
+                                                <span>
+                                                  {(() => {
+                                                    try {
+                                                      return new URL(unfurlData[msg.id].url).hostname;
+                                                    } catch {
+                                                      return unfurlData[msg.id].url;
+                                                    }
+                                                  })()}
+                                                </span>
+                                              </div>
+                                            ) : (
+                                              <a
+                                                href={unfurlData[msg.id].url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="link-preview-card"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                {unfurlData[msg.id].image && (
+                                                  <img
+                                                    src={unfurlData[msg.id].image}
+                                                    alt=""
+                                                    className="link-preview-image"
+                                                    onError={(e) => {
+                                                      e.target.style.display = 'none';
+                                                    }}
+                                                  />
+                                                )}
+                                                <div className="link-preview-body">
+                                                  {unfurlData[msg.id].siteName && (
+                                                    <span className="link-preview-site">
+                                                      {unfurlData[msg.id].favicon && (
+                                                        <img
+                                                          src={unfurlData[msg.id].favicon}
+                                                          alt=""
+                                                          style={{
+                                                            width: 12,
+                                                            height: 12,
+                                                            borderRadius: 2,
+                                                            marginRight: 4,
+                                                            verticalAlign: 'middle',
+                                                          }}
+                                                          onError={(e) => {
+                                                            e.target.style.display = 'none';
+                                                          }}
+                                                        />
+                                                      )}
+                                                      {unfurlData[msg.id].siteName}
+                                                    </span>
+                                                  )}
+                                                  {unfurlData[msg.id].title && (
+                                                    <span className="link-preview-title">
+                                                      {unfurlData[msg.id].title}
+                                                    </span>
+                                                  )}
+                                                  {unfurlData[msg.id].description && (
+                                                    <span className="link-preview-desc">
+                                                      {unfurlData[msg.id].description}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </a>
+                                            )}
+                                          </div>
+                                        )}
+                                      {msg.reactions && msg.reactions !== '{}' && (
+                                        <div
+                                          className="message-reactions"
+                                          style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}
+                                        >
+                                          {Object.entries(JSON.parse(msg.reactions || '{}')).map(
+                                            ([emoji, usersArr]) => (
+                                              <div
+                                                key={emoji}
+                                                onClick={() => handleReaction(msg.id, emoji)}
+                                                title={usersArr
+                                                  .map((u) => {
+                                                    const m = messages.find((mm) => mm.sender === u);
+                                                    return m && m.first_name
+                                                      ? `${m.first_name} ${m.last_name || ''}`.trim()
+                                                      : u;
+                                                  })
+                                                  .join(', ')}
+                                                style={{
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                  backgroundColor: usersArr.includes(username)
+                                                    ? 'var(--md-sys-color-primary-container)'
+                                                    : 'var(--md-sys-color-surface-variant)',
+                                                  color: usersArr.includes(username)
+                                                    ? 'var(--md-sys-color-on-primary-container)'
+                                                    : 'var(--md-sys-color-on-surface-variant)',
+                                                  padding: '2px 6px',
+                                                  borderRadius: '12px',
+                                                  fontSize: '0.8rem',
+                                                  cursor: 'pointer',
+                                                  border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`,
+                                                  userSelect: 'none',
+                                                }}
+                                              >
+                                                <span>{emoji}</span>
+                                                <span style={{ fontWeight: '600' }}>{usersArr.length}</span>
+                                              </div>
+                                            )
+                                          )}
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                  {showTimestampId === msg.id && msg.timestamp && (
+                                    <div
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        opacity: 0.7,
+                                        marginTop: '4px',
+                                        textAlign: isMe ? 'right' : 'left',
+                                        animation: 'fadeIn 0.2s ease-in',
+                                      }}
+                                    >
+                                      {new Date(msg.timestamp).toLocaleTimeString([], {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })}
                                     </div>
                                   )}
-                                </>
-                              )}
-                              {showTimestampId === msg.id && msg.timestamp && (
-                                <div
-                                  style={{
-                                    fontSize: '0.7rem',
-                                    opacity: 0.7,
-                                    marginTop: '4px',
-                                    textAlign: isMe ? 'right' : 'left',
-                                    animation: 'fadeIn 0.2s ease-in',
-                                  }}
-                                >
-                                  {new Date(msg.timestamp).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
                                 </div>
-                              )}
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
+                            {/* ── Threaded Replies ── */}
+                            {childrenMap[msg.id] &&
+                              childrenMap[msg.id].length > 0 &&
+                              (() => {
+                                const replies = childrenMap[msg.id];
+                                const isCollapsed = collapsedThreads[msg.id] !== false && replies.length >= 2;
+                                return (
+                                  <>
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '4px 16px 4px 56px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        color: 'var(--md-sys-color-primary)',
+                                        userSelect: 'none',
+                                      }}
+                                      onClick={() =>
+                                        setCollapsedThreads((prev) => ({
+                                          ...prev,
+                                          [msg.id]: isCollapsed ? false : true,
+                                        }))
+                                      }
+                                    >
+                                      <svg
+                                        width="12"
+                                        height="12"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        style={{
+                                          transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                          transition: 'transform 0.15s',
+                                        }}
+                                      >
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                      </svg>
+                                      {isCollapsed
+                                        ? `Show ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`
+                                        : `Hide ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+                                    </div>
+                                    {!isCollapsed &&
+                                      replies.map((reply) => {
+                                        const replyIsMe = reply.sender === username;
+                                        const replyParent = msgById[reply.reply_to];
+                                        const replyParentName = replyParent
+                                          ? replyParent.first_name
+                                            ? `${replyParent.first_name} ${replyParent.last_name || ''}`.trim()
+                                            : 'User'
+                                          : 'User';
+                                        return (
+                                          <div
+                                            key={reply.id}
+                                            id={`msg-${reply.id}`}
+                                            className={`message-wrapper ${replyIsMe ? 'me' : 'them'}`}
+                                            style={{ paddingLeft: '40px', position: 'relative' }}
+                                          >
+                                            {/* Thread connector line */}
+                                            <div
+                                              style={{
+                                                position: 'absolute',
+                                                left: '32px',
+                                                top: 0,
+                                                bottom: 0,
+                                                width: '2px',
+                                                background: 'var(--md-sys-color-outline-variant)',
+                                                borderRadius: '1px',
+                                              }}
+                                            />
+                                            {!replyIsMe &&
+                                              (reply.avatar ? (
+                                                <img
+                                                  loading="lazy"
+                                                  src={reply.avatar}
+                                                  style={{
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    borderRadius: '50%',
+                                                    objectFit: 'cover',
+                                                    flexShrink: 0,
+                                                  }}
+                                                  alt=""
+                                                />
+                                              ) : (
+                                                <div
+                                                  style={{
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                                    color: 'var(--md-sys-color-on-background)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 'bold',
+                                                    flexShrink: 0,
+                                                  }}
+                                                >
+                                                  {reply.first_name
+                                                    ? reply.first_name.charAt(0).toUpperCase()
+                                                    : reply.sender.charAt(0).toUpperCase()}
+                                                </div>
+                                              ))}
+                                            <div
+                                              className={`message ${replyIsMe ? 'sent' : 'received'}`}
+                                              onClick={() =>
+                                                setShowTimestampId(showTimestampId === reply.id ? null : reply.id)
+                                              }
+                                              style={{ cursor: 'pointer' }}
+                                            >
+                                              {!replyIsMe && (
+                                                <div className="sender-name">
+                                                  {reply.first_name
+                                                    ? `${reply.first_name} ${reply.last_name || ''}`.trim()
+                                                    : reply.sender}
+                                                </div>
+                                              )}
+                                              {/* Replying-to label */}
+                                              <div
+                                                style={{
+                                                  fontSize: '0.72rem',
+                                                  color: 'var(--md-sys-color-primary)',
+                                                  cursor: 'pointer',
+                                                  marginBottom: '2px',
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const el = document.getElementById(`msg-${reply.reply_to}`);
+                                                  if (el) {
+                                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                    el.style.transition = 'background 0.3s';
+                                                    el.style.background = 'var(--md-sys-color-primary-container)';
+                                                    setTimeout(() => {
+                                                      el.style.background = '';
+                                                    }, 1500);
+                                                  }
+                                                }}
+                                              >
+                                                <svg
+                                                  width="10"
+                                                  height="10"
+                                                  viewBox="0 0 24 24"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  strokeWidth="2.5"
+                                                  strokeLinecap="round"
+                                                  strokeLinejoin="round"
+                                                >
+                                                  <polyline points="9 14 4 9 9 4"></polyline>
+                                                  <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                                                </svg>
+                                                {replyParentName}
+                                              </div>
+                                              <div
+                                                className="message-content"
+                                                dangerouslySetInnerHTML={{
+                                                  __html: (() => {
+                                                    try {
+                                                      if (typeof window.decryptedCache === 'undefined')
+                                                        window.decryptedCache = {};
+                                                      if (window.decryptedCache[reply.id])
+                                                        return window.decryptedCache[reply.id];
+                                                      return reply.text || '';
+                                                    } catch {
+                                                      return reply.text || '';
+                                                    }
+                                                  })(),
+                                                }}
+                                              />
+                                              {reply.asset &&
+                                                (() => {
+                                                  const url = reply.asset.startsWith('/uploads')
+                                                    ? `${socketUrl}${reply.asset}`
+                                                    : reply.asset;
+                                                  if (reply.asset.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)/i))
+                                                    return (
+                                                      <img
+                                                        loading="lazy"
+                                                        src={url}
+                                                        alt=""
+                                                        style={{
+                                                          maxWidth: '100%',
+                                                          borderRadius: '8px',
+                                                          marginTop: '4px',
+                                                        }}
+                                                      />
+                                                    );
+                                                  if (reply.asset.match(/\.(mp4|webm|ogg|mov)/i))
+                                                    return (
+                                                      <video
+                                                        src={url}
+                                                        controls
+                                                        style={{
+                                                          maxWidth: '100%',
+                                                          borderRadius: '8px',
+                                                          marginTop: '4px',
+                                                        }}
+                                                      />
+                                                    );
+                                                  return null;
+                                                })()}
+                                              {/* Reply action bar */}
+                                              <div className="message-actions" style={{ display: 'flex', gap: '4px' }}>
+                                                <button
+                                                  onClick={() =>
+                                                    setReactingToMsgId(reactingToMsgId === reply.id ? null : reply.id)
+                                                  }
+                                                  title="React"
+                                                >
+                                                  <svg
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2"
+                                                  >
+                                                    <circle cx="12" cy="12" r="10"></circle>
+                                                    <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                                    <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                                    <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                                  </svg>
+                                                </button>
+                                                <button
+                                                  onClick={() => {
+                                                    setReplyingTo(reply);
+                                                    setTimeout(() => {
+                                                      const el2 = document.querySelector('.rich-input');
+                                                      if (el2) el2.focus();
+                                                    }, 50);
+                                                  }}
+                                                  title="Reply"
+                                                >
+                                                  <svg
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                  >
+                                                    <polyline points="9 14 4 9 9 4"></polyline>
+                                                    <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                              {showTimestampId === reply.id && reply.timestamp && (
+                                                <div
+                                                  style={{
+                                                    fontSize: '0.7rem',
+                                                    opacity: 0.7,
+                                                    marginTop: '4px',
+                                                    textAlign: replyIsMe ? 'right' : 'left',
+                                                    animation: 'fadeIn 0.2s ease-in',
+                                                  }}
+                                                >
+                                                  {new Date(reply.timestamp).toLocaleTimeString([], {
+                                                    hour: '2-digit',
+                                                    minute: '2-digit',
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </>
+                                );
+                              })()}
+                          </React.Fragment>
+                        );
+                      });
+                  })()}
                   {typingUsers
                     .filter((u) => Number(u.spaceId) === Number(currentSpace.id))
                     .map((typer) => (
@@ -11922,6 +12283,90 @@ function App() {
                 )}
 
                 <div style={{ position: 'relative' }}>
+                  {/* Reply Preview Banner */}
+                  {replyingTo && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        background: 'var(--md-sys-color-surface-variant)',
+                        borderLeft: '3px solid var(--md-sys-color-primary)',
+                        borderRadius: '8px 8px 0 0',
+                        gap: '8px',
+                        fontSize: '0.82rem',
+                      }}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-primary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <polyline points="9 14 4 9 9 4"></polyline>
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                      </svg>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: 'var(--md-sys-color-primary)',
+                            fontSize: '0.75rem',
+                            marginBottom: '1px',
+                          }}
+                        >
+                          Replying to{' '}
+                          {replyingTo.first_name
+                            ? `${replyingTo.first_name} ${replyingTo.last_name || ''}`.trim()
+                            : 'User'}
+                        </div>
+                        <div
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          {replyingTo.text && replyingTo.text.length > 80
+                            ? replyingTo.text.substring(0, 80) + '…'
+                            : replyingTo.text || (replyingTo.asset ? '📎 Attachment' : '')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setReplyingTo(null)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          color: 'var(--md-sys-color-on-surface-variant)',
+                          flexShrink: 0,
+                        }}
+                        title="Cancel reply"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   {isUploadingMedia && (
                     <div
                       className="asset-preview"
