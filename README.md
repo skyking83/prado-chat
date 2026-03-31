@@ -70,6 +70,8 @@ Installable as a native app on iOS, Android, macOS, and Windows:
 - Home screen shortcuts for quick access
 
 ### 🎨 Customizable Theming & Typography
+- **Dynamic App Name**: set your own app name via Admin Panel → Branding (shown on login, sidebar, loading screen)
+- **Custom Logo Upload**: upload a custom logo image in Admin Panel → Branding (replaces default icon everywhere)
 - Dynamically switchable UI accent colors
 - 1,500+ Google Fonts natively integrated
 - Real-time UI Scaling slider with continuous CSS `rem` ratio adjustments
@@ -180,7 +182,7 @@ All settings auto-save on blur/change with a visual "Saving…/Saved" indicator.
 | Section | Settings |
 |---------|----------|
 | **Registration** | Registration mode (open/closed), email verification toggle, domain whitelist |
-| **Branding** | App name, default theme (dark/light), accent color (circular color picker) |
+| **Branding** | App name (dynamic, shown everywhere), custom logo upload with preview, default theme (dark/light), accent color (circular color picker) |
 | **Uploads** | Max upload size (MB) — enforced server-side by multer middleware |
 | **Maintenance** | Maintenance mode toggle + custom message (non-admin users see a branded maintenance screen) |
 | **API Keys** | Generate/revoke API keys with read/write scopes, stored as SHA-256 hashes |
