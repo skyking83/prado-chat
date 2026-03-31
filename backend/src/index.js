@@ -426,11 +426,30 @@ const getConfig = (key, fallback = null) => new Promise((resolve) => {
 
 // Public config (non-admin, for login page)
 app.get('/api/config/public', (req, res) => {
-  db.all('SELECT key, value FROM config WHERE key IN ("app_name", "registration_mode", "maintenance_mode", "maintenance_message", "default_theme", "default_accent_color")', [], (err, rows) => {
+  db.all('SELECT key, value FROM config WHERE key IN ("app_name", "registration_mode", "maintenance_mode", "maintenance_message", "default_theme", "default_accent_color", "custom_logo")', [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     const config = {};
     rows.forEach(r => { config[r.key] = r.value; });
     res.json(config);
+  });
+});
+
+// Logo upload endpoint (admin only)
+app.post('/api/config/logo', authenticateToken, upload.single('logo'), (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  
+  const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
+  const newName = `custom_logo${ext}`;
+  const newPath = path.join(UPLOADS_DIR, newName);
+  
+  // Remove old logo if exists
+  try { fs.renameSync(req.file.path, newPath); } catch(e) { /* ignore */ }
+  
+  const logoUrl = `/uploads/${newName}`;
+  db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['custom_logo', logoUrl], (err) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json({ logo: logoUrl });
   });
 });
 

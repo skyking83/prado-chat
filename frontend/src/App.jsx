@@ -1991,6 +1991,34 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     Branding
                   </div>
                   {inputRow('App Name', 'app_name', 'text', { placeholder: 'Prado Chat' })}
+                  {/* Custom Logo Upload */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>Custom Logo</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>PNG, JPG, or SVG. Replaces default icon.</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <img src={appLogo || '/icon.png'} alt="Logo preview" style={{ width: 36, height: 36, borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--md-sys-color-outline-variant)' }} />
+                      <label style={{ padding: '6px 14px', borderRadius: '20px', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                        Upload
+                        <input type="file" accept="image/*" hidden onChange={async (e) => {
+                          const file = e.target.files[0]; if (!file) return;
+                          const fd = new FormData(); fd.append('logo', file);
+                          try {
+                            const res = await fetch(`${socketUrl}/api/config/logo`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd });
+                            const data = await res.json();
+                            if (data.logo) setAppLogo(data.logo + '?t=' + Date.now());
+                          } catch(err) { console.error('Logo upload failed', err); }
+                        }} />
+                      </label>
+                      {appLogo && (
+                        <button onClick={async () => {
+                          await fetch(`${socketUrl}/api/admin/config`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ key: 'custom_logo', value: '' }) });
+                          setAppLogo(null);
+                        }} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-error)', cursor: 'pointer', fontSize: '0.75rem' }}>Remove</button>
+                      )}
+                    </div>
+                  </div>
                   {inputRow('Default Theme', 'default_theme', 'select', { options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], description: 'Theme applied to new users on first login' })}
                   {inputRow('Default Accent Color', 'default_accent_color', 'color')}
                 </div>
@@ -2634,6 +2662,18 @@ function App() {
   const ringCountdownRef = useRef(null);
   const [globalFont, setGlobalFont] = useState('Roboto');
   const [uiScale, setUiScale] = useState(() => parseFloat(localStorage.getItem('uiScale')) || 1.0);
+  const [appName, setAppName] = useState('Prado Chat');
+  const [appLogo, setAppLogo] = useState(null); // null = use default /icon.png
+
+  // Fetch public config (app name, logo) on mount
+  useEffect(() => {
+    fetch(`${socketUrl}/api/config/public`)
+      .then(res => res.json())
+      .then(cfg => {
+        if (cfg.app_name) setAppName(cfg.app_name);
+        if (cfg.custom_logo) setAppLogo(cfg.custom_logo);
+      }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${16 * uiScale}px`;
@@ -4427,8 +4467,8 @@ function App() {
     return (
       <div className="auth-wrapper" data-theme={theme} style={dynamicStyles}>
         <div className="auth-card">
-          <img src="/icon.png" alt="Logo" style={{ width: '80px', height: '80px', marginBottom: '1rem', borderRadius: '16px' }} />
-          <h1>Prado Chat</h1>
+          <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '80px', height: '80px', marginBottom: '1rem', borderRadius: '16px' }} />
+          <h1>{appName}</h1>
           <form onSubmit={handleAuth}>
             <div className="input-group">
               {(authMode === 'login' || authMode === 'register' || authMode === 'forgot') && (
@@ -4530,7 +4570,7 @@ function App() {
         <div className="auth-wrapper" data-theme={theme} style={dynamicStyles}>
           <div className="auth-card" style={{ maxWidth: '500px', width: '100%', padding: '2rem' }}>
             <img src="/icon.png" alt="Logo" style={{ width: '64px', height: '64px', marginBottom: '1rem', borderRadius: '12px' }} />
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Welcome to Prado Chat</h2>
+            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Welcome to {appName}</h2>
             <p style={{ color: 'var(--md-sys-color-outline)', marginBottom: '2rem' }}>Let's set up your new profile before you join.</p>
             <form onSubmit={async (e) => {
               e.preventDefault();
@@ -4587,8 +4627,8 @@ function App() {
       {/* Universal Top App Bar */}
       <div className="top-app-bar">
          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <img src="/icon.png" alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
-            <h1 style={{ fontSize: '1.25rem', margin: 0, fontWeight: '500', color: 'var(--md-sys-color-on-surface)', letterSpacing: '0.15px' }}>Prado Chat</h1>
+            <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
+            <h1 style={{ fontSize: '1.25rem', margin: 0, fontWeight: '500', color: 'var(--md-sys-color-on-surface)', letterSpacing: '0.15px' }}>{appName}</h1>
          </div>
          
          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -5847,8 +5887,8 @@ function App() {
       )}
       {!appReady && (
         <div className={`loading-screen ${appReady ? 'fade-out' : ''}`}>
-          <img src="/icon.png" alt="Logo" style={{ width: '120px', height: '120px', marginBottom: '2rem', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }} />
-          <div className="loading-logo">Prado Chat</div>
+          <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '120px', height: '120px', marginBottom: '2rem', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }} />
+          <div className="loading-logo">{appName}</div>
           <div className="spinner"></div>
           <div style={{ marginTop: '1rem', color: 'var(--md-sys-color-outline)', fontSize: '0.9rem' }}>
             {isConnected ? 'Syncing your data...' : 'Connecting to server...'}
