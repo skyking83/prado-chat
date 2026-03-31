@@ -654,7 +654,7 @@ const useWeather = (location) => {
   return weather;
 };
 
-const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset }) => {
+const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset, appLogo, setAppLogo }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -5905,6 +5905,8 @@ function App() {
           globalFont={globalFont}
           currentUserId={profileData.id}
           onSelfUpdate={() => fetchProfile()}
+          appLogo={appLogo}
+          setAppLogo={setAppLogo}
           onPreviewAsset={(asset) => setSelectedAsset(
             asset.file.startsWith('http') ? asset.file :
             asset.file.startsWith('/uploads/') ? `${socketUrl}${asset.file}` :
