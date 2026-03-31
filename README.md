@@ -135,10 +135,14 @@ Prado Chat includes a complete, browser-native video conferencing system — no 
 - Built-in **connectivity test** in admin panel — verifies Host, STUN (srflx), and TURN (relay) candidates
 - Enables reliable connections behind symmetric NATs / corporate firewalls
 
-### Incoming Call Flow
-- Animated ringing banner with caller info
-- One-click Accept / Dismiss actions
-- Separate "Video Call" and "Audio Only" call initiation buttons in the chat header
+### Call Invite & Ringing
+- **Invite-to-Call Modal**: click Video or Audio call button to open a user picker showing all users with avatars, display names, and live online/offline status
+- **Targeted Ringing**: select specific users to ring with "Ring All" toggle, "Ring & Join" or "Join Quietly" options
+- **Push Notifications**: offline users receive push notifications with caller name and call type
+- **Mid-Call Invites**: invite additional participants from within an active call via the user-plus button in the controls bar
+- **Persistent Ringing Banner**: incoming call banner with caller avatar, space name, call type, and 30-second countdown timer
+- **Web Audio Ringtone**: two-tone ring pattern (440Hz + 480Hz) via Web Audio API oscillators, auto-stops on dismiss/accept/timeout
+- **Dual Accept Options**: accept as Video or Audio Only directly from the ringing banner
 
 ### Browser Compatibility
 - `canScreenShare` / `canFullscreen` capability detection
@@ -180,11 +184,11 @@ All settings auto-save on blur/change with a visual "Saving…/Saved" indicator.
 | **Uploads** | Max upload size (MB) — enforced server-side by multer middleware |
 | **Maintenance** | Maintenance mode toggle + custom message (non-admin users see a branded maintenance screen) |
 | **API Keys** | Generate/revoke API keys with read/write scopes, stored as SHA-256 hashes |
-| **Email Provider** | Resend API key, from address, test email delivery with inline status |
-| **TURN/STUN** | TURN server URL, username, credential, STUN server URL, **connectivity test button** |
-| **Giphy** | Giphy API key for GIF search integration |
+| **Email Provider** | Resend API key (DB-stored, not env var), from address, test email delivery with inline status |
+| **TURN/STUN** | TURN server URL, username, credential, STUN server URL, **connectivity test button** with Host/STUN/TURN candidate discovery |
+| **Giphy** | Giphy API key (DB-stored, not env var) for GIF search integration |
 
-> **Note**: Resend and Giphy API keys are managed entirely from the admin panel — no environment variables needed.
+> **Note**: All sensitive API keys (Resend, Giphy) and TURN/STUN credentials are managed entirely from the Admin Panel → Config tab and stored in the SQLite database — no environment variables needed. Coturn runs as a stateless Docker service using inline CLI arguments.
 
 ### 🔍 Environment Overview
 - System diagnostics: Node.js version, platform, hostname, CPU count, memory, uptime
