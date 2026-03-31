@@ -32,9 +32,10 @@ Completely invisible encryption — no passkey prompts, no lock icons, no "[Encr
 
 ### 💬 Real-Time Communication
 Instant messaging powered by ultra-low-latency WebSockets via `Socket.io` with resilient reconnection handling, real-time typing indicators, and online/offline presence detection.
-- **Message Search**: `Ctrl+F` or search icon opens slide-down search bar in chat header. Client-side full-text search with highlighted results, result counter, and jump-to-message navigation
+- **Message Search**: `Ctrl+F` or search icon opens slide-down search bar in chat header. Client-side full-text search with highlighted results, result counter, and jump-to-message navigation. Separate global search across all spaces
 - **Voice Messages**: Mic button (appears when input is empty) records audio via MediaRecorder API (`audio/webm;codecs=opus`). Inline waveform player with play/pause toggle and progress bar
 - **@Mentions & Alerts**: Type `@` for auto-complete user dropdown. Mentioned users receive a 2-note audio chime + orange sidebar notification dot. Push notifications include "mentioned you" alerts
+- **URL Link Previews**: Automatic Open Graph unfurling for shared URLs — shows title, description, thumbnail, and favicon in a collapsible card. 17+ oEmbed providers (YouTube, Spotify, TikTok, Reddit, Vimeo, Twitter/X, etc.) with YouTube channel/Music fallback. Detects bare domains without `http://` prefix. Toggle state persisted in localStorage
 
 ### 🏢 Dynamic Workspaces ("Spaces")
 Create public channels for everyone or secure, lock-protected private spaces. Built-in **Notes to Self** personal space with deletion protection. Direct messages with per-user DM channels.
