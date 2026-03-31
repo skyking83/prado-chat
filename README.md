@@ -241,12 +241,9 @@ cd prado-chat
 ```
 
 ### 2. Configure your Environment
-Create a `.env` file in the project root:
-```env
-JWT_SECRET=super_secret_key_change_me
-```
+The only required environment variables are `JWT_SECRET`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` — these are set directly in `docker-compose.yml`. No `.env` file is needed.
 
-> **API keys (Resend, Giphy) and TURN/STUN settings** are configured via the Admin Panel → Config tab after first login. No environment variables needed.
+> **All other configuration** (Resend API key, Giphy API key, TURN/STUN credentials, branding, etc.) is managed from the **Admin Panel → Config** tab after first login.
 
 ### 3. Spin up the stack
 ```bash
@@ -258,10 +255,10 @@ Open your browser and navigate to `http://localhost:30099`.
 
 ### 5. First-Time Setup
 1. Register your admin account (first user gets `admin` role automatically)
-2. Open **Admin Panel → Config** to configure:
-   - **Email Provider**: Add your Resend API key for email verification
-   - **Giphy**: Add your Giphy API key for GIF search
-   - **TURN/STUN**: Configure your TURN relay for NAT traversal (optional but recommended)
+2. Open **Admin Panel → Config** to set up:
+   - **Email Provider**: Resend API key for email verification
+   - **Giphy**: Giphy API key for GIF search
+   - **TURN/STUN**: TURN relay credentials for NAT traversal (optional but recommended)
 
 > **TrueNAS / NAS Users**: The `docker-compose.yml` includes bind mounts to `/mnt/pool1/app_data/` for persistent data that survives container rebuilds. Adjust the paths to match your storage pool.
 
