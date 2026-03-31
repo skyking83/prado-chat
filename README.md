@@ -32,6 +32,9 @@ Completely invisible encryption — no passkey prompts, no lock icons, no "[Encr
 
 ### 💬 Real-Time Communication
 Instant messaging powered by ultra-low-latency WebSockets via `Socket.io` with resilient reconnection handling, real-time typing indicators, and online/offline presence detection.
+- **Message Search**: `Ctrl+F` or search icon opens slide-down search bar in chat header. Client-side full-text search with highlighted results, result counter, and jump-to-message navigation
+- **Voice Messages**: Mic button (appears when input is empty) records audio via MediaRecorder API (`audio/webm;codecs=opus`). Inline waveform player with play/pause toggle and progress bar
+- **@Mentions & Alerts**: Type `@` for auto-complete user dropdown. Mentioned users receive a 2-note audio chime + orange sidebar notification dot. Push notifications include "mentioned you" alerts
 
 ### 🏢 Dynamic Workspaces ("Spaces")
 Create public channels for everyone or secure, lock-protected private spaces. Built-in **Notes to Self** personal space with deletion protection. Direct messages with per-user DM channels.
@@ -88,6 +91,7 @@ Installable as a native app on iOS, Android, macOS, and Windows:
 | Shortcut | Action |
 |----------|--------|
 | `Escape` | Close topmost modal/panel |
+| `Ctrl+F` | Search messages in current space |
 | `Ctrl+K` | Focus chat input |
 | `Ctrl+Shift+S` | New space modal |
 | `Ctrl+Shift+D` | New DM modal |

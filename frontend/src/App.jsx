@@ -1,17 +1,27 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { io } from 'socket.io-client'
-import Cropper from 'react-easy-crop'
-import EmojiPicker from 'emoji-picker-react'
-import VideoRoom from './VideoRoom'
-import { googleFonts } from './googleFontsList'
-import { 
-  generateIdentityKeyPair, exportPublicKey, wrapPrivateKey, unwrapPrivateKey, 
-  generateRoomKey, exportRoomKeyRaw, encryptRoomKeyWithPublicKey, decryptRoomKeyWithPrivateKey, 
-  encryptMessage, decryptMessage, importPrivateKey,
-  syncPrivateKeyToIDB, syncRoomKeyToIDB, purgeCryptoIDB
-} from './crypto'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { io } from 'socket.io-client';
+import Cropper from 'react-easy-crop';
+import EmojiPicker from 'emoji-picker-react';
+import VideoRoom from './VideoRoom';
+import { googleFonts } from './googleFontsList';
+import {
+  generateIdentityKeyPair,
+  exportPublicKey,
+  wrapPrivateKey,
+  unwrapPrivateKey,
+  generateRoomKey,
+  exportRoomKeyRaw,
+  encryptRoomKeyWithPublicKey,
+  decryptRoomKeyWithPrivateKey,
+  encryptMessage,
+  decryptMessage,
+  importPrivateKey,
+  syncPrivateKeyToIDB,
+  syncRoomKeyToIDB,
+  purgeCryptoIDB,
+} from './crypto';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 const devDomain = window.location.hostname;
 const socketUrl = import.meta.env.MODE === 'production' ? '' : `http://${devDomain}:3001`;
@@ -24,10 +34,12 @@ async function escrowRoomKey(spaceId, aesKey, token, socketUrl) {
     const rawKeyBase64 = await exportRoomKeyRaw(aesKey);
     await fetch(`${socketUrl}/api/spaces/${spaceId}/escrow-key`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ rawKeyBase64 })
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rawKeyBase64 }),
     });
-  } catch (e) { console.error('[E2EE] Escrow upload failed:', e); }
+  } catch (e) {
+    console.error('[E2EE] Escrow upload failed:', e);
+  }
 }
 
 async function tryDecryptMsg(text, aesKey) {
@@ -62,8 +74,8 @@ function hexToRgb(hex) {
 
 // Configure marked for chat-style rendering
 marked.setOptions({
-  breaks: true,        // Convert \n to <br>
-  gfm: true,           // GitHub Flavored Markdown (tables, strikethrough, etc.)
+  breaks: true, // Convert \n to <br>
+  gfm: true, // GitHub Flavored Markdown (tables, strikethrough, etc.)
 });
 
 // Custom renderer to open links in new tabs
@@ -78,10 +90,16 @@ const renderMarkdown = (text) => {
   const rawHtml = marked.parse(text, { renderer });
   // Strip wrapping <p> tags for single-line messages to keep chat bubbles compact
   const trimmed = rawHtml.trim();
-  const unwrapped = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') && trimmed.indexOf('<p>', 1) === -1
-    ? trimmed.slice(3, -4)
-    : trimmed;
-  return DOMPurify.sanitize(unwrapped, { ADD_ATTR: ['target'] });
+  const unwrapped =
+    trimmed.startsWith('<p>') && trimmed.endsWith('</p>') && trimmed.indexOf('<p>', 1) === -1
+      ? trimmed.slice(3, -4)
+      : trimmed;
+  // Highlight @mentions
+  const withMentions = DOMPurify.sanitize(unwrapped, { ADD_ATTR: ['target'] }).replace(
+    /@([\w][\w\s]*?)(?=[\s,.:;!?<]|$)/g,
+    '<span class="mention-highlight">@$1</span>'
+  );
+  return withMentions;
 };
 
 // ─── ContentEditable Helpers ────────────────────────────────
@@ -176,9 +194,10 @@ const processAllMarkdownInNode = (el) => {
     changed = false;
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let node;
-    while (node = walker.nextNode()) {
+    while ((node = walker.nextNode())) {
       // Skip nodes inside already-formatted elements
-      if (node.parentNode !== el && ['STRONG','B','EM','I','DEL','S','CODE'].includes(node.parentNode.tagName)) continue;
+      if (node.parentNode !== el && ['STRONG', 'B', 'EM', 'I', 'DEL', 'S', 'CODE'].includes(node.parentNode.tagName))
+        continue;
       const text = node.textContent;
       for (const { re, tag } of patterns) {
         const m = text.match(re);
@@ -204,10 +223,8 @@ const processAllMarkdownInNode = (el) => {
 };
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
-    .replace(/_/g, '/');
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
 
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
@@ -276,8 +293,15 @@ const AvatarCropper = ({ image, onComplete, onCancel }) => {
             className="zoom-range"
           />
           <div className="cropper-btns">
-            <button onClick={onCancel} className="btn-secondary">Cancel</button>
-            <button onClick={async () => onComplete(await getCroppedImg(image, croppedAreaPixels))} className="btn-primary">Save Avatar</button>
+            <button onClick={onCancel} className="btn-secondary">
+              Cancel
+            </button>
+            <button
+              onClick={async () => onComplete(await getCroppedImg(image, croppedAreaPixels))}
+              className="btn-primary"
+            >
+              Save Avatar
+            </button>
           </div>
         </div>
       </div>
@@ -292,15 +316,7 @@ const VideoMessage = ({ src }) => {
   const fullSrc = src.startsWith('/uploads/') ? `${socketUrl}${src}` : src;
 
   if (isPlaying) {
-    return (
-      <video
-        src={fullSrc}
-        className="video-player"
-        controls
-        autoPlay
-        playsInline
-      />
-    );
+    return <video src={fullSrc} className="video-player" controls autoPlay playsInline />;
   }
 
   return (
@@ -318,15 +334,30 @@ const VideoMessage = ({ src }) => {
 // Location → Timezone inference map (keyword → IANA timezone)
 const LOCATION_TZ_MAP = [
   [/new\s*york|nyc|manhattan|brooklyn|queens|bronx/i, 'America/New_York'],
-  [/boston|philadelphia|philly|washington\s*d\.?c|atlanta|miami|charlotte|pittsburgh|detroit|cleveland|columbus.*ohio|indianapolis|virginia|maryland|georgia|florida|carolina|jersey|connecticut|massachusetts|maine|vermont|rhode|delaware|tennessee|kentucky|ohio|michigan|pennsylvania/i, 'America/New_York'],
-  [/chicago|houston|dallas|san\s*antonio|austin|fort\s*worth|memphis|nashville|milwaukee|oklahoma|kansas\s*city|minneapolis|st\.?\s*louis|new\s*orleans|omaha|tulsa|wichita|iowa|texas|illinois|minnesota|wisconsin|missouri|louisiana|arkansas|mississippi|alabama|nebraska|north\s*dakota|south\s*dakota/i, 'America/Chicago'],
-  [/denver|salt\s*lake|boise|albuquerque|colorado|montana|wyoming|utah|new\s*mexico|idaho|el\s*paso/i, 'America/Denver'],
-  [/los\s*angeles|san\s*francisco|seattle|portland|san\s*diego|sacramento|las\s*vegas|california|oregon|washington\s*state|nevada|reno/i, 'America/Los_Angeles'],
+  [
+    /boston|philadelphia|philly|washington\s*d\.?c|atlanta|miami|charlotte|pittsburgh|detroit|cleveland|columbus.*ohio|indianapolis|virginia|maryland|georgia|florida|carolina|jersey|connecticut|massachusetts|maine|vermont|rhode|delaware|tennessee|kentucky|ohio|michigan|pennsylvania/i,
+    'America/New_York',
+  ],
+  [
+    /chicago|houston|dallas|san\s*antonio|austin|fort\s*worth|memphis|nashville|milwaukee|oklahoma|kansas\s*city|minneapolis|st\.?\s*louis|new\s*orleans|omaha|tulsa|wichita|iowa|texas|illinois|minnesota|wisconsin|missouri|louisiana|arkansas|mississippi|alabama|nebraska|north\s*dakota|south\s*dakota/i,
+    'America/Chicago',
+  ],
+  [
+    /denver|salt\s*lake|boise|albuquerque|colorado|montana|wyoming|utah|new\s*mexico|idaho|el\s*paso/i,
+    'America/Denver',
+  ],
+  [
+    /los\s*angeles|san\s*francisco|seattle|portland|san\s*diego|sacramento|las\s*vegas|california|oregon|washington\s*state|nevada|reno/i,
+    'America/Los_Angeles',
+  ],
   [/phoenix|arizona|scottsdale|tucson|tempe|mesa/i, 'America/Phoenix'],
   [/anchorage|alaska|fairbanks|juneau/i, 'America/Anchorage'],
   [/honolulu|hawaii|maui/i, 'Pacific/Honolulu'],
   [/toronto|montreal|ottawa|quebec|ontario|vancouver|calgary|edmonton|winnipeg/i, 'America/Toronto'],
-  [/london|manchester|birmingham|liverpool|edinburgh|glasgow|bristol|leeds|united\s*kingdom|england|scotland|wales|britain/i, 'Europe/London'],
+  [
+    /london|manchester|birmingham|liverpool|edinburgh|glasgow|bristol|leeds|united\s*kingdom|england|scotland|wales|britain/i,
+    'Europe/London',
+  ],
   [/paris|lyon|marseille|toulouse|france/i, 'Europe/Paris'],
   [/berlin|munich|hamburg|frankfurt|cologne|germany|deutschland/i, 'Europe/Berlin'],
   [/madrid|barcelona|valencia|seville|spain/i, 'Europe/Madrid'],
@@ -362,22 +393,67 @@ const inferTimezone = (location) => {
 // Status icons — all SVG, theme-aware via currentColor
 const STATUS_ICONS = [
   { id: 'available', label: 'Available', color: '#4CAF50', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/>' },
-  { id: 'busy', label: 'Busy', color: '#f44336', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><line x1="9" y1="9" x2="15" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/>' },
-  { id: 'away', label: 'Away', color: '#FF9800', svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="var(--md-sys-color-surface)"/>' },
-  { id: 'meeting', label: 'In a Meeting', svg: '<rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="16" y2="20" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="12" y2="20" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'headphones', label: 'Listening', svg: '<path d="M3 18v-6a9 9 0 0 1 18 0v6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" fill="none" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'home', label: 'Working from Home', svg: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'travel', label: 'Traveling', svg: '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.4-.1.9.3 1.1L11 12l-2 3H6l-2 2 4-1 4-1 2-2 4.3 7.3c.2.4.7.5 1.1.3l.5-.3c.4-.2.5-.7.3-1.1z" fill="none" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'dnd', label: 'Do Not Disturb', svg: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.73 21a2 2 0 0 1-3.46 0" fill="none" stroke="currentColor" stroke-width="2"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'coffee', label: 'On a Break', svg: '<path d="M18 8h1a4 4 0 0 1 0 8h-1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" fill="none" stroke="currentColor" stroke-width="2"/><line x1="6" y1="1" x2="6" y2="4" stroke="currentColor" stroke-width="2"/><line x1="10" y1="1" x2="10" y2="4" stroke="currentColor" stroke-width="2"/><line x1="14" y1="1" x2="14" y2="4" stroke="currentColor" stroke-width="2"/>' },
-  { id: 'none', label: 'Reset to Available', svg: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>' },
+  {
+    id: 'busy',
+    label: 'Busy',
+    color: '#f44336',
+    svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><line x1="9" y1="9" x2="15" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="var(--md-sys-color-surface)" stroke-width="2"/>',
+  },
+  {
+    id: 'away',
+    label: 'Away',
+    color: '#FF9800',
+    svg: '<circle cx="12" cy="12" r="6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="var(--md-sys-color-surface)"/>',
+  },
+  {
+    id: 'meeting',
+    label: 'In a Meeting',
+    svg: '<rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="16" y2="20" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="12" y2="20" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'headphones',
+    label: 'Listening',
+    svg: '<path d="M3 18v-6a9 9 0 0 1 18 0v6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" fill="none" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'home',
+    label: 'Working from Home',
+    svg: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'travel',
+    label: 'Traveling',
+    svg: '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.4-.1.9.3 1.1L11 12l-2 3H6l-2 2 4-1 4-1 2-2 4.3 7.3c.2.4.7.5 1.1.3l.5-.3c.4-.2.5-.7.3-1.1z" fill="none" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'dnd',
+    label: 'Do Not Disturb',
+    svg: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.73 21a2 2 0 0 1-3.46 0" fill="none" stroke="currentColor" stroke-width="2"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'coffee',
+    label: 'On a Break',
+    svg: '<path d="M18 8h1a4 4 0 0 1 0 8h-1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" fill="none" stroke="currentColor" stroke-width="2"/><line x1="6" y1="1" x2="6" y2="4" stroke="currentColor" stroke-width="2"/><line x1="10" y1="1" x2="10" y2="4" stroke="currentColor" stroke-width="2"/><line x1="14" y1="1" x2="14" y2="4" stroke="currentColor" stroke-width="2"/>',
+  },
+  {
+    id: 'none',
+    label: 'Reset to Available',
+    svg: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>',
+  },
 ];
 
 const StatusIcon = ({ statusId, size = 16, style = {} }) => {
-  const icon = STATUS_ICONS.find(s => s.id === statusId);
+  const icon = STATUS_ICONS.find((s) => s.id === statusId);
   if (!icon) return null;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: icon.color || 'currentColor', ...style }} dangerouslySetInnerHTML={{ __html: icon.svg }} />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      style={{ flexShrink: 0, color: icon.color || 'currentColor', ...style }}
+      dangerouslySetInnerHTML={{ __html: icon.svg }}
+    />
   );
 };
 
@@ -387,22 +463,31 @@ const ProfileHoverCard = ({ userData, isSelf, profileData, avatar, children }) =
   const containerRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  const data = isSelf ? {
-    first_name: profileData?.first_name,
-    last_name: profileData?.last_name,
-    username: profileData?.username || '',
-    avatar: avatar,
-    status_emoji: profileData?.status_emoji,
-    status_text: profileData?.status_text,
-    bio: profileData?.bio,
-    timezone: profileData?.timezone,
-  } : userData;
+  const data = isSelf
+    ? {
+        first_name: profileData?.first_name,
+        last_name: profileData?.last_name,
+        username: profileData?.username || '',
+        avatar: avatar,
+        status_emoji: profileData?.status_emoji,
+        status_text: profileData?.status_text,
+        bio: profileData?.bio,
+        timezone: profileData?.timezone,
+      }
+    : userData;
 
   if (!data) return children;
 
-  const displayName = data.first_name ? `${data.first_name} ${data.last_name || ''}`.trim() : (data.username || '');
-  const statusDef = STATUS_ICONS.find(s => s.id === data.status_emoji);
-  const localTime = data.timezone ? new Date().toLocaleTimeString('en-US', { timeZone: data.timezone, hour: 'numeric', minute: '2-digit', hour12: true }) : null;
+  const displayName = data.first_name ? `${data.first_name} ${data.last_name || ''}`.trim() : data.username || '';
+  const statusDef = STATUS_ICONS.find((s) => s.id === data.status_emoji);
+  const localTime = data.timezone
+    ? new Date().toLocaleTimeString('en-US', {
+        timeZone: data.timezone,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : null;
 
   const handleEnter = () => {
     timeoutRef.current = setTimeout(() => {
@@ -419,52 +504,152 @@ const ProfileHoverCard = ({ userData, isSelf, profileData, avatar, children }) =
   };
 
   return (
-    <div ref={containerRef} onMouseEnter={handleEnter} onMouseLeave={handleLeave} style={{ position: 'relative', display: 'inline-flex' }}>
+    <div
+      ref={containerRef}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      style={{ position: 'relative', display: 'inline-flex' }}
+    >
       {children}
       {show && (
-        <div style={{
-          position: 'absolute', left: 'calc(100% + 8px)',
-          [pos === 'above' ? 'bottom' : 'top']: '-8px',
-          width: '220px', zIndex: 9999, pointerEvents: 'none',
-          background: 'var(--md-sys-color-surface-container-high)',
-          borderRadius: '14px', padding: '14px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.15)',
-          border: '1px solid var(--md-sys-color-outline-variant)',
-          animation: 'fadeIn 0.15s ease-out'
-        }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: 'calc(100% + 8px)',
+            [pos === 'above' ? 'bottom' : 'top']: '-8px',
+            width: '220px',
+            zIndex: 9999,
+            pointerEvents: 'none',
+            background: 'var(--md-sys-color-surface-container-high)',
+            borderRadius: '14px',
+            padding: '14px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.15)',
+            border: '1px solid var(--md-sys-color-outline-variant)',
+            animation: 'fadeIn 0.15s ease-out',
+          }}
+        >
           {/* Avatar + Name */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
             {data.avatar ? (
-              <img src={data.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--md-sys-color-primary)', flexShrink: 0 }} alt="" />
+              <img
+                src={data.avatar}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  border: '2px solid var(--md-sys-color-primary)',
+                  flexShrink: 0,
+                }}
+                alt=""
+              />
             ) : (
-              <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', fontWeight: 'bold', flexShrink: 0 }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--md-sys-color-primary)',
+                  color: 'var(--md-sys-color-on-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.95rem',
+                  fontWeight: 'bold',
+                  flexShrink: 0,
+                }}
+              >
                 {displayName.charAt(0).toUpperCase()}
               </div>
             )}
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--md-sys-color-on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-              {data.username && <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginTop: '1px' }}>@{data.username}</div>}
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: '0.88rem',
+                  color: 'var(--md-sys-color-on-surface)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {displayName}
+              </div>
+              {data.username && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginTop: '1px' }}>
+                  {data.email || ''}
+                </div>
+              )}
             </div>
           </div>
           {/* Status */}
           {statusDef && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: data.bio || localTime ? '8px' : 0, padding: '6px 8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginBottom: data.bio || localTime ? '8px' : 0,
+                padding: '6px 8px',
+                borderRadius: '8px',
+                background: 'var(--md-sys-color-surface-variant)',
+              }}
+            >
               <StatusIcon statusId={data.status_emoji} size={14} />
-              <span style={{ fontSize: '0.78rem', color: 'var(--md-sys-color-on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span
+                style={{
+                  fontSize: '0.78rem',
+                  color: 'var(--md-sys-color-on-surface-variant)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {data.status_text || statusDef.label}
               </span>
             </div>
           )}
           {/* Bio */}
           {data.bio && (
-            <div style={{ fontSize: '0.76rem', color: 'var(--md-sys-color-on-surface-variant)', lineHeight: 1.4, marginBottom: localTime ? '8px' : 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+            <div
+              style={{
+                fontSize: '0.76rem',
+                color: 'var(--md-sys-color-on-surface-variant)',
+                lineHeight: 1.4,
+                marginBottom: localTime ? '8px' : 0,
+                overflow: 'hidden',
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+              }}
+            >
               {data.bio}
             </div>
           )}
           {/* Timezone / Local time */}
           {localTime && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '0.72rem',
+                color: 'var(--md-sys-color-outline)',
+              }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
               {localTime} local time
             </div>
           )}
@@ -498,29 +683,45 @@ const FontPicker = ({ value, onApply }) => {
     }
   }, [currentSelected]);
 
-  const popularFonts = ['Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins', 'Inter', 'Oswald', 'Raleway', 'Noto Sans', 'Nunito'];
-  const popularMatches = popularFonts.filter(f => f.toLowerCase().includes(query.toLowerCase()));
-  const otherMatches = googleFonts.filter(f => !popularFonts.includes(f) && f.toLowerCase().includes(query.toLowerCase()));
+  const popularFonts = [
+    'Roboto',
+    'Open Sans',
+    'Montserrat',
+    'Lato',
+    'Poppins',
+    'Inter',
+    'Oswald',
+    'Raleway',
+    'Noto Sans',
+    'Nunito',
+  ];
+  const popularMatches = popularFonts.filter((f) => f.toLowerCase().includes(query.toLowerCase()));
+  const otherMatches = googleFonts.filter(
+    (f) => !popularFonts.includes(f) && f.toLowerCase().includes(query.toLowerCase())
+  );
 
   useEffect(() => {
-    observerRef.current = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const font = entry.target.dataset.font;
-          const fontName = font.replace(/ /g, '+');
-          const linkId = `preview-${fontName.replace(/[^a-zA-Z]/g, '')}`;
-          if (!document.getElementById(linkId)) {
-            const link = document.createElement('link');
-            link.id = linkId;
-            link.rel = 'stylesheet';
-            link.href = `https://fonts.googleapis.com/css2?family=${fontName}&text=${encodeURIComponent(font + ' aA')}&display=swap`;
-            document.head.appendChild(link);
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const font = entry.target.dataset.font;
+            const fontName = font.replace(/ /g, '+');
+            const linkId = `preview-${fontName.replace(/[^a-zA-Z]/g, '')}`;
+            if (!document.getElementById(linkId)) {
+              const link = document.createElement('link');
+              link.id = linkId;
+              link.rel = 'stylesheet';
+              link.href = `https://fonts.googleapis.com/css2?family=${fontName}&text=${encodeURIComponent(font + ' aA')}&display=swap`;
+              document.head.appendChild(link);
+            }
+            entry.target.style.fontFamily = `'${font}', sans-serif`;
+            observerRef.current.unobserve(entry.target);
           }
-          entry.target.style.fontFamily = `'${font}', sans-serif`;
-          observerRef.current.unobserve(entry.target);
-        }
-      });
-    }, { rootMargin: '100px' });
+        });
+      },
+      { rootMargin: '100px' }
+    );
 
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
@@ -530,48 +731,107 @@ const FontPicker = ({ value, onApply }) => {
   return (
     <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minWidth: 0 }}>
-        <input 
+        <input
           type="text"
           value={isOpen ? query : currentSelected}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => { setIsOpen(true); setQuery(''); }}
-          onBlur={() => setTimeout(() => { setIsOpen(false); setQuery(''); }, 200)}
+          onFocus={() => {
+            setIsOpen(true);
+            setQuery('');
+          }}
+          onBlur={() =>
+            setTimeout(() => {
+              setIsOpen(false);
+              setQuery('');
+            }, 200)
+          }
           placeholder="Search 1,500+ fonts..."
-          style={{ 
-            flex: 1, minWidth: 0, padding: '0.6rem 0.75rem', backgroundColor: 'var(--md-sys-color-surface-variant)', 
-            color: 'var(--md-sys-color-on-surface)', border: 'none', borderRadius: '8px', fontSize: '0.9rem',
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '0.6rem 0.75rem',
+            backgroundColor: 'var(--md-sys-color-surface-variant)',
+            color: 'var(--md-sys-color-on-surface)',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '0.9rem',
             fontFamily: query ? 'inherit' : `'${currentSelected}', sans-serif`,
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
           }}
         />
-        <button 
-          onClick={() => { setIsOpen(false); onApply(currentSelected); }}
+        <button
+          onClick={() => {
+            setIsOpen(false);
+            onApply(currentSelected);
+          }}
           className="btn-primary"
-          style={{ padding: '0.6rem 1rem', borderRadius: '8px', flexShrink: 0, fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+          style={{
+            padding: '0.6rem 1rem',
+            borderRadius: '8px',
+            flexShrink: 0,
+            fontSize: '0.85rem',
+            whiteSpace: 'nowrap',
+          }}
         >
           Apply
         </button>
       </div>
 
       {isOpen && (popularMatches.length > 0 || otherMatches.length > 0) && (
-        <ul style={{ 
-          position: 'absolute', bottom: 'calc(100% + 4px)', top: 'auto', left: 0, width: 'calc(100% - 90px)', 
-          maxHeight: '220px', overflowY: 'auto', backgroundColor: 'var(--md-sys-color-surface-container-high)', 
-          border: '1px solid var(--md-sys-color-outline)', borderRadius: '4px', zIndex: 10, listStyle: 'none', padding: 0, margin: 0,
-          boxShadow: 'var(--elevation-3)'
-        }}>
+        <ul
+          style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 4px)',
+            top: 'auto',
+            left: 0,
+            width: 'calc(100% - 90px)',
+            maxHeight: '220px',
+            overflowY: 'auto',
+            backgroundColor: 'var(--md-sys-color-surface-container-high)',
+            border: '1px solid var(--md-sys-color-outline)',
+            borderRadius: '4px',
+            zIndex: 10,
+            listStyle: 'none',
+            padding: 0,
+            margin: 0,
+            boxShadow: 'var(--elevation-3)',
+          }}
+        >
           {popularMatches.length > 0 && (
             <>
-              <li style={{ padding: '0.25rem 0.75rem', fontSize: '0.65rem', fontWeight: 'bold', color: 'var(--md-sys-color-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}>Popular</li>
-              {popularMatches.map(font => (
-                <li 
+              <li
+                style={{
+                  padding: '0.25rem 0.75rem',
+                  fontSize: '0.65rem',
+                  fontWeight: 'bold',
+                  color: 'var(--md-sys-color-primary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                }}
+              >
+                Popular
+              </li>
+              {popularMatches.map((font) => (
+                <li
                   key={`pop-${font}`}
                   data-font={font}
-                  ref={(el) => { if (el && observerRef.current) observerRef.current.observe(el); }}
-                  onMouseDown={(e) => { e.preventDefault(); setCurrentSelected(font); setIsOpen(false); }}
-                  style={{ padding: '0.35rem 0.75rem', cursor: 'pointer', fontSize: '1rem', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  ref={(el) => {
+                    if (el && observerRef.current) observerRef.current.observe(el);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setCurrentSelected(font);
+                    setIsOpen(false);
+                  }}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   {font}
                 </li>
@@ -580,17 +840,42 @@ const FontPicker = ({ value, onApply }) => {
           )}
           {otherMatches.length > 0 && (
             <>
-              {popularMatches.length > 0 && <li style={{ height: '1px', backgroundColor: 'var(--md-sys-color-outline)', margin: '4px 0' }}></li>}
-              <li style={{ padding: '0.25rem 0.75rem', fontSize: '0.65rem', fontWeight: 'bold', color: 'var(--md-sys-color-on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.5px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}>All Fonts</li>
-              {otherMatches.map(font => (
-                <li 
+              {popularMatches.length > 0 && (
+                <li style={{ height: '1px', backgroundColor: 'var(--md-sys-color-outline)', margin: '4px 0' }}></li>
+              )}
+              <li
+                style={{
+                  padding: '0.25rem 0.75rem',
+                  fontSize: '0.65rem',
+                  fontWeight: 'bold',
+                  color: 'var(--md-sys-color-on-surface-variant)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                }}
+              >
+                All Fonts
+              </li>
+              {otherMatches.map((font) => (
+                <li
                   key={font}
                   data-font={font}
-                  ref={(el) => { if (el && observerRef.current) observerRef.current.observe(el); }}
-                  onMouseDown={(e) => { e.preventDefault(); setCurrentSelected(font); setIsOpen(false); }}
-                  style={{ padding: '0.35rem 0.75rem', cursor: 'pointer', fontSize: '1rem', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  ref={(el) => {
+                    if (el && observerRef.current) observerRef.current.observe(el);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setCurrentSelected(font);
+                    setIsOpen(false);
+                  }}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   {font}
                 </li>
@@ -603,41 +888,137 @@ const FontPicker = ({ value, onApply }) => {
   );
 };
 const WeatherIcon = ({ type }) => {
-  const props = { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
-  switch(type) {
-    case 'sun': return <svg {...props}><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>;
-    case 'moon': return <svg {...props}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>;
-    case 'cloud-sun': return <svg {...props}><path d="M12 2v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="M20 12h2"></path><path d="m19.07 4.93-1.41 1.41"></path><path d="M15.947 8.688A5 5 0 0 0 7.05 11.233 4.5 4.5 0 0 0 7.5 20h9a5 5 0 0 0-1.053-11.312Z"></path></svg>;
-    case 'cloud-moon': return <svg {...props}><path d="M10.188 8.465a4.323 4.323 0 0 1 3.2 0 4.246 4.246 0 0 0 2.228 3.033A5 5 0 1 1 7.5 20h9a5 5 0 1 0-1.812-9.535Z"></path></svg>;
-    case 'cloud': return <svg {...props}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>;
-    case 'fog': return <svg {...props}><line x1="8" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="5" y2="6"></line><line x1="3" y1="18" x2="5" y2="18"></line></svg>;
-    case 'rain': return <svg {...props}><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"></path><line x1="16" y1="13" x2="16" y2="21"></line><line x1="8" y1="13" x2="8" y2="21"></line><line x1="12" y1="15" x2="12" y2="23"></line></svg>;
-    case 'snow': return <svg {...props}><line x1="12" y1="2" x2="12" y2="22"></line><line x1="5" y1="19" x2="19" y2="5"></line><line x1="5" y1="5" x2="19" y2="19"></line><line x1="10" y1="4" x2="12" y2="2"></line><line x1="14" y1="4" x2="12" y2="2"></line><line x1="10" y1="20" x2="12" y2="22"></line><line x1="14" y1="20" x2="12" y2="22"></line></svg>;
-    case 'storm': return <svg {...props}><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"></path><polyline points="13 11 9 17 15 17 11 23"></polyline></svg>;
-    default: return <svg {...props}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>;
+  const props = {
+    width: '16',
+    height: '16',
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '2',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    style: { flexShrink: 0 },
+  };
+  switch (type) {
+    case 'sun':
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+      );
+    case 'moon':
+      return (
+        <svg {...props}>
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+        </svg>
+      );
+    case 'cloud-sun':
+      return (
+        <svg {...props}>
+          <path d="M12 2v2"></path>
+          <path d="m4.93 4.93 1.41 1.41"></path>
+          <path d="M20 12h2"></path>
+          <path d="m19.07 4.93-1.41 1.41"></path>
+          <path d="M15.947 8.688A5 5 0 0 0 7.05 11.233 4.5 4.5 0 0 0 7.5 20h9a5 5 0 0 0-1.053-11.312Z"></path>
+        </svg>
+      );
+    case 'cloud-moon':
+      return (
+        <svg {...props}>
+          <path d="M10.188 8.465a4.323 4.323 0 0 1 3.2 0 4.246 4.246 0 0 0 2.228 3.033A5 5 0 1 1 7.5 20h9a5 5 0 1 0-1.812-9.535Z"></path>
+        </svg>
+      );
+    case 'cloud':
+      return (
+        <svg {...props}>
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+        </svg>
+      );
+    case 'fog':
+      return (
+        <svg {...props}>
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="5" y2="6"></line>
+          <line x1="3" y1="18" x2="5" y2="18"></line>
+        </svg>
+      );
+    case 'rain':
+      return (
+        <svg {...props}>
+          <path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"></path>
+          <line x1="16" y1="13" x2="16" y2="21"></line>
+          <line x1="8" y1="13" x2="8" y2="21"></line>
+          <line x1="12" y1="15" x2="12" y2="23"></line>
+        </svg>
+      );
+    case 'snow':
+      return (
+        <svg {...props}>
+          <line x1="12" y1="2" x2="12" y2="22"></line>
+          <line x1="5" y1="19" x2="19" y2="5"></line>
+          <line x1="5" y1="5" x2="19" y2="19"></line>
+          <line x1="10" y1="4" x2="12" y2="2"></line>
+          <line x1="14" y1="4" x2="12" y2="2"></line>
+          <line x1="10" y1="20" x2="12" y2="22"></line>
+          <line x1="14" y1="20" x2="12" y2="22"></line>
+        </svg>
+      );
+    case 'storm':
+      return (
+        <svg {...props}>
+          <path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"></path>
+          <polyline points="13 11 9 17 15 17 11 23"></polyline>
+        </svg>
+      );
+    default:
+      return (
+        <svg {...props}>
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+        </svg>
+      );
   }
 };
 const useWeather = (location) => {
   const [weather, setWeather] = useState(null);
   useEffect(() => {
-    if (!location || location.trim().length < 2) { setWeather(null); return; }
+    if (!location || location.trim().length < 2) {
+      setWeather(null);
+      return;
+    }
     const fetchWeather = async () => {
       try {
         const searchTerm = location.split(',')[0].trim();
-        const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchTerm)}&count=1`);
+        const geoRes = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchTerm)}&count=1`
+        );
         const geoData = await geoRes.json();
         if (!geoData.results || geoData.results.length === 0) return;
         const { latitude, longitude } = geoData.results[0];
-        const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=fahrenheit`);
+        const wRes = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=fahrenheit`
+        );
         const wData = await wRes.json();
         if (wData.current_weather) {
           const code = wData.current_weather.weathercode;
           const isDay = wData.current_weather.is_day;
           let icon = 'cloud';
           if (code === 0) icon = isDay ? 'sun' : 'moon';
-          else if (code === 1) icon = isDay ? 'sun' : 'moon'; // Mainly clear
-          else if (code === 2) icon = isDay ? 'cloud-sun' : 'cloud-moon'; // Partly cloudy
-          else if (code === 3) icon = 'cloud'; // Overcast
+          else if (code === 1)
+            icon = isDay ? 'sun' : 'moon'; // Mainly clear
+          else if (code === 2)
+            icon = isDay ? 'cloud-sun' : 'cloud-moon'; // Partly cloudy
+          else if (code === 3)
+            icon = 'cloud'; // Overcast
           else if (code >= 45 && code <= 48) icon = 'fog';
           else if (code >= 51 && code <= 67) icon = 'rain';
           else if (code >= 71 && code <= 77) icon = 'snow';
@@ -645,7 +1026,9 @@ const useWeather = (location) => {
           else if (code >= 95) icon = 'storm';
           setWeather({ temp: Math.round(wData.current_weather.temperature), icon });
         }
-      } catch(err) { console.error('Weather fetch error:', err); }
+      } catch (err) {
+        console.error('Weather fetch error:', err);
+      }
     };
     fetchWeather();
     const interval = setInterval(fetchWeather, 30 * 60 * 1000);
@@ -654,7 +1037,19 @@ const useWeather = (location) => {
   return weather;
 };
 
-const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUserId, onSelfUpdate, onPreviewAsset, appLogo, setAppLogo, setAppName }) => {
+const AdminPanel = ({
+  socket,
+  token,
+  socketUrl,
+  onClose,
+  globalFont,
+  currentUserId,
+  onSelfUpdate,
+  onPreviewAsset,
+  appLogo,
+  setAppLogo,
+  setAppName,
+}) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -710,13 +1105,16 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   const handleSuspendUser = async (userId) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/${userId}/suspend`, {
-        method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, suspended: data.suspended } : u));
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, suspended: data.suspended } : u)));
       }
-    } catch (e) { console.error('Suspend failed', e); }
+    } catch (e) {
+      console.error('Suspend failed', e);
+    }
   };
 
   const handleBulkSuspend = async (suspend) => {
@@ -724,14 +1122,16 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/bulk-suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ userIds: Array.from(selectedUsers), suspend })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userIds: Array.from(selectedUsers), suspend }),
       });
       if (res.ok) {
-        setUsers(prev => prev.map(u => selectedUsers.has(u.id) ? { ...u, suspended: suspend ? 1 : 0 } : u));
+        setUsers((prev) => prev.map((u) => (selectedUsers.has(u.id) ? { ...u, suspended: suspend ? 1 : 0 } : u)));
         setSelectedUsers(new Set());
       }
-    } catch (e) { console.error('Bulk suspend failed', e); }
+    } catch (e) {
+      console.error('Bulk suspend failed', e);
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -740,20 +1140,22 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/bulk-delete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ userIds: Array.from(selectedUsers) })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userIds: Array.from(selectedUsers) }),
       });
       if (res.ok) {
-        setUsers(prev => prev.filter(u => !selectedUsers.has(u.id)));
+        setUsers((prev) => prev.filter((u) => !selectedUsers.has(u.id)));
         setSelectedUsers(new Set());
       }
-    } catch (e) { console.error('Bulk delete failed', e); }
+    } catch (e) {
+      console.error('Bulk delete failed', e);
+    }
   };
 
   const handleExportUsers = async (format = 'csv') => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/export?format=${format}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const blob = await res.blob();
@@ -764,7 +1166,9 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
         a.click();
         URL.revokeObjectURL(url);
       }
-    } catch (e) { console.error('Export failed', e); }
+    } catch (e) {
+      console.error('Export failed', e);
+    }
   };
 
   // Moderation fetchers
@@ -772,38 +1176,49 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const url = new URL(`${socketUrl}/api/admin/audit-log`);
       if (action) url.searchParams.set('action', action);
-      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) { const data = await res.json(); setAuditLogs(data); }
-    } catch (e) { console.error('Audit log fetch failed', e); }
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(data);
+      }
+    } catch (e) {
+      console.error('Audit log fetch failed', e);
+    }
   };
 
   const fetchReports = async (status = 'pending') => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/reports?status=${status}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setReports(await res.json());
-    } catch (e) { console.error('Reports fetch failed', e); }
+    } catch (e) {
+      console.error('Reports fetch failed', e);
+    }
   };
 
   const fetchWordFilters = async () => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/word-filters`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setWordFilters(await res.json());
-    } catch (e) { console.error('Word filters fetch failed', e); }
+    } catch (e) {
+      console.error('Word filters fetch failed', e);
+    }
   };
 
   const handleReportAction = async (reportId, status, deleteMessage = false) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/reports/${reportId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ status, deleteMessage })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status, deleteMessage }),
       });
       if (res.ok) fetchReports(reportFilter);
-    } catch (e) { console.error('Report action failed', e); }
+    } catch (e) {
+      console.error('Report action failed', e);
+    }
   };
 
   const handleAddWordFilter = async () => {
@@ -811,36 +1226,42 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/word-filters`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ pattern: newFilterWord, action: newFilterAction })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ pattern: newFilterWord, action: newFilterAction }),
       });
       if (res.ok) {
         const data = await res.json();
-        setWordFilters(prev => [data, ...prev]);
+        setWordFilters((prev) => [data, ...prev]);
         setNewFilterWord('');
       } else {
         const err = await res.json();
         alert(err.error);
       }
-    } catch (e) { console.error('Add filter failed', e); }
+    } catch (e) {
+      console.error('Add filter failed', e);
+    }
   };
 
   const handleDeleteWordFilter = async (id) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/word-filters/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setWordFilters(prev => prev.filter(f => f.id !== id));
-    } catch (e) { console.error('Delete filter failed', e); }
+      if (res.ok) setWordFilters((prev) => prev.filter((f) => f.id !== id));
+    } catch (e) {
+      console.error('Delete filter failed', e);
+    }
   };
 
   // Phase 5: API Keys & Environment
   const fetchApiKeys = async () => {
     try {
-      const res = await fetch(`${socketUrl}/api/admin/api-keys`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${socketUrl}/api/admin/api-keys`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setApiKeys(await res.json());
-    } catch (e) { console.error('API keys fetch failed', e); }
+    } catch (e) {
+      console.error('API keys fetch failed', e);
+    }
   };
 
   const handleCreateApiKey = async () => {
@@ -848,16 +1269,18 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/api-keys`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name: newKeyName, permissions: newKeyPerm })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newKeyName, permissions: newKeyPerm }),
       });
       if (res.ok) {
         const data = await res.json();
         setCreatedKey(data.key);
-        setApiKeys(prev => [{ ...data, created_at: new Date().toISOString() }, ...prev]);
+        setApiKeys((prev) => [{ ...data, created_at: new Date().toISOString() }, ...prev]);
         setNewKeyName('');
       }
-    } catch (e) { console.error('Create key failed', e); }
+    } catch (e) {
+      console.error('Create key failed', e);
+    }
   };
 
   const handleRevokeApiKey = async (id) => {
@@ -865,10 +1288,12 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/api-keys/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setApiKeys(prev => prev.filter(k => k.id !== id));
-    } catch (e) { console.error('Revoke key failed', e); }
+      if (res.ok) setApiKeys((prev) => prev.filter((k) => k.id !== id));
+    } catch (e) {
+      console.error('Revoke key failed', e);
+    }
   };
 
   const handleTestEmail = async () => {
@@ -877,33 +1302,39 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/test-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ to: testEmailAddr })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ to: testEmailAddr }),
       });
       const data = await res.json();
       setTestEmailStatus(res.ok ? 'sent' : `error: ${data.error}`);
       setTimeout(() => setTestEmailStatus(null), 5000);
-    } catch (e) { setTestEmailStatus('error: Network failure'); }
+    } catch (e) {
+      setTestEmailStatus('error: Network failure');
+    }
   };
 
   const fetchEnvironment = async () => {
     try {
-      const res = await fetch(`${socketUrl}/api/admin/environment`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${socketUrl}/api/admin/environment`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setEnvInfo(await res.json());
-    } catch (e) { console.error('Environment fetch failed', e); }
+    } catch (e) {
+      console.error('Environment fetch failed', e);
+    }
   };
 
-    const fetchLoginHistory = async (userId) => {
+  const fetchLoginHistory = async (userId) => {
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/${userId}/logins`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
         setLoginHistory(data);
         setLoginHistoryUser(userId);
       }
-    } catch (e) { console.error('Login history fetch failed', e); }
+    } catch (e) {
+      console.error('Login history fetch failed', e);
+    }
   };
 
   const fetchLocSuggestions = async (query) => {
@@ -912,17 +1343,24 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
       return;
     }
     try {
-      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en`);
+      const res = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en`
+      );
       if (res.ok) {
         const data = await res.json();
-        if (!data.results) { setLocSuggestions([]); return; }
-        const suggestions = data.results.map(f => {
+        if (!data.results) {
+          setLocSuggestions([]);
+          return;
+        }
+        const suggestions = data.results.map((f) => {
           const parts = [f.name, f.admin1, f.country].filter(Boolean);
           return parts.join(', ');
         });
         setLocSuggestions([...new Set(suggestions)]);
       }
-    } catch (err) { console.error('Geocoding search error:', err); }
+    } catch (err) {
+      console.error('Geocoding search error:', err);
+    }
   };
 
   const handleLocChange = (val) => {
@@ -935,7 +1373,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const headers = { 'Authorization': `Bearer ${token}` };
+        const headers = { Authorization: `Bearer ${token}` };
         if (activeTab === 'dashboard') {
           const res = await fetch(`${socketUrl}/api/admin/stats`, { headers });
           if (res.ok) setDashboardStats(await res.json());
@@ -953,7 +1391,9 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           const res = await fetch(`${socketUrl}/api/spaces`, { headers });
           if (res.ok) setSpaces(await res.json());
         }
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        console.error(err);
+      }
     };
     fetchData();
   }, [activeTab, token, socketUrl]);
@@ -961,7 +1401,7 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   useEffect(() => {
     if (!socket) return;
     const onAssetDeleted = (filename) => {
-      setAssets(prev => prev.filter(a => a.file !== filename));
+      setAssets((prev) => prev.filter((a) => a.file !== filename));
     };
     socket.on('asset deleted', onAssetDeleted);
     return () => socket.off('asset deleted', onAssetDeleted);
@@ -969,45 +1409,64 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
   const changeRole = async (id, newRole) => {
     await fetch(`${socketUrl}/api/admin/users/${id}/role`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ role: newRole })
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ role: newRole }),
     });
-    setUsers(users.map(u => u.id === id ? { ...u, role: newRole } : u));
+    setUsers(users.map((u) => (u.id === id ? { ...u, role: newRole } : u)));
   };
 
   const deleteUser = async (id) => {
-    const res = await fetch(`${socketUrl}/api/admin/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    const res = await fetch(`${socketUrl}/api/admin/users/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
     if (res.ok) {
-      setUsers(users.filter(u => u.id !== id));
+      setUsers(users.filter((u) => u.id !== id));
       setUserToDelete(null);
-    } else { const data = await res.json(); alert(data.error); }
+    } else {
+      const data = await res.json();
+      alert(data.error);
+    }
   };
 
   const deleteAsset = async (filename) => {
-    const res = await fetch(`${socketUrl}/api/admin/assets/${filename}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    const res = await fetch(`${socketUrl}/api/admin/assets/${filename}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
     if (res.ok) {
-      setAssets(assets.filter(a => a.file !== filename));
+      setAssets(assets.filter((a) => a.file !== filename));
       setAssetToDelete(null);
-    } else { const data = await res.json(); alert(data.error); }
-  };
-  
-  const deleteSpace = async (id) => {
-    const res = await fetch(`${socketUrl}/api/admin/spaces/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-    if (res.ok) {
-      setSpaces(spaces.filter(s => s.id !== id));
-      setSpaceToDeleteAdmin(null);
-    } else { const data = await res.json(); alert(data.error); }
+    } else {
+      const data = await res.json();
+      alert(data.error);
+    }
   };
 
+  const deleteSpace = async (id) => {
+    const res = await fetch(`${socketUrl}/api/admin/spaces/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      setSpaces(spaces.filter((s) => s.id !== id));
+      setSpaceToDeleteAdmin(null);
+    } else {
+      const data = await res.json();
+      alert(data.error);
+    }
+  };
 
   const handleUserUpdate = async (e) => {
     e.preventDefault();
     const res = await fetch(`${socketUrl}/api/admin/users/${editingUser.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(editingUser)
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(editingUser),
     });
     if (res.ok) {
-      setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
+      setUsers(users.map((u) => (u.id === editingUser.id ? editingUser : u)));
       onSelfUpdate();
       setEditingUser(null);
     } else {
@@ -1030,8 +1489,8 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
     try {
       const res = await fetch(`${socketUrl}/api/admin/users/${editingUser.id}/password`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ newPassword: adminResetPw })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newPassword: adminResetPw }),
       });
       const data = await res.json();
       setAdminResetMsg({ ok: res.ok, text: res.ok ? 'Password reset successfully' : data.error });
@@ -1044,7 +1503,19 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'var(--md-sys-color-background)', zIndex: 9000, overflowY: 'auto', padding: 'min(5vw, 2rem)' }}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'var(--md-sys-color-background)',
+        zIndex: 9000,
+        overflowY: 'auto',
+        padding: 'min(5vw, 2rem)',
+      }}
+    >
       <div style={{ maxWidth: 'min(95vw, 1200px)', margin: '0 auto' }}>
         <style>{`
           .dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
@@ -1061,279 +1532,755 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           @media (max-width: 800px) { .dash-two-col { grid-template-columns: 1fr; } }
         `}</style>
         {/* Admin Panel Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-on-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '12px',
+                background: 'var(--md-sys-color-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--md-sys-color-on-primary)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
             </div>
             <div>
-              <h1 style={{ color: 'var(--md-sys-color-on-background)', margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Admin Panel</h1>
-              <span style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>System management & analytics</span>
+              <h1
+                style={{ color: 'var(--md-sys-color-on-background)', margin: 0, fontSize: '1.4rem', fontWeight: 700 }}
+              >
+                Admin Panel
+              </h1>
+              <span style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                System management & analytics
+              </span>
             </div>
           </div>
-          <button onClick={onClose} className="icon-btn" title="Close" style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-surface-variant)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <button
+            onClick={onClose}
+            className="icon-btn"
+            title="Close"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--md-sys-color-surface-variant)',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--md-sys-color-on-surface-variant)',
+            }}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
         {/* Tab Navigation */}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
-            { id: 'dashboard', label: 'Dashboard', icon: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>' },
-            { id: 'users', label: 'Users', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>' },
-            { id: 'assets', label: 'Assets', icon: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>' },
-            { id: 'spaces', label: 'Spaces', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' },
-            { id: 'config', label: 'Config', icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>' },
-            { id: 'moderation', label: 'Moderation', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>' },
-            { id: 'broadcast', label: 'Broadcast', icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>' },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: activeTab === tab.id ? 600 : 400, fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.2s', flex: '1 1 auto', minWidth: '0',
-              background: activeTab === tab.id ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-              color: activeTab === tab.id ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)',
-            }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: tab.icon }} />
+            {
+              id: 'dashboard',
+              label: 'Dashboard',
+              icon: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>',
+            },
+            {
+              id: 'users',
+              label: 'Users',
+              icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
+            },
+            {
+              id: 'assets',
+              label: 'Assets',
+              icon: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>',
+            },
+            {
+              id: 'spaces',
+              label: 'Spaces',
+              icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>',
+            },
+            {
+              id: 'config',
+              label: 'Config',
+              icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>',
+            },
+            {
+              id: 'moderation',
+              label: 'Moderation',
+              icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>',
+            },
+            {
+              id: 'broadcast',
+              label: 'Broadcast',
+              icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
+            },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.82rem',
+                fontWeight: activeTab === tab.id ? 600 : 400,
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+                flex: '1 1 auto',
+                minWidth: '0',
+                background:
+                  activeTab === tab.id ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
+                color:
+                  activeTab === tab.id ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)',
+              }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dangerouslySetInnerHTML={{ __html: tab.icon }}
+              />
               {tab.label}
             </button>
           ))}
         </div>
 
         {/* ═══ DASHBOARD TAB ═══ */}
-        {activeTab === 'dashboard' && dashboardStats && (() => {
-          const fmt = (bytes) => {
-            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
-            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
-            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return bytes + ' B';
-          };
-          const uptimeFmt = (s) => {
-            const d = Math.floor(s / 86400);
-            const h = Math.floor((s % 86400) / 3600);
-            const m = Math.floor((s % 3600) / 60);
-            return d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
-          };
-          const maxVol = Math.max(...(dashboardStats.messageVolume?.map(v => v.count) || [1]), 1);
-          const parseUA = (ua) => {
-            if (/Mobile|Android|iPhone|iPad/i.test(ua)) return 'mobile';
-            return 'desktop';
-          };
-          return (
-            <div>
+        {activeTab === 'dashboard' &&
+          dashboardStats &&
+          (() => {
+            const fmt = (bytes) => {
+              if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+              if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+              if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+              return bytes + ' B';
+            };
+            const uptimeFmt = (s) => {
+              const d = Math.floor(s / 86400);
+              const h = Math.floor((s % 86400) / 3600);
+              const m = Math.floor((s % 3600) / 60);
+              return d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+            };
+            const maxVol = Math.max(...(dashboardStats.messageVolume?.map((v) => v.count) || [1]), 1);
+            const parseUA = (ua) => {
+              if (/Mobile|Android|iPhone|iPad/i.test(ua)) return 'mobile';
+              return 'desktop';
+            };
+            return (
+              <div>
+                {/* Stat Cards */}
+                <div className="dash-grid">
+                  <div className="dash-card">
+                    <div className="dash-card-icon" style={{ background: 'var(--md-sys-color-primary-container)' }}>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-primary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="dash-card-value">{dashboardStats.totalUsers}</div>
+                      <div className="dash-card-label">Total Users</div>
+                    </div>
+                  </div>
+                  <div className="dash-card">
+                    <div
+                      className="dash-card-icon"
+                      style={{ background: 'color-mix(in srgb, #4CAF50 15%, transparent)' }}
+                    >
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#4CAF50"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="dash-card-value">{dashboardStats.activeUsers24h}</div>
+                      <div className="dash-card-label">Active (24h) / {dashboardStats.activeUsers7d} (7d)</div>
+                    </div>
+                  </div>
+                  <div className="dash-card">
+                    <div
+                      className="dash-card-icon"
+                      style={{ background: 'color-mix(in srgb, #2196F3 15%, transparent)' }}
+                    >
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#2196F3"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="dash-card-value">{dashboardStats.totalMessages.toLocaleString()}</div>
+                      <div className="dash-card-label">Messages</div>
+                    </div>
+                  </div>
+                  <div className="dash-card">
+                    <div
+                      className="dash-card-icon"
+                      style={{ background: 'color-mix(in srgb, #FF9800 15%, transparent)' }}
+                    >
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#FF9800"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="dash-card-value">{fmt(dashboardStats.storageUsedBytes)}</div>
+                      <div className="dash-card-label">Storage Used</div>
+                    </div>
+                  </div>
+                </div>
 
-              {/* Stat Cards */}
-              <div className="dash-grid">
-                <div className="dash-card">
-                  <div className="dash-card-icon" style={{ background: 'var(--md-sys-color-primary-container)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                <div className="dash-two-col">
+                  {/* Message Volume Chart */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                      </svg>
+                      Message Volume (30 days)
+                    </div>
+                    {dashboardStats.messageVolume?.length > 0 ? (
+                      <div style={{ position: 'relative', height: '160px' }}>
+                        <svg
+                          width="100%"
+                          height="160"
+                          viewBox={`0 0 ${Math.max(dashboardStats.messageVolume.length * 20, 100)} 160`}
+                          preserveAspectRatio="none"
+                          style={{ display: 'block' }}
+                        >
+                          {dashboardStats.messageVolume.map((v, i) => {
+                            const barH = (v.count / maxVol) * 130;
+                            const x = i * (100 / dashboardStats.messageVolume.length);
+                            const w = (100 / dashboardStats.messageVolume.length) * 0.7;
+                            return (
+                              <g key={i}>
+                                <rect
+                                  x={`${x}%`}
+                                  y={155 - barH}
+                                  width={`${w}%`}
+                                  height={barH}
+                                  rx="3"
+                                  fill="var(--md-sys-color-primary)"
+                                  opacity="0.8"
+                                >
+                                  <title>{`${v.date}: ${v.count} messages`}</title>
+                                </rect>
+                              </g>
+                            );
+                          })}
+                        </svg>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '0.65rem',
+                            color: 'var(--md-sys-color-outline)',
+                            marginTop: '4px',
+                          }}
+                        >
+                          <span>{dashboardStats.messageVolume[0]?.date?.slice(5)}</span>
+                          <span>
+                            {dashboardStats.messageVolume[dashboardStats.messageVolume.length - 1]?.date?.slice(5)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: '2rem',
+                          textAlign: 'center',
+                          color: 'var(--md-sys-color-outline)',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        No message data yet
+                      </div>
+                    )}
                   </div>
-                  <div><div className="dash-card-value">{dashboardStats.totalUsers}</div><div className="dash-card-label">Total Users</div></div>
-                </div>
-                <div className="dash-card">
-                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #4CAF50 15%, transparent)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                  </div>
-                  <div>
-                    <div className="dash-card-value">{dashboardStats.activeUsers24h}</div>
-                    <div className="dash-card-label">Active (24h) / {dashboardStats.activeUsers7d} (7d)</div>
-                  </div>
-                </div>
-                <div className="dash-card">
-                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #2196F3 15%, transparent)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2196F3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                  </div>
-                  <div><div className="dash-card-value">{dashboardStats.totalMessages.toLocaleString()}</div><div className="dash-card-label">Messages</div></div>
-                </div>
-                <div className="dash-card">
-                  <div className="dash-card-icon" style={{ background: 'color-mix(in srgb, #FF9800 15%, transparent)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF9800" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                  </div>
-                  <div><div className="dash-card-value">{fmt(dashboardStats.storageUsedBytes)}</div><div className="dash-card-label">Storage Used</div></div>
-                </div>
-              </div>
 
-              <div className="dash-two-col">
-                {/* Message Volume Chart */}
+                  {/* Storage Breakdown */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                      Storage Breakdown
+                    </div>
+                    {(() => {
+                      const bd = dashboardStats.storageBreakdown || {};
+                      const total = dashboardStats.storageUsedBytes || 1;
+                      const items = [
+                        { label: 'Images', bytes: bd.image || 0, color: '#4CAF50' },
+                        { label: 'Videos', bytes: bd.video || 0, color: '#2196F3' },
+                        { label: 'Audio', bytes: bd.audio || 0, color: '#9C27B0' },
+                        { label: 'Documents', bytes: bd.document || 0, color: '#FF9800' },
+                        { label: 'Other', bytes: bd.other || 0, color: 'var(--md-sys-color-outline)' },
+                      ].filter((it) => it.bytes > 0);
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {/* Stacked bar */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              height: '10px',
+                              borderRadius: '5px',
+                              overflow: 'hidden',
+                              background: 'var(--md-sys-color-surface-variant)',
+                            }}
+                          >
+                            {items.map((it, i) => (
+                              <div
+                                key={i}
+                                style={{ width: `${(it.bytes / total) * 100}%`, background: it.color, minWidth: '3px' }}
+                                title={`${it.label}: ${fmt(it.bytes)}`}
+                              />
+                            ))}
+                          </div>
+                          {/* Legend */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+                            {items.map((it, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  fontSize: '0.72rem',
+                                  color: 'var(--md-sys-color-on-surface-variant)',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '2px',
+                                    background: it.color,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                {it.label}: {fmt(it.bytes)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Active Sessions */}
                 <div className="dash-section">
                   <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-                    Message Volume (30 days)
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Active Sessions ({dashboardStats.activeSessions?.length || 0})
                   </div>
-                  {dashboardStats.messageVolume?.length > 0 ? (
-                    <div style={{ position: 'relative', height: '160px' }}>
-                      <svg width="100%" height="160" viewBox={`0 0 ${Math.max(dashboardStats.messageVolume.length * 20, 100)} 160`} preserveAspectRatio="none" style={{ display: 'block' }}>
-                        {dashboardStats.messageVolume.map((v, i) => {
-                          const barH = (v.count / maxVol) * 130;
-                          const x = i * (100 / dashboardStats.messageVolume.length);
-                          const w = 100 / dashboardStats.messageVolume.length * 0.7;
-                          return (
-                            <g key={i}>
-                              <rect x={`${x}%`} y={155 - barH} width={`${w}%`} height={barH} rx="3" fill="var(--md-sys-color-primary)" opacity="0.8">
-                                <title>{`${v.date}: ${v.count} messages`}</title>
-                              </rect>
-                            </g>
-                          );
-                        })}
-                      </svg>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--md-sys-color-outline)', marginTop: '4px' }}>
-                        <span>{dashboardStats.messageVolume[0]?.date?.slice(5)}</span>
-                        <span>{dashboardStats.messageVolume[dashboardStats.messageVolume.length - 1]?.date?.slice(5)}</span>
-                      </div>
+                  {dashboardStats.activeSessions?.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                            <th
+                              style={{
+                                textAlign: 'left',
+                                padding: '8px',
+                                color: 'var(--md-sys-color-outline)',
+                                fontWeight: 600,
+                                fontSize: '0.72rem',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              User
+                            </th>
+                            <th
+                              style={{
+                                textAlign: 'left',
+                                padding: '8px',
+                                color: 'var(--md-sys-color-outline)',
+                                fontWeight: 600,
+                                fontSize: '0.72rem',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Device
+                            </th>
+                            <th
+                              style={{
+                                textAlign: 'left',
+                                padding: '8px',
+                                color: 'var(--md-sys-color-outline)',
+                                fontWeight: 600,
+                                fontSize: '0.72rem',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Duration
+                            </th>
+                            <th style={{ textAlign: 'right', padding: '8px' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dashboardStats.activeSessions.map((s, i) => {
+                            const dur = Math.floor((Date.now() - s.connectedAt) / 1000);
+                            const isMobile = parseUA(s.userAgent) === 'mobile';
+                            const displayName = s.first_name
+                              ? `${s.first_name} ${s.last_name || ''}`.trim()
+                              : s.username;
+                            return (
+                              <tr key={i} style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+                                <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {s.avatar ? (
+                                    <img
+                                      src={s.avatar}
+                                      style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }}
+                                      alt=""
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: '28px',
+                                        height: '28px',
+                                        borderRadius: '50%',
+                                        background: 'var(--md-sys-color-primary)',
+                                        color: 'var(--md-sys-color-on-primary)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 'bold',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {displayName[0]?.toUpperCase() || '?'}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
+                                      {displayName}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '8px' }}>
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      color: 'var(--md-sys-color-on-surface-variant)',
+                                    }}
+                                  >
+                                    {isMobile ? (
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                                        <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                                      </svg>
+                                    ) : (
+                                      <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                                      </svg>
+                                    )}
+                                    <span style={{ fontSize: '0.78rem' }}>{isMobile ? 'Mobile' : 'Desktop'}</span>
+                                  </div>
+                                </td>
+                                <td
+                                  style={{
+                                    padding: '8px',
+                                    color: 'var(--md-sys-color-on-surface-variant)',
+                                    fontSize: '0.78rem',
+                                  }}
+                                >
+                                  {uptimeFmt(dur)}
+                                </td>
+                                <td style={{ padding: '8px', textAlign: 'right' }}>
+                                  <button
+                                    onClick={async () => {
+                                      if (!confirm(`Disconnect ${displayName}?`)) return;
+                                      try {
+                                        await fetch(`${socketUrl}/api/admin/disconnect`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            Authorization: `Bearer ${token}`,
+                                          },
+                                          body: JSON.stringify({ socketId: s.socketId }),
+                                        });
+                                        setDashboardStats((prev) => ({
+                                          ...prev,
+                                          activeSessions: prev.activeSessions.filter((x) => x.socketId !== s.socketId),
+                                        }));
+                                      } catch (_) {}
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: '1px solid var(--md-sys-color-error)',
+                                      color: 'var(--md-sys-color-error)',
+                                      borderRadius: '8px',
+                                      padding: '4px 10px',
+                                      fontSize: '0.72rem',
+                                      cursor: 'pointer',
+                                      fontFamily: 'inherit',
+                                    }}
+                                  >
+                                    Disconnect
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   ) : (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>No message data yet</div>
+                    <div
+                      style={{
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      No active sessions
+                    </div>
                   )}
                 </div>
 
-                {/* Storage Breakdown */}
+                {/* System Info */}
                 <div className="dash-section">
                   <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                    Storage Breakdown
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                      <line x1="8" y1="21" x2="16" y2="21"></line>
+                      <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                    System
                   </div>
-                  {(() => {
-                    const bd = dashboardStats.storageBreakdown || {};
-                    const total = dashboardStats.storageUsedBytes || 1;
-                    const items = [
-                      { label: 'Images', bytes: bd.image || 0, color: '#4CAF50' },
-                      { label: 'Videos', bytes: bd.video || 0, color: '#2196F3' },
-                      { label: 'Audio', bytes: bd.audio || 0, color: '#9C27B0' },
-                      { label: 'Documents', bytes: bd.document || 0, color: '#FF9800' },
-                      { label: 'Other', bytes: bd.other || 0, color: 'var(--md-sys-color-outline)' },
-                    ].filter(it => it.bytes > 0);
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {/* Stacked bar */}
-                        <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', background: 'var(--md-sys-color-surface-variant)' }}>
-                          {items.map((it, i) => (
-                            <div key={i} style={{ width: `${(it.bytes / total) * 100}%`, background: it.color, minWidth: '3px' }} title={`${it.label}: ${fmt(it.bytes)}`} />
-                          ))}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    {[
+                      { label: 'Uptime', value: uptimeFmt(dashboardStats.serverUptime) },
+                      { label: 'Node.js', value: dashboardStats.nodeVersion },
+                      { label: 'Platform', value: dashboardStats.osInfo },
+                      { label: 'CPUs', value: dashboardStats.cpuCount },
+                      { label: 'Database', value: fmt(dashboardStats.dbSizeBytes) },
+                      {
+                        label: 'Memory (Heap)',
+                        value: `${fmt(dashboardStats.memoryUsage?.heapUsed || 0)} / ${fmt(dashboardStats.memoryUsage?.heapTotal || 0)}`,
+                      },
+                      {
+                        label: 'System RAM',
+                        value: `${fmt((dashboardStats.totalMemory || 0) - (dashboardStats.freeMemory || 0))} / ${fmt(dashboardStats.totalMemory || 0)}`,
+                      },
+                      { label: 'Spaces', value: dashboardStats.totalSpaces },
+                    ].map((item, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          padding: '10px',
+                          borderRadius: '10px',
+                          background: 'var(--md-sys-color-surface-variant)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '0.68rem',
+                            color: 'var(--md-sys-color-outline)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            marginBottom: '3px',
+                          }}
+                        >
+                          {item.label}
                         </div>
-                        {/* Legend */}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-                          {items.map((it, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                              <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: it.color, flexShrink: 0 }} />
-                              {it.label}: {fmt(it.bytes)}
-                            </div>
-                          ))}
+                        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>
+                          {item.value}
                         </div>
                       </div>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              {/* Active Sessions */}
-              <div className="dash-section">
-                <div className="dash-section-title">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                  Active Sessions ({dashboardStats.activeSessions?.length || 0})
-                </div>
-                {dashboardStats.activeSessions?.length > 0 ? (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>User</th>
-                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>Device</th>
-                          <th style={{ textAlign: 'left', padding: '8px', color: 'var(--md-sys-color-outline)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase' }}>Duration</th>
-                          <th style={{ textAlign: 'right', padding: '8px' }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboardStats.activeSessions.map((s, i) => {
-                          const dur = Math.floor((Date.now() - s.connectedAt) / 1000);
-                          const isMobile = parseUA(s.userAgent) === 'mobile';
-                          const displayName = s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.username;
-                          return (
-                            <tr key={i} style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-                              <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {s.avatar ? (
-                                  <img src={s.avatar} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} alt="" />
-                                ) : (
-                                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
-                                    {displayName[0]?.toUpperCase() || '?'}
-                                  </div>
-                                )}
-                                <div>
-                                  <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{displayName}</div>
-                                  <div style={{ fontSize: '0.68rem', color: 'var(--md-sys-color-outline)' }}>@{s.username}</div>
-                                </div>
-                              </td>
-                              <td style={{ padding: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                                  {isMobile ? (
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-                                  ) : (
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                                  )}
-                                  <span style={{ fontSize: '0.78rem' }}>{isMobile ? 'Mobile' : 'Desktop'}</span>
-                                </div>
-                              </td>
-                              <td style={{ padding: '8px', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.78rem' }}>{uptimeFmt(dur)}</td>
-                              <td style={{ padding: '8px', textAlign: 'right' }}>
-                                <button onClick={async () => {
-                                  if (!confirm(`Disconnect ${displayName}?`)) return;
-                                  try {
-                                    await fetch(`${socketUrl}/api/admin/disconnect`, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                      body: JSON.stringify({ socketId: s.socketId })
-                                    });
-                                    setDashboardStats(prev => ({ ...prev, activeSessions: prev.activeSessions.filter(x => x.socketId !== s.socketId) }));
-                                  } catch (_) {}
-                                }} style={{ background: 'none', border: '1px solid var(--md-sys-color-error)', color: 'var(--md-sys-color-error)', borderRadius: '8px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' }}>
-                                  Disconnect
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                    ))}
                   </div>
-                ) : (
-                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>No active sessions</div>
-                )}
-              </div>
-
-              {/* System Info */}
-              <div className="dash-section">
-                <div className="dash-section-title">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                  System
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
-                  {[
-                    { label: 'Uptime', value: uptimeFmt(dashboardStats.serverUptime) },
-                    { label: 'Node.js', value: dashboardStats.nodeVersion },
-                    { label: 'Platform', value: dashboardStats.osInfo },
-                    { label: 'CPUs', value: dashboardStats.cpuCount },
-                    { label: 'Database', value: fmt(dashboardStats.dbSizeBytes) },
-                    { label: 'Memory (Heap)', value: `${fmt(dashboardStats.memoryUsage?.heapUsed || 0)} / ${fmt(dashboardStats.memoryUsage?.heapTotal || 0)}` },
-                    { label: 'System RAM', value: `${fmt((dashboardStats.totalMemory || 0) - (dashboardStats.freeMemory || 0))} / ${fmt(dashboardStats.totalMemory || 0)}` },
-                    { label: 'Spaces', value: dashboardStats.totalSpaces },
-                  ].map((item, i) => (
-                    <div key={i} style={{ padding: '10px', borderRadius: '10px', background: 'var(--md-sys-color-surface-variant)' }}>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>{item.label}</div>
-                      <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>{item.value}</div>
-                    </div>
-                  ))}
+
+                {/* Refresh */}
+                <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`${socketUrl}/api/admin/stats`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      if (res.ok) setDashboardStats(await res.json());
+                    }}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                      borderRadius: '10px',
+                      padding: '6px 16px',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      margin: '0 auto',
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="23 4 23 10 17 10"></polyline>
+                      <polyline points="1 20 1 14 7 14"></polyline>
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                    Refresh Stats
+                  </button>
                 </div>
               </div>
-
-              {/* Refresh */}
-              <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-                <button onClick={async () => {
-                  const res = await fetch(`${socketUrl}/api/admin/stats`, { headers: { 'Authorization': `Bearer ${token}` } });
-                  if (res.ok) setDashboardStats(await res.json());
-                }} style={{ background: 'none', border: '1px solid var(--md-sys-color-outline-variant)', color: 'var(--md-sys-color-on-surface-variant)', borderRadius: '10px', padding: '6px 16px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '6px', margin: '0 auto' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                  Refresh Stats
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {activeTab === 'dashboard' && !dashboardStats && (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>
@@ -1341,29 +2288,123 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
           </div>
         )}
 
-
         {activeTab === 'users' && !editingUser && (
           <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
             {/* Header row with title, search, filters, and actions */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '8px',
+                marginBottom: '1rem',
+              }}
+            >
               <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
                 {users.length} Users
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '8px', pointerEvents: 'none' }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input type="text" placeholder="Search users..." value={userSearchQuery} onChange={(e) => setUserSearchQuery(e.target.value)}
-                    style={{ padding: '6px 12px 6px 28px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.8rem', width: '160px' }} />
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--md-sys-color-outline)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ position: 'absolute', left: '8px', pointerEvents: 'none' }}
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Search users..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    style={{
+                      padding: '6px 12px 6px 28px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                      color: 'var(--md-sys-color-on-surface)',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      fontSize: '0.8rem',
+                      width: '160px',
+                    }}
+                  />
                 </div>
-                <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
-                  style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}>
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    backgroundColor: 'var(--md-sys-color-surface-variant)',
+                    color: 'var(--md-sys-color-on-surface)',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '0.8rem',
+                  }}
+                >
                   <option value="">All Roles</option>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
-                <button onClick={() => handleExportUsers('csv')} title="Export CSV" style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 500, transition: 'background 0.15s' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <button
+                  onClick={() => handleExportUsers('csv')}
+                  title="Export CSV"
+                  style={{
+                    padding: '6px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    background: 'var(--md-sys-color-surface)',
+                    color: 'var(--md-sys-color-on-surface)',
+                    cursor: 'pointer',
+                    fontSize: '0.78rem',
+                    fontFamily: 'inherit',
+                    fontWeight: 500,
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
                   Export
                 </button>
               </div>
@@ -1371,98 +2412,359 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
             {/* Bulk action bar */}
             {selectedUsers.size > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '10px', background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)', marginBottom: '0.75rem', fontSize: '0.82rem', flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  background: 'var(--md-sys-color-primary-container)',
+                  color: 'var(--md-sys-color-on-primary-container)',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.82rem',
+                  flexWrap: 'wrap',
+                }}
+              >
                 <strong>{selectedUsers.size} selected</strong>
                 <div style={{ flex: 1 }} />
-                <button onClick={() => handleBulkSuspend(true)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#f59e0b', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Suspend</button>
-                <button onClick={() => handleBulkSuspend(false)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Unsuspend</button>
-                <button onClick={handleBulkDelete} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit' }}>Delete</button>
-                <button onClick={() => setSelectedUsers(new Set())} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-primary-container)', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'inherit' }}>Clear</button>
+                <button
+                  onClick={() => handleBulkSuspend(true)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: '#f59e0b',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Suspend
+                </button>
+                <button
+                  onClick={() => handleBulkSuspend(false)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: 'var(--md-sys-color-primary)',
+                    color: 'var(--md-sys-color-on-primary)',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Unsuspend
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: '#ef4444',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setSelectedUsers(new Set())}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    background: 'transparent',
+                    color: 'var(--md-sys-color-on-primary-container)',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Clear
+                </button>
               </div>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {(() => {
                 const q = userSearchQuery.toLowerCase();
-                return [...users].filter(u => {
-                  if (roleFilter && u.role !== roleFilter) return false;
-                  if (q) {
-                    const haystack = `${u.username} ${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase();
-                    if (!haystack.includes(q)) return false;
-                  }
-                  return true;
-                }).sort((a, b) => {
-                  if (!sortConfig) return 0;
-                  let valA = String(a[sortConfig.key] || '').toLowerCase();
-                  let valB = String(b[sortConfig.key] || '').toLowerCase();
-                  if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-                  if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-                  return 0;
-                }).map(u => {
-                  const displayName = (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username) || u.username;
-                  const hasName = !!u.first_name;
-                  const hasAvatar = !!u.avatar;
-                  const hasEmail = !!u.email;
-                  const onboardScore = [hasName, hasAvatar, hasEmail].filter(Boolean).length;
-                  const isSelected = selectedUsers.has(u.id);
-                  return (
-                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '12px', background: isSelected ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', cursor: 'pointer', transition: 'background 0.15s', opacity: u.suspended ? 0.6 : 1 }} onClick={() => setEditingUser(u)}>
-                      {/* Checkbox */}
-                      <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); const next = new Set(selectedUsers); if (isSelected) next.delete(u.id); else next.add(u.id); setSelectedUsers(next); }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--md-sys-color-primary)', flexShrink: 0 }} />
-                      {/* Avatar */}
-                      {u.avatar ? (
-                        <img src={u.avatar} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} alt="" />
-                      ) : (
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 'bold', flexShrink: 0 }}>
-                          {displayName[0]?.toUpperCase() || '?'}
-                        </div>
-                      )}
-                      {/* User info */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
-                          {u.suspended ? <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: 700, background: '#f59e0b', color: '#fff', letterSpacing: '0.04em' }}>SUSPENDED</span> : null}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>@{u.username} · {u.email || 'no email'}</div>
-                      </div>
-                      {/* Onboarding ring */}
-                      <div title={`Profile ${onboardScore}/3 complete`} style={{ position: 'relative', width: '28px', height: '28px', flexShrink: 0 }}>
-                        <svg viewBox="0 0 36 36" width="28" height="28">
-                          <circle cx="18" cy="18" r="15" fill="none" stroke="var(--md-sys-color-outline-variant)" strokeWidth="3" />
-                          <circle cx="18" cy="18" r="15" fill="none" stroke={onboardScore === 3 ? 'var(--md-sys-color-primary)' : '#f59e0b'} strokeWidth="3"
-                            strokeDasharray={`${(onboardScore / 3) * 94.2} 94.2`} strokeLinecap="round" transform="rotate(-90 18 18)" />
-                        </svg>
-                        <span style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--md-sys-color-on-surface)' }}>{onboardScore}</span>
-                      </div>
-                      {/* Role badge */}
-                      <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', flexShrink: 0,
-                        backgroundColor: u.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
-                        color: u.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
-                        {u.role}
-                      </span>
-                      {/* Suspend button */}
-                      <button onClick={(e) => { e.stopPropagation(); handleSuspendUser(u.id); }} className="icon-btn" title={u.suspended ? 'Unsuspend' : 'Suspend'} style={{ padding: '4px', flexShrink: 0, color: u.suspended ? 'var(--md-sys-color-primary)' : '#f59e0b' }}>
-                        {u.suspended ? (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                return [...users]
+                  .filter((u) => {
+                    if (roleFilter && u.role !== roleFilter) return false;
+                    if (q) {
+                      const haystack =
+                        `${u.username} ${u.first_name || ''} ${u.last_name || ''} ${u.email || ''}`.toLowerCase();
+                      if (!haystack.includes(q)) return false;
+                    }
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    if (!sortConfig) return 0;
+                    let valA = String(a[sortConfig.key] || '').toLowerCase();
+                    let valB = String(b[sortConfig.key] || '').toLowerCase();
+                    if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                    if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                    return 0;
+                  })
+                  .map((u) => {
+                    const displayName =
+                      (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username) || u.username;
+                    const hasName = !!u.first_name;
+                    const hasAvatar = !!u.avatar;
+                    const hasEmail = !!u.email;
+                    const onboardScore = [hasName, hasAvatar, hasEmail].filter(Boolean).length;
+                    const isSelected = selectedUsers.has(u.id);
+                    return (
+                      <div
+                        key={u.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          padding: '10px 12px',
+                          borderRadius: '12px',
+                          background: isSelected
+                            ? 'var(--md-sys-color-primary-container)'
+                            : 'var(--md-sys-color-surface-variant)',
+                          cursor: 'pointer',
+                          transition: 'background 0.15s',
+                          opacity: u.suspended ? 0.6 : 1,
+                        }}
+                        onClick={() => setEditingUser(u)}
+                      >
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const next = new Set(selectedUsers);
+                            if (isSelected) next.delete(u.id);
+                            else next.add(u.id);
+                            setSelectedUsers(next);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            width: '16px',
+                            height: '16px',
+                            cursor: 'pointer',
+                            accentColor: 'var(--md-sys-color-primary)',
+                            flexShrink: 0,
+                          }}
+                        />
+                        {/* Avatar */}
+                        {u.avatar ? (
+                          <img
+                            src={u.avatar}
+                            style={{
+                              width: '36px',
+                              height: '36px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                            }}
+                            alt=""
+                          />
                         ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                          <div
+                            style={{
+                              width: '36px',
+                              height: '36px',
+                              borderRadius: '50%',
+                              background: 'var(--md-sys-color-primary)',
+                              color: 'var(--md-sys-color-on-primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.85rem',
+                              fontWeight: 'bold',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {displayName[0]?.toUpperCase() || '?'}
+                          </div>
                         )}
-                      </button>
-                      {/* Delete button */}
-                      <button onClick={(e) => { e.stopPropagation(); setUserToDelete(u); }} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
-                    </div>
-                  );
-                });
+                        {/* User info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span
+                              style={{
+                                fontWeight: 500,
+                                color: 'var(--md-sys-color-on-surface)',
+                                fontSize: '0.88rem',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {displayName}
+                            </span>
+                            {u.suspended ? (
+                              <span
+                                style={{
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.62rem',
+                                  fontWeight: 700,
+                                  background: '#f59e0b',
+                                  color: '#fff',
+                                  letterSpacing: '0.04em',
+                                }}
+                              >
+                                SUSPENDED
+                              </span>
+                            ) : null}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                            {u.email || 'no email'}
+                          </div>
+                        </div>
+                        {/* Onboarding ring */}
+                        <div
+                          title={`Profile ${onboardScore}/3 complete`}
+                          style={{ position: 'relative', width: '28px', height: '28px', flexShrink: 0 }}
+                        >
+                          <svg viewBox="0 0 36 36" width="28" height="28">
+                            <circle
+                              cx="18"
+                              cy="18"
+                              r="15"
+                              fill="none"
+                              stroke="var(--md-sys-color-outline-variant)"
+                              strokeWidth="3"
+                            />
+                            <circle
+                              cx="18"
+                              cy="18"
+                              r="15"
+                              fill="none"
+                              stroke={onboardScore === 3 ? 'var(--md-sys-color-primary)' : '#f59e0b'}
+                              strokeWidth="3"
+                              strokeDasharray={`${(onboardScore / 3) * 94.2} 94.2`}
+                              strokeLinecap="round"
+                              transform="rotate(-90 18 18)"
+                            />
+                          </svg>
+                          <span
+                            style={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              fontSize: '0.58rem',
+                              fontWeight: 700,
+                              color: 'var(--md-sys-color-on-surface)',
+                            }}
+                          >
+                            {onboardScore}
+                          </span>
+                        </div>
+                        {/* Role badge */}
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.68rem',
+                            fontWeight: 600,
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                            flexShrink: 0,
+                            backgroundColor:
+                              u.role === 'admin'
+                                ? 'var(--md-sys-color-primary-container)'
+                                : 'var(--md-sys-color-surface)',
+                            color:
+                              u.role === 'admin'
+                                ? 'var(--md-sys-color-on-primary-container)'
+                                : 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          {u.role}
+                        </span>
+                        {/* Suspend button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSuspendUser(u.id);
+                          }}
+                          className="icon-btn"
+                          title={u.suspended ? 'Unsuspend' : 'Suspend'}
+                          style={{
+                            padding: '4px',
+                            flexShrink: 0,
+                            color: u.suspended ? 'var(--md-sys-color-primary)' : '#f59e0b',
+                          }}
+                        >
+                          {u.suspended ? (
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
+                              <path d="m9 12 2 2 4-4" />
+                            </svg>
+                          ) : (
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="12" r="10" />
+                              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                            </svg>
+                          )}
+                        </button>
+                        {/* Delete button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUserToDelete(u);
+                          }}
+                          className="icon-btn danger"
+                          title="Delete"
+                          style={{ padding: '4px', flexShrink: 0 }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  });
               })()}
             </div>
           </div>
         )}
 
-{activeTab === 'users' && editingUser && (
+        {activeTab === 'users' && editingUser && (
           <form onSubmit={handleUserUpdate}>
             <style>{`
               .admin-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
@@ -1474,22 +2776,117 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
               .ae-input { background: var(--md-sys-color-surface-variant); border: 1px solid var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface); padding: 9px 12px; border-radius: 10px; outline: none; font-family: inherit; font-size: 0.85rem; width: 100%; box-sizing: border-box; min-width: 0; transition: border-color 0.2s; }
               .ae-input:focus { border-color: var(--md-sys-color-primary); }
             `}</style>
-            <div style={{ maxWidth: '660px', margin: '0 auto', background: 'var(--md-sys-color-surface-variant)', borderRadius: '24px', padding: '1.5rem', boxSizing: 'border-box' }}>
-
+            <div
+              style={{
+                maxWidth: '660px',
+                margin: '0 auto',
+                background: 'var(--md-sys-color-surface-variant)',
+                borderRadius: '24px',
+                padding: '1.5rem',
+                boxSizing: 'border-box',
+              }}
+            >
               {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '1.25rem',
+                }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                  <h2 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Edit User</h2>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <button type="button" onClick={() => fetchLoginHistory(editingUser.id)} title="Login History" style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 500, transition: 'background 0.15s' }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      History
-                    </button>
+                  <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--md-sys-color-primary)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  <h2
+                    style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}
+                  >
+                    Edit User
+                  </h2>
                 </div>
-                <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="icon-btn" title="Back to Users" style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--md-sys-color-surface)', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => fetchLoginHistory(editingUser.id)}
+                    title="Login History"
+                    style={{
+                      padding: '6px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      background: 'var(--md-sys-color-surface)',
+                      color: 'var(--md-sys-color-on-surface)',
+                      cursor: 'pointer',
+                      fontSize: '0.78rem',
+                      fontFamily: 'inherit',
+                      fontWeight: 500,
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    History
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingUser(null);
+                    setAdminResetPw('');
+                    setAdminResetMsg(null);
+                  }}
+                  className="icon-btn"
+                  title="Back to Users"
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--md-sys-color-surface)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
                 </button>
               </div>
 
@@ -1498,39 +2895,157 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 <div className="admin-edit-col">
                   <div className="ae-section">
                     <div className="ae-section-title">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                      </svg>
                       Profile
                     </div>
 
                     {/* Hero Avatar */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginBottom: '12px',
+                      }}
+                    >
                       <div style={{ position: 'relative' }}>
                         {editingUser.avatar ? (
-                          <img src={editingUser.avatar} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--md-sys-color-primary)' }} alt="Avatar" />
+                          <img
+                            src={editingUser.avatar}
+                            style={{
+                              width: '80px',
+                              height: '80px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              border: '3px solid var(--md-sys-color-primary)',
+                            }}
+                            alt="Avatar"
+                          />
                         ) : (
-                          <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 'bold' }}>
+                          <div
+                            style={{
+                              width: '80px',
+                              height: '80px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--md-sys-color-primary)',
+                              color: 'var(--md-sys-color-on-primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '2rem',
+                              fontWeight: 'bold',
+                            }}
+                          >
                             {(editingUser.first_name || editingUser.username || '?')[0].toUpperCase()}
                           </div>
                         )}
-                        <label style={{ position: 'absolute', bottom: '0', right: '0', width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid var(--md-sys-color-surface)', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }} title="Upload Avatar">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                          <input type="file" accept="image/*" style={{ display: 'none' }} onClick={(e) => { e.target.value = null; }} onChange={(e) => {
-                            const file = e.target.files[0];
-                            if(file) {
-                              const reader = new FileReader();
-                              reader.onload = (event) => setAdminCroppingImage(event.target.result);
-                              reader.readAsDataURL(file);
-                            }
-                          }} />
+                        <label
+                          style={{
+                            position: 'absolute',
+                            bottom: '0',
+                            right: '0',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--md-sys-color-primary)',
+                            color: 'var(--md-sys-color-on-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            border: '2px solid var(--md-sys-color-surface)',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                          }}
+                          title="Upload Avatar"
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                          </svg>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onClick={(e) => {
+                              e.target.value = null;
+                            }}
+                            onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (event) => setAdminCroppingImage(event.target.result);
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
                         </label>
                       </div>
                       {editingUser.avatar && (
-                        <button type="button" onClick={() => setEditingUser({...editingUser, avatar: null})} style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: 'var(--md-sys-color-error)', cursor: 'pointer', padding: '2px 8px' }}>Remove Avatar</button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser({ ...editingUser, avatar: null })}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: '0.72rem',
+                            color: 'var(--md-sys-color-error)',
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                          }}
+                        >
+                          Remove Avatar
+                        </button>
                       )}
-                      <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--md-sys-color-on-surface)', textAlign: 'center' }}>
-                        {editingUser.first_name ? `${editingUser.first_name} ${editingUser.last_name || ''}`.trim() : editingUser.username}
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '1.05rem',
+                          color: 'var(--md-sys-color-on-surface)',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {editingUser.first_name
+                          ? `${editingUser.first_name} ${editingUser.last_name || ''}`.trim()
+                          : editingUser.username}
                       </div>
-                      <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.04em', backgroundColor: editingUser.role === 'admin' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)', color: editingUser.role === 'admin' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', textTransform: 'uppercase' }}>
+                      <span
+                        style={{
+                          padding: '3px 10px',
+                          borderRadius: '12px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          letterSpacing: '0.04em',
+                          backgroundColor:
+                            editingUser.role === 'admin'
+                              ? 'var(--md-sys-color-primary-container)'
+                              : 'var(--md-sys-color-surface)',
+                          color:
+                            editingUser.role === 'admin'
+                              ? 'var(--md-sys-color-on-primary-container)'
+                              : 'var(--md-sys-color-on-surface-variant)',
+                          textTransform: 'uppercase',
+                        }}
+                      >
                         {editingUser.role}
                       </span>
                     </div>
@@ -1539,24 +3054,63 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                       <div>
                         <label className="ae-label">First Name</label>
-                        <input className="ae-input" type="text" value={editingUser.first_name || ''} onChange={(e) => setEditingUser({...editingUser, first_name: e.target.value})} placeholder="First" />
+                        <input
+                          className="ae-input"
+                          type="text"
+                          value={editingUser.first_name || ''}
+                          onChange={(e) => setEditingUser({ ...editingUser, first_name: e.target.value })}
+                          placeholder="First"
+                        />
                       </div>
                       <div>
                         <label className="ae-label">Last Name</label>
-                        <input className="ae-input" type="text" value={editingUser.last_name || ''} onChange={(e) => setEditingUser({...editingUser, last_name: e.target.value})} placeholder="Last" />
+                        <input
+                          className="ae-input"
+                          type="text"
+                          value={editingUser.last_name || ''}
+                          onChange={(e) => setEditingUser({ ...editingUser, last_name: e.target.value })}
+                          placeholder="Last"
+                        />
                       </div>
                     </div>
                     <div style={{ marginBottom: '8px' }}>
                       <label className="ae-label">Email</label>
-                      <input className="ae-input" type="email" value={editingUser.email || ''} onChange={(e) => setEditingUser({...editingUser, email: e.target.value})} placeholder="user@example.com" />
+                      <input
+                        className="ae-input"
+                        type="email"
+                        value={editingUser.email || ''}
+                        onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                        placeholder="user@example.com"
+                      />
                     </div>
                     <div style={{ position: 'relative', zIndex: showLocSuggestions ? 10 : 1 }}>
                       <label className="ae-label">Location</label>
-                      <input className="ae-input" type="text" value={editingUser.location || ''} onChange={(e) => handleLocChange(e.target.value)} onFocus={() => { if (editingUser.location?.length >= 2) setShowLocSuggestions(true); }} onBlur={() => setTimeout(() => setShowLocSuggestions(false), 200)} placeholder="City, State" />
+                      <input
+                        className="ae-input"
+                        type="text"
+                        value={editingUser.location || ''}
+                        onChange={(e) => handleLocChange(e.target.value)}
+                        onFocus={() => {
+                          if (editingUser.location?.length >= 2) setShowLocSuggestions(true);
+                        }}
+                        onBlur={() => setTimeout(() => setShowLocSuggestions(false), 200)}
+                        placeholder="City, State"
+                      />
                       {showLocSuggestions && locSuggestions.length > 0 && (
                         <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
                           {locSuggestions.map((s, idx) => (
-                            <div key={idx} className="suggestion-item" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => { const tz = !editingUser.timezone ? inferTimezone(s) : null; setEditingUser({ ...editingUser, location: s, ...(tz ? { timezone: tz } : {}) }); setShowLocSuggestions(false); }}>{s}</div>
+                            <div
+                              key={idx}
+                              className="suggestion-item"
+                              style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                              onClick={() => {
+                                const tz = !editingUser.timezone ? inferTimezone(s) : null;
+                                setEditingUser({ ...editingUser, location: s, ...(tz ? { timezone: tz } : {}) });
+                                setShowLocSuggestions(false);
+                              }}
+                            >
+                              {s}
+                            </div>
                           ))}
                         </div>
                       )}
@@ -1566,30 +3120,110 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                   {/* Status & Bio */}
                   <div className="ae-section">
                     <div className="ae-section-title">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                      </svg>
                       Status & Bio
                     </div>
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                      {STATUS_ICONS.map(icon => (
-                        <button key={icon.id} type="button" title={icon.label} onClick={() => { const ne = icon.id === 'none' ? 'available' : icon.id; setEditingUser({ ...editingUser, status_emoji: ne, status_text: icon.id === 'none' ? '' : editingUser.status_text }); }}
-                          style={{ width: '30px', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: editingUser.status_emoji === icon.id ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: icon.color || 'var(--md-sys-color-on-surface-variant)', transition: 'all 0.15s', outline: editingUser.status_emoji === icon.id ? '2px solid var(--md-sys-color-primary)' : '1px solid var(--md-sys-color-outline-variant)', outlineOffset: '-1px' }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" dangerouslySetInnerHTML={{ __html: icon.svg }} />
+                      {STATUS_ICONS.map((icon) => (
+                        <button
+                          key={icon.id}
+                          type="button"
+                          title={icon.label}
+                          onClick={() => {
+                            const ne = icon.id === 'none' ? 'available' : icon.id;
+                            setEditingUser({
+                              ...editingUser,
+                              status_emoji: ne,
+                              status_text: icon.id === 'none' ? '' : editingUser.status_text,
+                            });
+                          }}
+                          style={{
+                            width: '30px',
+                            height: '30px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background:
+                              editingUser.status_emoji === icon.id
+                                ? 'var(--md-sys-color-primary-container)'
+                                : 'var(--md-sys-color-surface-variant)',
+                            color: icon.color || 'var(--md-sys-color-on-surface-variant)',
+                            transition: 'all 0.15s',
+                            outline:
+                              editingUser.status_emoji === icon.id
+                                ? '2px solid var(--md-sys-color-primary)'
+                                : '1px solid var(--md-sys-color-outline-variant)',
+                            outlineOffset: '-1px',
+                          }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            dangerouslySetInnerHTML={{ __html: icon.svg }}
+                          />
                         </button>
                       ))}
                     </div>
                     {editingUser.status_emoji && editingUser.status_emoji !== 'none' && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                         <StatusIcon statusId={editingUser.status_emoji} size={18} />
-                        <input className="ae-input" type="text" value={editingUser.status_text || ''} onChange={(e) => setEditingUser({ ...editingUser, status_text: e.target.value })} placeholder={STATUS_ICONS.find(s => s.id === editingUser.status_emoji)?.label || 'Status message...'} maxLength={80} />
+                        <input
+                          className="ae-input"
+                          type="text"
+                          value={editingUser.status_text || ''}
+                          onChange={(e) => setEditingUser({ ...editingUser, status_text: e.target.value })}
+                          placeholder={
+                            STATUS_ICONS.find((s) => s.id === editingUser.status_emoji)?.label || 'Status message...'
+                          }
+                          maxLength={80}
+                        />
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <label className="ae-label" style={{ marginBottom: 0 }}>Bio</label>
-                      <span style={{ fontSize: '0.7rem', color: (editingUser.bio || '').length > 180 ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)', fontVariantNumeric: 'tabular-nums' }}>
+                      <label className="ae-label" style={{ marginBottom: 0 }}>
+                        Bio
+                      </label>
+                      <span
+                        style={{
+                          fontSize: '0.7rem',
+                          color:
+                            (editingUser.bio || '').length > 180
+                              ? 'var(--md-sys-color-error)'
+                              : 'var(--md-sys-color-outline)',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
                         {(editingUser.bio || '').length}/200
                       </span>
                     </div>
-                    <textarea className="ae-input" value={editingUser.bio || ''} onChange={(e) => { if (e.target.value.length <= 200) setEditingUser({ ...editingUser, bio: e.target.value }); }} placeholder="User bio..." rows={3} style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }} />
+                    <textarea
+                      className="ae-input"
+                      value={editingUser.bio || ''}
+                      onChange={(e) => {
+                        if (e.target.value.length <= 200) setEditingUser({ ...editingUser, bio: e.target.value });
+                      }}
+                      placeholder="User bio..."
+                      rows={3}
+                      style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }}
+                    />
                   </div>
                 </div>
 
@@ -1597,45 +3231,148 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
                 <div className="admin-edit-col">
                   <div className="ae-section">
                     <div className="ae-section-title">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      </svg>
                       Role & Preferences
                     </div>
                     <div style={{ marginBottom: '10px' }}>
                       <label className="ae-label">Role</label>
-                      <select className="ae-input" value={editingUser.role} onChange={(e) => setEditingUser({...editingUser, role: e.target.value})} style={{ cursor: 'pointer' }}>
+                      <select
+                        className="ae-input"
+                        value={editingUser.role}
+                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
                       </select>
                     </div>
                     <div style={{ marginBottom: '10px' }}>
                       <label className="ae-label">Timezone</label>
-                      <select className="ae-input" value={editingUser.timezone || ''} onChange={(e) => setEditingUser({ ...editingUser, timezone: e.target.value })} style={{ cursor: 'pointer' }}>
+                      <select
+                        className="ae-input"
+                        value={editingUser.timezone || ''}
+                        onChange={(e) => setEditingUser({ ...editingUser, timezone: e.target.value })}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <option value="">Not set</option>
-                        {['America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Phoenix','America/Toronto','America/Vancouver','America/Mexico_City','America/Sao_Paulo','America/Argentina/Buenos_Aires','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Stockholm','Europe/Moscow','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Asia/Singapore','Asia/Hong_Kong','Australia/Sydney','Australia/Melbourne','Australia/Perth','Pacific/Auckland','Pacific/Fiji'].map(tz => (
-                          <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                        {[
+                          'America/New_York',
+                          'America/Chicago',
+                          'America/Denver',
+                          'America/Los_Angeles',
+                          'America/Anchorage',
+                          'Pacific/Honolulu',
+                          'America/Phoenix',
+                          'America/Toronto',
+                          'America/Vancouver',
+                          'America/Mexico_City',
+                          'America/Sao_Paulo',
+                          'America/Argentina/Buenos_Aires',
+                          'Europe/London',
+                          'Europe/Paris',
+                          'Europe/Berlin',
+                          'Europe/Madrid',
+                          'Europe/Rome',
+                          'Europe/Amsterdam',
+                          'Europe/Stockholm',
+                          'Europe/Moscow',
+                          'Africa/Cairo',
+                          'Africa/Johannesburg',
+                          'Africa/Lagos',
+                          'Asia/Dubai',
+                          'Asia/Kolkata',
+                          'Asia/Shanghai',
+                          'Asia/Tokyo',
+                          'Asia/Seoul',
+                          'Asia/Singapore',
+                          'Asia/Hong_Kong',
+                          'Australia/Sydney',
+                          'Australia/Melbourne',
+                          'Australia/Perth',
+                          'Pacific/Auckland',
+                          'Pacific/Fiji',
+                        ].map((tz) => (
+                          <option key={tz} value={tz}>
+                            {tz.replace(/_/g, ' ')}
+                          </option>
                         ))}
                       </select>
                     </div>
                     <div>
                       <label className="ae-label">Primary Font</label>
-                      <FontPicker value={editingUser.font_family || 'Inter'} onApply={(val) => setEditingUser({ ...editingUser, font_family: val })} />
+                      <FontPicker
+                        value={editingUser.font_family || 'Inter'}
+                        onApply={(val) => setEditingUser({ ...editingUser, font_family: val })}
+                      />
                     </div>
                   </div>
 
                   {/* Security */}
                   <div className="ae-section">
                     <div className="ae-section-title">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                      </svg>
                       Security
                     </div>
                     <div>
                       <label className="ae-label">Reset Password</label>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                        <input className="ae-input" type="password" placeholder="Min 6 characters" value={adminResetPw} onChange={(e) => { setAdminResetPw(e.target.value); setAdminResetMsg(null); }} style={{ flex: 1 }} />
-                        <button type="button" onClick={handleAdminResetPassword} className="btn-secondary" style={{ whiteSpace: 'nowrap', borderRadius: '10px', padding: '0 14px', fontSize: '0.8rem', flexShrink: 0 }}>Set</button>
+                        <input
+                          className="ae-input"
+                          type="password"
+                          placeholder="Min 6 characters"
+                          value={adminResetPw}
+                          onChange={(e) => {
+                            setAdminResetPw(e.target.value);
+                            setAdminResetMsg(null);
+                          }}
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAdminResetPassword}
+                          className="btn-secondary"
+                          style={{
+                            whiteSpace: 'nowrap',
+                            borderRadius: '10px',
+                            padding: '0 14px',
+                            fontSize: '0.8rem',
+                            flexShrink: 0,
+                          }}
+                        >
+                          Set
+                        </button>
                       </div>
                       {adminResetMsg && (
-                        <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: adminResetMsg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>
+                        <p
+                          style={{
+                            margin: '6px 0 0',
+                            fontSize: '0.78rem',
+                            color: adminResetMsg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)',
+                          }}
+                        >
                           {adminResetMsg.text}
                         </p>
                       )}
@@ -1644,10 +3381,19 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
                   {/* Meta info */}
                   <div className="ae-section" style={{ padding: '0.75rem 1.15rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: '0.72rem',
+                        color: 'var(--md-sys-color-outline)',
+                      }}
+                    >
                       <span>ID: {editingUser.id}</span>
-                      <span>@{editingUser.username}</span>
-                      {editingUser.created_at && <span>Joined {new Date(editingUser.created_at).toLocaleDateString()}</span>}
+                      <span>{editingUser.email || ''}</span>
+                      {editingUser.created_at && (
+                        <span>Joined {new Date(editingUser.created_at).toLocaleDateString()}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1655,8 +3401,25 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
               {/* Action buttons */}
               <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem' }}>
-                <button type="submit" className="btn-primary" style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}>Save Changes</button>
-                <button type="button" onClick={() => { setEditingUser(null); setAdminResetPw(''); setAdminResetMsg(null); }} className="btn-secondary" style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}>Discard</button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}
+                >
+                  Save Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingUser(null);
+                    setAdminResetPw('');
+                    setAdminResetMsg(null);
+                  }}
+                  className="btn-secondary"
+                  style={{ flex: 1, padding: '0.75rem', borderRadius: '12px' }}
+                >
+                  Discard
+                </button>
               </div>
             </div>
           </form>
@@ -1664,193 +3427,625 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
         {activeTab === 'assets' && (
           <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '8px',
+                marginBottom: '1rem',
+              }}
+            >
               <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
                 {assets.length} Assets
               </div>
-              <select 
-                value={typeFilter} 
+              <select
+                value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--md-sys-color-outline-variant)',
+                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                  color: 'var(--md-sys-color-on-surface)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '0.8rem',
+                }}
               >
                 <option value="">All Files</option>
                 <option value="image">Images</option>
                 <option value="video">Videos</option>
+                <option value="audio">Audio</option>
                 <option value="other">Documents / Other</option>
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px' }}>
-              {assets.filter(a => {
-                if (!typeFilter) return true;
-                const type = a.type || '';
-                if (typeFilter === 'image') return type.startsWith('image/');
-                if (typeFilter === 'video') return type.startsWith('video/');
-                return !type.startsWith('image/') && !type.startsWith('video/');
-              }).sort((a, b) => {
-                if (!sortConfig) return 0;
-                let valA = a[sortConfig.key] || '';
-                let valB = b[sortConfig.key] || '';
-                if (sortConfig.key === 'size') { valA = Number(valA); valB = Number(valB); }
-                else { valA = String(valA).toLowerCase(); valB = String(valB).toLowerCase(); }
-                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-                return 0;
-              }).map(a => {
-                const assetUrl = a.file.startsWith('http') ? a.file : a.file.startsWith('/uploads/') ? `${socketUrl}${a.file}` : `${socketUrl}/uploads/${a.file}`;
-                const isImage = a.type && a.type.startsWith('image/');
-                const isVideo = a.type && a.type.startsWith('video/');
-                const sizeStr = a.size >= 1024 ? `${(a.size / 1024).toFixed(1)} MB` : `${a.size} KB`;
-                return (
-                  <div key={a.file} style={{ borderRadius: '12px', overflow: 'hidden', background: 'var(--md-sys-color-surface-variant)', border: '1px solid var(--md-sys-color-outline-variant)', position: 'relative', transition: 'transform 0.15s, box-shadow 0.15s' }}>
-                    <div style={{ width: '100%', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)', cursor: 'pointer', overflow: 'hidden' }} onClick={() => onPreviewAsset(a)}>
-                      {isVideo ? (
-                        <video src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : isImage ? (
-                        <img src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
-                      ) : (
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="1.5"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                      )}
-                    </div>
-                    <div style={{ padding: '8px 10px' }}>
-                      <div style={{ fontSize: '0.72rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px' }} title={a.file}>{a.file.split('/').pop()}</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--md-sys-color-outline)' }}>{sizeStr}</span>
-                        <button onClick={() => setAssetToDelete(a)} className="icon-btn danger" title="Delete" style={{ padding: '2px', width: '22px', height: '22px' }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
+              {assets
+                .filter((a) => {
+                  if (!typeFilter) return true;
+                  const type = a.type || '';
+                  if (typeFilter === 'image') return type.startsWith('image/');
+                  if (typeFilter === 'video') return type.startsWith('video/');
+                  if (typeFilter === 'audio') return type.startsWith('audio/');
+                  return !type.startsWith('image/') && !type.startsWith('video/') && !type.startsWith('audio/');
+                })
+                .sort((a, b) => {
+                  if (!sortConfig) return 0;
+                  let valA = a[sortConfig.key] || '';
+                  let valB = b[sortConfig.key] || '';
+                  if (sortConfig.key === 'size') {
+                    valA = Number(valA);
+                    valB = Number(valB);
+                  } else {
+                    valA = String(valA).toLowerCase();
+                    valB = String(valB).toLowerCase();
+                  }
+                  if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                  if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                  return 0;
+                })
+                .map((a) => {
+                  const assetUrl = a.file.startsWith('http')
+                    ? a.file
+                    : a.file.startsWith('/uploads/')
+                      ? `${socketUrl}${a.file}`
+                      : `${socketUrl}/uploads/${a.file}`;
+                  const isImage = a.type && a.type.startsWith('image/');
+                  const isVideo = a.type && a.type.startsWith('video/') && !a.file.includes('voice-');
+                  const isAudio = (a.type && a.type.startsWith('audio/')) || a.file.includes('voice-');
+                  const sizeStr = a.size >= 1024 ? `${(a.size / 1024).toFixed(1)} MB` : `${a.size} KB`;
+                  return (
+                    <div
+                      key={a.file}
+                      style={{
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        background: 'var(--md-sys-color-surface-variant)',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        position: 'relative',
+                        transition: 'transform 0.15s, box-shadow 0.15s',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '100px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: 'rgba(0,0,0,0.2)',
+                          cursor: 'pointer',
+                          overflow: 'hidden',
+                        }}
+                        onClick={() => onPreviewAsset(a)}
+                      >
+                        {isVideo ? (
+                          <video src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : isImage ? (
+                          <img src={assetUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                        ) : isAudio ? (
+                          <div
+                            style={{
+                              width: '52px',
+                              height: '62px',
+                              backgroundColor: '#9C27B0',
+                              borderRadius: '4px 14px 4px 4px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              position: 'relative',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                              gap: '2px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: '-1px',
+                                right: '-1px',
+                                width: '14px',
+                                height: '14px',
+                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                borderBottomLeftRadius: '6px',
+                              }}
+                            ></div>
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#fff"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M9 18V5l12-2v13" />
+                              <circle cx="6" cy="18" r="3" />
+                              <circle cx="18" cy="16" r="3" />
+                            </svg>
+                            <span
+                              style={{
+                                color: '#fff',
+                                fontSize: '0.55rem',
+                                fontWeight: 'bold',
+                                letterSpacing: '0.5px',
+                                userSelect: 'none',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {a.file.split('.').pop().substring(0, 4)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              width: '52px',
+                              height: '62px',
+                              backgroundColor: '#FF9800',
+                              borderRadius: '4px 14px 4px 4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              position: 'relative',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: '-1px',
+                                right: '-1px',
+                                width: '14px',
+                                height: '14px',
+                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                borderBottomLeftRadius: '6px',
+                              }}
+                            ></div>
+                            <span
+                              style={{
+                                color: 'var(--md-sys-color-on-primary)',
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                letterSpacing: '0.5px',
+                                marginTop: '6px',
+                                userSelect: 'none',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {a.file.split('.').pop().substring(0, 4)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ padding: '8px 10px' }}>
+                        <div
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 500,
+                            color: 'var(--md-sys-color-on-surface)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            marginBottom: '2px',
+                          }}
+                          title={a.file}
+                        >
+                          {a.file.split('/').pop()}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--md-sys-color-outline)' }}>{sizeStr}</span>
+                          <button
+                            onClick={() => setAssetToDelete(a)}
+                            className="icon-btn danger"
+                            title="Delete"
+                            style={{ padding: '2px', width: '22px', height: '22px' }}
+                          >
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
         )}
 
-{activeTab === 'spaces' && (
+        {activeTab === 'spaces' && (
           <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '8px',
+                marginBottom: '1rem',
+              }}
+            >
               <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
                 {spaces.length} Spaces
               </div>
-              <select 
-                value={creatorFilter} 
+              <select
+                value={creatorFilter}
                 onChange={(e) => setCreatorFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--md-sys-color-outline-variant)',
+                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                  color: 'var(--md-sys-color-on-surface)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '0.8rem',
+                }}
               >
                 <option value="">All Creators</option>
-                {[...new Set(spaces.map(s => s.created_by))].map(creator => {
-                   const creatorUser = users.find(u => u.username === creator);
-                   const displayName = creatorUser ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || creator : creator;
-                   return <option key={creator} value={creator}>{displayName}</option>;
+                {[...new Set(spaces.map((s) => s.created_by))].map((creator) => {
+                  const creatorUser = users.find((u) => u.username === creator);
+                  const displayName = creatorUser
+                    ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || creator
+                    : creator;
+                  return (
+                    <option key={creator} value={creator}>
+                      {displayName}
+                    </option>
+                  );
                 })}
               </select>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {[...spaces].filter(s => !creatorFilter || s.created_by === creatorFilter).filter(s => !(s.is_dm === 1 && s.name?.startsWith('self_'))).sort((a, b) => {
-                if (!sortConfig) return 0;
-                let valA = a[sortConfig.key] || '';
-                let valB = b[sortConfig.key] || '';
-                valA = String(valA).toLowerCase();
-                valB = String(valB).toLowerCase();
-                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
-                return 0;
-              }).map(s => {
-                const creatorUser = users.find(u => u.username === s.created_by);
-                const creatorName = creatorUser ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || s.created_by : s.created_by;
-                // Friendly name display
-                let friendlyName = s.name;
-                const isDM = s.is_dm === 1;
-                const isSelf = isDM && s.name?.startsWith('self_');
-                const isDMConvo = isDM && s.name?.startsWith('dm_');
-                if (isSelf) {
-                  const selfUser = s.name.replace('self_', '');
-                  const su = users.find(u => u.username === selfUser);
-                  friendlyName = su ? `Notes to Self (${su.first_name || selfUser})` : `Notes to Self (${selfUser})`;
-                } else if (isDMConvo) {
-                  const parts = s.name.replace('dm_', '').split('_');
-                  const u1 = users.find(u => u.username === parts[0]);
-                  const u2 = users.find(u => u.username === parts[1]);
-                  const n1 = u1 ? u1.first_name || parts[0] : parts[0];
-                  const n2 = u2 ? u2.first_name || parts[1] : parts[1];
-                  friendlyName = `${n1} ↔ ${n2}`;
-                }
-                const isProtected = s.id === 1 || isSelf;
-                const spaceIcon = null; // unused, replaced by SVGs below
-                const iconColor = isDM ? '#9C27B0' : s.is_private ? '#FF9800' : 'var(--md-sys-color-primary)';
-                return (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '12px', background: 'var(--md-sys-color-surface-variant)' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isDM ? 'color-mix(in srgb, #9C27B0 15%, transparent)' : s.is_private ? 'color-mix(in srgb, #FF9800 15%, transparent)' : 'var(--md-sys-color-primary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {isSelf ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                      ) : isDMConvo ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                      ) : s.is_private ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
+              {[...spaces]
+                .filter((s) => !creatorFilter || s.created_by === creatorFilter)
+                .filter((s) => !(s.is_dm === 1 && s.name?.startsWith('self_')))
+                .sort((a, b) => {
+                  if (!sortConfig) return 0;
+                  let valA = a[sortConfig.key] || '';
+                  let valB = b[sortConfig.key] || '';
+                  valA = String(valA).toLowerCase();
+                  valB = String(valB).toLowerCase();
+                  if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                  if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                  return 0;
+                })
+                .map((s) => {
+                  const creatorUser = users.find((u) => u.username === s.created_by);
+                  const creatorName = creatorUser
+                    ? `${creatorUser.first_name || ''} ${creatorUser.last_name || ''}`.trim() || s.created_by
+                    : s.created_by;
+                  // Friendly name display
+                  let friendlyName = s.name;
+                  const isDM = s.is_dm === 1;
+                  const isSelf = isDM && s.name?.startsWith('self_');
+                  const isDMConvo = isDM && s.name?.startsWith('dm_');
+                  if (isSelf) {
+                    const selfUser = s.name.replace('self_', '');
+                    const su = users.find((u) => u.username === selfUser);
+                    friendlyName = su ? `Notes to Self (${su.first_name || selfUser})` : `Notes to Self (${selfUser})`;
+                  } else if (isDMConvo) {
+                    const parts = s.name.replace('dm_', '').split('_');
+                    const u1 = users.find((u) => u.username === parts[0]);
+                    const u2 = users.find((u) => u.username === parts[1]);
+                    const n1 = u1 ? u1.first_name || parts[0] : parts[0];
+                    const n2 = u2 ? u2.first_name || parts[1] : parts[1];
+                    friendlyName = `${n1} ↔ ${n2}`;
+                  }
+                  const isProtected = s.id === 1 || isSelf;
+                  const spaceIcon = null; // unused, replaced by SVGs below
+                  const iconColor = isDM ? '#9C27B0' : s.is_private ? '#FF9800' : 'var(--md-sys-color-primary)';
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '10px 12px',
+                        borderRadius: '12px',
+                        background: 'var(--md-sys-color-surface-variant)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: isDM
+                            ? 'color-mix(in srgb, #9C27B0 15%, transparent)'
+                            : s.is_private
+                              ? 'color-mix(in srgb, #FF9800 15%, transparent)'
+                              : 'var(--md-sys-color-primary-container)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isSelf ? (
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={iconColor}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                          </svg>
+                        ) : isDMConvo ? (
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={iconColor}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                          </svg>
+                        ) : s.is_private ? (
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={iconColor}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                          </svg>
+                        ) : (
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={iconColor}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <line x1="4" y1="9" x2="20" y2="9"></line>
+                            <line x1="4" y1="15" x2="20" y2="15"></line>
+                            <line x1="10" y1="3" x2="8" y2="21"></line>
+                            <line x1="16" y1="3" x2="14" y2="21"></line>
+                          </svg>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            color: 'var(--md-sys-color-on-surface)',
+                            fontSize: '0.88rem',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {friendlyName}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
+                          by {creatorName} · ID: {s.id}
+                          {s.is_private ? ' · Private' : ''}
+                          {isDM ? ' · DM' : ''}
+                        </div>
+                      </div>
+                      {!isProtected && (
+                        <button
+                          onClick={() => setSpaceToDeleteAdmin(s)}
+                          className="icon-btn danger"
+                          title="Delete"
+                          style={{ padding: '4px', flexShrink: 0 }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
                       )}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{friendlyName}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)' }}>
-                        by {creatorName} · ID: {s.id}
-                        {s.is_private ? ' · Private' : ''}
-                        {isDM ? ' · DM' : ''}
-                      </div>
-                    </div>
-                    {!isProtected && (
-                      <button onClick={() => setSpaceToDeleteAdmin(s)} className="icon-btn danger" title="Delete" style={{ padding: '4px', flexShrink: 0 }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
         )}
 
         {/* Login History Modal */}
         {loginHistory && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={() => { setLoginHistory(null); setLoginHistoryUser(null); }}>
-            <div className="auth-card" style={{ maxWidth: '560px', width: '90vw', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 10000,
+            }}
+            onClick={() => {
+              setLoginHistory(null);
+              setLoginHistoryUser(null);
+            }}
+          >
+            <div
+              className="auth-card"
+              style={{ maxWidth: '560px', width: '90vw', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}
+              >
                 <h2 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--md-sys-color-on-surface)' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '6px' }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ verticalAlign: 'middle', marginRight: '6px' }}
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
                   Login History ({loginHistory.total} total)
                 </h2>
-                <button type="button" onClick={() => { setLoginHistory(null); setLoginHistoryUser(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)', padding: '4px' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginHistory(null);
+                    setLoginHistoryUser(null);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    padding: '4px',
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
                 </button>
               </div>
               <div style={{ flex: 1, overflow: 'auto' }}>
                 {loginHistory.logins.length === 0 ? (
-                  <p style={{ textAlign: 'center', color: 'var(--md-sys-color-outline)', padding: '2rem 0' }}>No login records found.</p>
+                  <p style={{ textAlign: 'center', color: 'var(--md-sys-color-outline)', padding: '2rem 0' }}>
+                    No login records found.
+                  </p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {loginHistory.logins.map((entry, i) => {
                       const ua = entry.user_agent || '';
                       const isMobile = /mobile|android|iphone|ipad/i.test(ua);
-                      const browser = /chrome/i.test(ua) ? 'Chrome' : /firefox/i.test(ua) ? 'Firefox' : /safari/i.test(ua) ? 'Safari' : /edge/i.test(ua) ? 'Edge' : 'Unknown';
+                      const browser = /chrome/i.test(ua)
+                        ? 'Chrome'
+                        : /firefox/i.test(ua)
+                          ? 'Firefox'
+                          : /safari/i.test(ua)
+                            ? 'Safari'
+                            : /edge/i.test(ua)
+                              ? 'Edge'
+                              : 'Unknown';
                       return (
-                        <div key={entry.id || i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.8rem' }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <div
+                          key={entry.id || i}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="var(--md-sys-color-outline)"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ flexShrink: 0 }}
+                          >
                             {isMobile ? (
-                              <><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></>
+                              <>
+                                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                                <line x1="12" y1="18" x2="12.01" y2="18" />
+                              </>
                             ) : (
-                              <><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></>
+                              <>
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                                <line x1="8" y1="21" x2="16" y2="21" />
+                                <line x1="12" y1="17" x2="12" y2="21" />
+                              </>
                             )}
                           </svg>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{browser} · {isMobile ? 'Mobile' : 'Desktop'}</div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>{entry.ip_address}</div>
+                            <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
+                              {browser} · {isMobile ? 'Mobile' : 'Desktop'}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>
+                              {entry.ip_address}
+                            </div>
                           </div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', textAlign: 'right', flexShrink: 0 }}>
-                            {new Date(entry.timestamp).toLocaleDateString()} {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <div
+                            style={{
+                              fontSize: '0.72rem',
+                              color: 'var(--md-sys-color-outline)',
+                              textAlign: 'right',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {new Date(entry.timestamp).toLocaleDateString()}{' '}
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
                         </div>
                       );
@@ -1864,721 +4059,2442 @@ const AdminPanel = ({ socket, token, socketUrl, onClose, globalFont, currentUser
 
         {/* Confirm Delete Modals */}
         {userToDelete && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 10000,
+            }}
+          >
             <div className="auth-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
               <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete User?</h2>
-              <p>Are you sure you want to delete <strong>{userToDelete.first_name ? `${userToDelete.first_name} ${userToDelete.last_name || ''}`.trim() : userToDelete.username}</strong>? This action cannot be undone.</p>
+              <p>
+                Are you sure you want to delete{' '}
+                <strong>
+                  {userToDelete.first_name
+                    ? `${userToDelete.first_name} ${userToDelete.last_name || ''}`.trim()
+                    : userToDelete.username}
+                </strong>
+                ? This action cannot be undone.
+              </p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setUserToDelete(null)} style={{ flex: 1 }}>Cancel</button>
-                <button type="button" className="btn-primary" onClick={() => deleteUser(userToDelete.id)} style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}>Delete</button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setUserToDelete(null)}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => deleteUser(userToDelete.id)}
+                  style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           </div>
         )}
 
         {assetToDelete && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 10000,
+            }}
+          >
             <div className="auth-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
               <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete Asset?</h2>
-              <p>Are you sure you want to delete <strong>{assetToDelete.file}</strong>?</p>
+              <p>
+                Are you sure you want to delete <strong>{assetToDelete.file}</strong>?
+              </p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setAssetToDelete(null)} style={{ flex: 1 }}>Cancel</button>
-                <button type="button" className="btn-primary" onClick={() => deleteAsset(assetToDelete.file)} style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}>Delete</button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setAssetToDelete(null)}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => deleteAsset(assetToDelete.file)}
+                  style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           </div>
         )}
 
         {spaceToDeleteAdmin && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 10000,
+            }}
+          >
             <div className="auth-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
               <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete Space?</h2>
-              <p>Are you sure you want to delete <strong>#{spaceToDeleteAdmin.name}</strong>? All messages will be lost.</p>
+              <p>
+                Are you sure you want to delete <strong>#{spaceToDeleteAdmin.name}</strong>? All messages will be lost.
+              </p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setSpaceToDeleteAdmin(null)} style={{ flex: 1 }}>Cancel</button>
-                <button type="button" className="btn-primary" onClick={() => deleteSpace(spaceToDeleteAdmin.id)} style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}>Delete</button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setSpaceToDeleteAdmin(null)}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => deleteSpace(spaceToDeleteAdmin.id)}
+                  style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'config' && serverConfig && (() => {
-          const updateConfig = async (key, value) => {
-            const updated = { ...serverConfig, [key]: value };
-            setServerConfig(updated);
-            setConfigSaveStatus('saving');
-            try {
-              const res = await fetch(`${socketUrl}/api/admin/config`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ [key]: value })
-              });
-              if (res.ok) {
-                setConfigSaveStatus('saved');
-                setTimeout(() => setConfigSaveStatus(null), 2000);
-                if (key === 'app_name') setAppName(value || 'Prado Chat');
+        {activeTab === 'config' &&
+          serverConfig &&
+          (() => {
+            const updateConfig = async (key, value) => {
+              const updated = { ...serverConfig, [key]: value };
+              setServerConfig(updated);
+              setConfigSaveStatus('saving');
+              try {
+                const res = await fetch(`${socketUrl}/api/admin/config`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ [key]: value }),
+                });
+                if (res.ok) {
+                  setConfigSaveStatus('saved');
+                  setTimeout(() => setConfigSaveStatus(null), 2000);
+                  if (key === 'app_name') setAppName(value || 'Prado Chat');
+                }
+              } catch (_) {
+                setConfigSaveStatus(null);
               }
-            } catch (_) { setConfigSaveStatus(null); }
-          };
-          const inputRow = (label, configKey, type, { description, options, placeholder } = {}) => (
-            <div style={{ marginBottom: '0.85rem' }}>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>{label}</label>
-              {description && <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginBottom: '6px' }}>{description}</div>}
-              {type === 'select' ? (
-                <select value={serverConfig[configKey] || ''} onChange={(e) => updateConfig(configKey, e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', cursor: 'pointer', boxSizing: 'border-box' }}>
-                  {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ) : type === 'toggle' ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <button onClick={() => updateConfig(configKey, serverConfig[configKey] === 'true' ? 'false' : 'true')} style={{ position: 'relative', width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer', transition: 'background 0.2s', background: serverConfig[configKey] === 'true' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)', padding: 0 }}>
-                    <div style={{ position: 'absolute', top: '2px', left: serverConfig[configKey] === 'true' ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-                  </button>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>{serverConfig[configKey] === 'true' ? 'Enabled' : 'Disabled'}</span>
-                </div>
-              ) : type === 'textarea' ? (
-                <textarea value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} rows={2} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }} />
-              ) : type === 'color' ? (
-                <div data-color-row style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '2px solid var(--md-sys-color-outline-variant)', overflow: 'hidden', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
-                    <input type="color" defaultValue={serverConfig[configKey] || '#4CAF50'}
-                      ref={(el) => {
-                        if (el && !el._prado) {
-                          el._prado = true;
-                          el.addEventListener('input', () => {
-                            const span = el.closest('[data-color-row]')?.querySelector('[data-color-hex]');
-                            if (span) span.textContent = el.value;
-                          });
-                          el.addEventListener('change', () => updateConfig(configKey, el.value));
-                        }
-                      }}
-                      style={{ position: 'absolute', top: '-8px', left: '-8px', width: '52px', height: '52px', border: 'none', padding: 0, cursor: 'pointer', WebkitAppearance: 'none', MozAppearance: 'none' }} />
+            };
+            const inputRow = (label, configKey, type, { description, options, placeholder } = {}) => (
+              <div style={{ marginBottom: '0.85rem' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    color: 'var(--md-sys-color-on-surface)',
+                    marginBottom: '4px',
+                  }}
+                >
+                  {label}
+                </label>
+                {description && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', marginBottom: '6px' }}>
+                    {description}
                   </div>
-                  <span data-color-hex style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)', fontFamily: 'monospace' }}>{serverConfig[configKey] || '#4CAF50'}</span>
-                </div>
-              ) : (
-                <input type={type || 'text'} value={serverConfig[configKey] || ''} onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })} onBlur={(e) => updateConfig(configKey, e.target.value)} placeholder={placeholder || ''} style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.85rem', boxSizing: 'border-box' }} />
-              )}
-            </div>
-          );
-          return (
-            <div>
-              {/* Save Status */}
-              {configSaveStatus && (
-                <div style={{ position: 'fixed', top: '1rem', right: '1rem', padding: '8px 16px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 500, zIndex: 10001, display: 'flex', alignItems: 'center', gap: '6px', animation: 'fadeIn 0.2s', background: configSaveStatus === 'saved' ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: configSaveStatus === 'saved' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)' }}>
-                  {configSaveStatus === 'saving' ? (
-                    <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg> Saving...</>
-                  ) : (
-                    <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Saved</>
-                  )}
-                </div>
-              )}
-
-              <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                {/* Registration */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-                    Registration
-                  </div>
-                  {inputRow('Registration Mode', 'registration_mode', 'select', { options: [{ value: 'open', label: 'Open (anyone can register)' }, { value: 'closed', label: 'Closed (no new registrations)' }] })}
-                  {inputRow('Require Email Verification', 'require_email_verification', 'toggle', { description: 'New users must verify their email before logging in' })}
-                  {inputRow('Email Domain Whitelist', 'email_domain_whitelist', 'text', { placeholder: 'e.g. company.com, example.org', description: 'Comma-separated list of allowed email domains. Leave empty for no restriction.' })}
-                </div>
-
-                {/* Branding */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                    Branding
-                  </div>
-                  {inputRow('App Name', 'app_name', 'text', { placeholder: 'Prado Chat' })}
-                  {/* Custom Logo Upload */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>Custom Logo</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>PNG, JPG, or SVG. Replaces default icon.</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <img src={appLogo || '/icon.png'} alt="Logo preview" style={{ width: 36, height: 36, borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--md-sys-color-outline-variant)' }} />
-                      <label style={{ padding: '6px 14px', borderRadius: '20px', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
-                        Upload
-                        <input type="file" accept="image/*" hidden onChange={async (e) => {
-                          const file = e.target.files[0]; if (!file) return;
-                          const fd = new FormData(); fd.append('logo', file);
-                          try {
-                            const res = await fetch(`${socketUrl}/api/config/logo`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd });
-                            const data = await res.json();
-                            if (data.logo) setAppLogo(data.logo + '?t=' + Date.now());
-                          } catch(err) { console.error('Logo upload failed', err); }
-                        }} />
-                      </label>
-                      {appLogo && (
-                        <button onClick={async () => {
-                          await updateConfig('custom_logo', '');
-                          setAppLogo(null);
-                        }} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-error)', cursor: 'pointer', fontSize: '0.75rem' }}>Remove</button>
-                      )}
-                    </div>
-                  </div>
-                  {inputRow('Default Theme', 'default_theme', 'select', { options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], description: 'Theme applied to new users on first login' })}
-                  {inputRow('Default Accent Color', 'default_accent_color', 'color')}
-                </div>
-
-                {/* Uploads */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    Uploads
-                  </div>
-                  {inputRow('Max Upload Size (MB)', 'max_upload_size_mb', 'number', { description: 'Maximum file size for uploads in megabytes' })}
-                </div>
-
-                {/* Maintenance */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-                    Maintenance Mode
-                  </div>
-                  {inputRow('Maintenance Mode', 'maintenance_mode', 'toggle', { description: 'When enabled, non-admin users see a maintenance screen' })}
-                  {inputRow('Maintenance Message', 'maintenance_message', 'textarea', { placeholder: 'System is undergoing maintenance...' })}
-                </div>
-              </div>
-
-              {/* ═══ API Keys ═══ */}
-              <div className="dash-section" style={{ marginTop: '0.85rem' }}>
-                <div className="dash-section-title">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-                  API Keys
-                </div>
-
-                {/* Create Key */}
-                <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-                    <input type="text" placeholder="Key name (e.g. CI/CD, Monitoring)" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleCreateApiKey(); }}
-                      style={{ flex: 1, padding: '8px 12px 8px 32px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
-                  </div>
-                  <select value={newKeyPerm} onChange={(e) => setNewKeyPerm(e.target.value)}
-                    style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontFamily: 'inherit', fontSize: '0.82rem', cursor: 'pointer' }}>
-                    <option value="read">Read</option>
-                    <option value="write">Read + Write</option>
-                    <option value="admin">Admin</option>
+                )}
+                {type === 'select' ? (
+                  <select
+                    value={serverConfig[configKey] || ''}
+                    onChange={(e) => updateConfig(configKey, e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                      color: 'var(--md-sys-color-on-surface)',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
-                  <button onClick={handleCreateApiKey} disabled={!newKeyName.trim()} style={{
-                    padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: newKeyName.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
-                    background: newKeyName.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-                    color: newKeyName.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
-                  }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Generate
-                  </button>
-                </div>
-
-                {/* Newly created key banner */}
-                {createdKey && (
-                  <div style={{ padding: '10px 14px', borderRadius: '10px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', marginBottom: '0.75rem', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                      <span style={{ fontWeight: 600, color: '#22c55e' }}>Key created! Copy it now — it won't be shown again.</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <code style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', background: 'var(--md-sys-color-surface)', fontSize: '0.75rem', wordBreak: 'break-all', color: 'var(--md-sys-color-on-surface)', fontFamily: 'monospace' }}>{createdKey}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(createdKey); }} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                        Copy
-                      </button>
-                      <button onClick={() => setCreatedKey(null)} style={{ padding: '6px', borderRadius: '6px', border: 'none', background: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Key list */}
-                {apiKeys.length === 0 ? (
-                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>No API keys created yet</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {apiKeys.map(k => (
-                      <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.8rem' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{k.name}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--md-sys-color-outline)', fontFamily: 'monospace' }}>{k.key_prefix}</div>
-                        </div>
-                        <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase',
-                          background: k.permissions === 'admin' ? 'rgba(239,68,68,0.12)' : k.permissions === 'write' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
-                          color: k.permissions === 'admin' ? '#ef4444' : k.permissions === 'write' ? '#f59e0b' : '#22c55e',
-                        }}>{k.permissions}</span>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>{new Date(k.created_at).toLocaleDateString()}</span>
-                        <button onClick={() => handleRevokeApiKey(k.id)} title="Revoke" style={{ padding: '4px', borderRadius: '6px', border: 'none', background: 'none', color: 'var(--md-sys-color-error)', cursor: 'pointer', display: 'flex' }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* ═══ Email & TURN/STUN ═══ */}
-              <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr', marginTop: '0.85rem' }}>
-                {/* Email Provider */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                    Email Provider
-                  </div>
-                  {inputRow('Resend API Key', 'resend_api_key', 'text', { placeholder: 're_••••••••', description: 'Used for password resets and notifications' })}
-                  {inputRow('From Address', 'email_from', 'text', { placeholder: 'noreply@yourdomain.com' })}
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500, color: 'var(--md-sys-color-on-surface)', marginBottom: '4px' }}>Test Email Delivery</label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <input type="email" placeholder="test@example.com" value={testEmailAddr} onChange={(e) => setTestEmailAddr(e.target.value)}
-                        style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
-                      <button onClick={handleTestEmail} disabled={!testEmailAddr.trim() || testEmailStatus === 'sending'} style={{
-                        padding: '8px 12px', borderRadius: '8px', border: 'none', cursor: testEmailAddr.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
-                        background: testEmailAddr.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-                        color: testEmailAddr.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
-                      }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        {testEmailStatus === 'sending' ? 'Sending...' : 'Send Test'}
-                      </button>
-                    </div>
-                    {testEmailStatus && testEmailStatus !== 'sending' && (
-                      <div style={{ marginTop: '6px', fontSize: '0.75rem', fontWeight: 500, color: testEmailStatus === 'sent' ? '#22c55e' : '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {testEmailStatus === 'sent' ? (
-                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg> Test email sent successfully</>
-                        ) : testEmailStatus}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* TURN/STUN */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.6 11.6L22 7v10l-6.4-4.6"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
-                    TURN / STUN (WebRTC)
-                  </div>
-                  {inputRow('TURN Server URL', 'turn_server', 'text', { placeholder: 'turn:your-server.com:3478', description: 'TURN relay for NAT traversal in video calls' })}
-                  {inputRow('TURN Username', 'turn_username', 'text', { placeholder: 'username' })}
-                  {inputRow('TURN Credential', 'turn_credential', 'text', { placeholder: '••••••••', description: 'Shared secret for TURN authentication' })}
-                  {inputRow('STUN Server URL', 'stun_server', 'text', { placeholder: 'stun:stun.l.google.com:19302', description: "STUN server for connection discovery. Defaults to Google's." })}
-                  
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <button onClick={async () => {
-                      setTurnTestStatus('testing');
-                      const stunUrl = serverConfig.stun_server || 'stun:stun.l.google.com:19302';
-                      const iceServers = [{ urls: stunUrl }];
-                      if (serverConfig.turn_server) {
-                        iceServers.push({ urls: serverConfig.turn_server, username: serverConfig.turn_username || '', credential: serverConfig.turn_credential || '' });
-                      }
-                      const result = { host: false, srflx: false, relay: false, candidates: [], errors: [], config: iceServers, elapsed: 0 };
-                      const start = Date.now();
-
-                      // Phase 1: Full ICE gathering (STUN + TURN)
-                      try {
-                        const pc = new RTCPeerConnection({ iceServers });
-                        pc.createDataChannel('test');
-                        pc.onicecandidateerror = (e) => {
-                          result.errors.push(`[${e.errorCode}] ${e.errorText || 'ICE candidate error'} (${e.url || 'unknown URL'})`);
-                        };
-                        const offer = await pc.createOffer();
-                        await pc.setLocalDescription(offer);
-                        await new Promise((resolve) => {
-                          const timeout = setTimeout(() => { pc.onicecandidate = null; resolve(); }, 8000);
-                          pc.onicecandidate = (e) => {
-                            if (e.candidate && e.candidate.candidate) {
-                              const c = e.candidate.candidate;
-                              const typ = c.match(/typ (\w+)/);
-                              const addr = c.match(/(\d+\.\d+\.\d+\.\d+)/);
-                              if (typ) {
-                                result[typ[1]] = true;
-                                result.candidates.push({ type: typ[1], address: addr ? addr[1] : '?', full: c.substring(0, 80) });
-                              }
-                            } else { clearTimeout(timeout); resolve(); }
-                          };
-                        });
-                        pc.close();
-                      } catch (err) {
-                        result.errors.push('Phase 1: ' + err.message);
-                      }
-
-                      // Phase 2: TURN-only isolation test
-                      if (serverConfig.turn_server && !result.relay) {
-                        try {
-                          const turnOnly = [{ urls: serverConfig.turn_server, username: serverConfig.turn_username || '', credential: serverConfig.turn_credential || '' }];
-                          const pc2 = new RTCPeerConnection({ iceServers: turnOnly, iceTransportPolicy: 'relay' });
-                          pc2.createDataChannel('turn-test');
-                          pc2.onicecandidateerror = (e) => {
-                            result.errors.push(`[TURN-only ${e.errorCode}] ${e.errorText || 'error'} (${e.url || ''})`);
-                          };
-                          const offer2 = await pc2.createOffer();
-                          await pc2.setLocalDescription(offer2);
-                          await new Promise((resolve) => {
-                            const timeout = setTimeout(() => { pc2.onicecandidate = null; resolve(); }, 6000);
-                            pc2.onicecandidate = (e) => {
-                              if (e.candidate && e.candidate.candidate) {
-                                const typ = e.candidate.candidate.match(/typ (\w+)/);
-                                if (typ && typ[1] === 'relay') {
-                                  result.relay = true;
-                                  result.candidates.push({ type: 'relay (isolated)', address: e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1] || '?', full: '' });
-                                }
-                              } else { clearTimeout(timeout); resolve(); }
-                            };
-                          });
-                          pc2.close();
-                        } catch (err) {
-                          result.errors.push('TURN-only: ' + err.message);
-                        }
-                      }
-
-                      result.elapsed = ((Date.now() - start) / 1000).toFixed(1);
-                      setTurnTestStatus(result);
-                    }} disabled={turnTestStatus === 'testing'} style={{
-                      padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: turnTestStatus === 'testing' ? 'not-allowed' : 'pointer',
-                      fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px',
-                      background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)',
-                      opacity: turnTestStatus === 'testing' ? 0.7 : 1,
-                    }}>
-                      {turnTestStatus === 'testing' ? (
-                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Testing (up to 14s)...</>
-                      ) : (
-                        <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Test Connectivity</>
-                      )}
+                ) : type === 'toggle' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <button
+                      onClick={() => updateConfig(configKey, serverConfig[configKey] === 'true' ? 'false' : 'true')}
+                      style={{
+                        position: 'relative',
+                        width: '44px',
+                        height: '24px',
+                        borderRadius: '12px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                        background:
+                          serverConfig[configKey] === 'true'
+                            ? 'var(--md-sys-color-primary)'
+                            : 'var(--md-sys-color-outline-variant)',
+                        padding: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '2px',
+                          left: serverConfig[configKey] === 'true' ? '22px' : '2px',
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          background: 'white',
+                          transition: 'left 0.2s',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                        }}
+                      />
                     </button>
-                    {turnTestStatus && turnTestStatus !== 'testing' && (
-                      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem' }}>
-                        {/* Status summary */}
-                        {[
-                          { label: 'Host (local)', ok: turnTestStatus.host },
-                          { label: 'STUN (srflx)', ok: turnTestStatus.srflx },
-                          { label: 'TURN (relay)', ok: turnTestStatus.relay },
-                        ].map(item => (
-                          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, color: item.ok ? '#22c55e' : '#ef4444' }}>
-                            {item.ok
-                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            }
-                            {item.label}
-                          </div>
-                        ))}
-
-                        {/* Timing */}
-                        <div style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem', marginTop: '4px' }}>Completed in {turnTestStatus.elapsed}s</div>
-
-                        {/* Candidates discovered */}
-                        {turnTestStatus.candidates?.length > 0 && (
-                          <details style={{ marginTop: '4px' }}>
-                            <summary style={{ cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 500, fontSize: '0.75rem' }}>
-                              {turnTestStatus.candidates.length} candidate(s) discovered
-                            </summary>
-                            <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontFamily: 'monospace', fontSize: '0.68rem', lineHeight: 1.6, overflowX: 'auto', maxHeight: '150px', overflowY: 'auto' }}>
-                              {turnTestStatus.candidates.map((c, i) => (
-                                <div key={i} style={{ color: c.type === 'relay' || c.type === 'relay (isolated)' ? '#22c55e' : c.type === 'srflx' ? '#3b82f6' : 'var(--md-sys-color-on-surface-variant)' }}>
-                                  {c.type} → {c.address} {c.full ? `(${c.full})` : ''}
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        )}
-
-                        {/* Errors */}
-                        {turnTestStatus.errors?.length > 0 && (
-                          <details open style={{ marginTop: '2px' }}>
-                            <summary style={{ cursor: 'pointer', color: '#ef4444', fontWeight: 500, fontSize: '0.75rem' }}>
-                              {turnTestStatus.errors.length} error(s)
-                            </summary>
-                            <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', fontFamily: 'monospace', fontSize: '0.68rem', lineHeight: 1.6, color: '#ef4444' }}>
-                              {turnTestStatus.errors.map((e, i) => <div key={i}>{e}</div>)}
-                            </div>
-                          </details>
-                        )}
-
-                        {/* Config used */}
-                        <details style={{ marginTop: '2px' }}>
-                          <summary style={{ cursor: 'pointer', color: 'var(--md-sys-color-outline)', fontWeight: 500, fontSize: '0.72rem' }}>ICE config used</summary>
-                          <div style={{ marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontFamily: 'monospace', fontSize: '0.65rem', lineHeight: 1.5, overflowX: 'auto', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                            {JSON.stringify(turnTestStatus.config?.map(s => ({ ...s, credential: s.credential ? '••••' : undefined })), null, 2)}
-                          </div>
-                        </details>
-                      </div>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                      {serverConfig[configKey] === 'true' ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                ) : type === 'textarea' ? (
+                  <textarea
+                    value={serverConfig[configKey] || ''}
+                    onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })}
+                    onBlur={(e) => updateConfig(configKey, e.target.value)}
+                    placeholder={placeholder || ''}
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                      color: 'var(--md-sys-color-on-surface)',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      fontSize: '0.85rem',
+                      resize: 'vertical',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                ) : type === 'color' ? (
+                  <div data-color-row style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        border: '2px solid var(--md-sys-color-outline-variant)',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <input
+                        type="color"
+                        defaultValue={serverConfig[configKey] || '#4CAF50'}
+                        ref={(el) => {
+                          if (el && !el._prado) {
+                            el._prado = true;
+                            el.addEventListener('input', () => {
+                              const span = el.closest('[data-color-row]')?.querySelector('[data-color-hex]');
+                              if (span) span.textContent = el.value;
+                            });
+                            el.addEventListener('change', () => updateConfig(configKey, el.value));
+                          }
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '-8px',
+                          left: '-8px',
+                          width: '52px',
+                          height: '52px',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          WebkitAppearance: 'none',
+                          MozAppearance: 'none',
+                        }}
+                      />
+                    </div>
+                    <span
+                      data-color-hex
+                      style={{
+                        fontSize: '0.82rem',
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                        fontFamily: 'monospace',
+                      }}
+                    >
+                      {serverConfig[configKey] || '#4CAF50'}
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    type={type || 'text'}
+                    value={serverConfig[configKey] || ''}
+                    onChange={(e) => setServerConfig({ ...serverConfig, [configKey]: e.target.value })}
+                    onBlur={(e) => updateConfig(configKey, e.target.value)}
+                    placeholder={placeholder || ''}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--md-sys-color-outline-variant)',
+                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                      color: 'var(--md-sys-color-on-surface)',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      fontSize: '0.85rem',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                )}
+              </div>
+            );
+            return (
+              <div>
+                {/* Save Status */}
+                {configSaveStatus && (
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: '1rem',
+                      right: '1rem',
+                      padding: '8px 16px',
+                      borderRadius: '10px',
+                      fontSize: '0.82rem',
+                      fontWeight: 500,
+                      zIndex: 10001,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      animation: 'fadeIn 0.2s',
+                      background:
+                        configSaveStatus === 'saved'
+                          ? 'var(--md-sys-color-primary-container)'
+                          : 'var(--md-sys-color-surface-variant)',
+                      color:
+                        configSaveStatus === 'saved'
+                          ? 'var(--md-sys-color-on-primary-container)'
+                          : 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  >
+                    {configSaveStatus === 'saving' ? (
+                      <>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ animation: 'spin 1s linear infinite' }}
+                        >
+                          <polyline points="23 4 23 10 17 10"></polyline>
+                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>{' '}
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>{' '}
+                        Saved
+                      </>
                     )}
                   </div>
-                </div>
+                )}
 
-                {/* Giphy */}
-                <div className="dash-section">
-                  <div className="dash-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
-                    Giphy Integration
-                  </div>
-                  {inputRow('Giphy API Key', 'giphy_api_key', 'text', { placeholder: 'your_giphy_api_key', description: 'API key for GIF search. Get one at developers.giphy.com' })}
-                </div>
-              </div>
-
-              {/* ═══ Environment Overview ═══ */}
-              <div className="dash-section" style={{ marginTop: '0.85rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                    Environment
-                  </div>
-                  <button onClick={fetchEnvironment} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                    {envInfo ? 'Refresh' : 'Load'}
-                  </button>
-                </div>
-                {!envInfo ? (
-                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>Click "Load" to fetch environment details</div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
-                    {[
-                      { label: 'Node.js', value: envInfo.nodeVersion, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> },
-                      { label: 'Platform', value: `${envInfo.platform} ${envInfo.arch}`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
-                      { label: 'Hostname', value: envInfo.hostname, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> },
-                      { label: 'CPUs', value: envInfo.cpus, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg> },
-                      { label: 'Memory', value: `${(envInfo.freeMemory / 1e9).toFixed(1)} / ${(envInfo.totalMemory / 1e9).toFixed(1)} GB`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 19v-3"/><path d="M10 19v-6"/><path d="M14 19v-9"/><path d="M18 19V5"/></svg> },
-                      { label: 'Uptime', value: `${Math.floor(envInfo.uptime / 3600)}h ${Math.floor((envInfo.uptime % 3600) / 60)}m`, icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
-                    ].map((item, i) => (
-                      <div key={i} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>{item.icon} {item.label}</div>
-                        <div style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)', fontSize: '0.85rem' }}>{item.value}</div>
-                      </div>
-                    ))}
-                    {envInfo.env && Object.entries(envInfo.env).map(([key, entry]) => {
-                      const val = typeof entry === 'object' ? entry.value : entry;
-                      const status = typeof entry === 'object' ? entry.status : 'ok';
-                      const statusColor = status === 'error' ? '#ef4444' : status === 'warn' ? '#f59e0b' : '#4CAF50';
-                      const statusIcon = status === 'error'
-                        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                        : status === 'warn'
-                        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-                        : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>;
-                      return (
-                        <div key={key} style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>{statusIcon} {key}</div>
-                          <div style={{ fontWeight: 500, color: statusColor, fontSize: '0.8rem', fontFamily: val.includes('••') ? 'monospace' : 'inherit' }}>{val}</div>
-                        </div>
-                      );
+                <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  {/* Registration */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="8.5" cy="7" r="4"></circle>
+                        <line x1="20" y1="8" x2="20" y2="14"></line>
+                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                      </svg>
+                      Registration
+                    </div>
+                    {inputRow('Registration Mode', 'registration_mode', 'select', {
+                      options: [
+                        { value: 'open', label: 'Open (anyone can register)' },
+                        { value: 'closed', label: 'Closed (no new registrations)' },
+                      ],
+                    })}
+                    {inputRow('Require Email Verification', 'require_email_verification', 'toggle', {
+                      description: 'New users must verify their email before logging in',
+                    })}
+                    {inputRow('Email Domain Whitelist', 'email_domain_whitelist', 'text', {
+                      placeholder: 'e.g. company.com, example.org',
+                      description: 'Comma-separated list of allowed email domains. Leave empty for no restriction.',
                     })}
                   </div>
-                )}
-              </div>
 
-              <style>{`@media (max-width: 700px) { .dash-section { margin-bottom: 0 !important; } }`}</style>
-            </div>
-          );
-        })()}
-
-        {activeTab === 'config' && !serverConfig && (
-          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>Loading configuration...</div>
-        )}
-
-        {activeTab === 'moderation' && (() => {
-          // Auto-fetch on tab open
-          if (!auditLogs) fetchAuditLogs();
-          if (!reports) fetchReports();
-          if (wordFilters.length === 0) fetchWordFilters();
-
-          const actionLabels = {
-            suspend_user: '🚫 Suspended User',
-            unsuspend_user: '✅ Unsuspended User',
-            delete_user: '🗑️ Deleted User',
-            bulk_delete_users: '🗑️ Bulk Deleted Users',
-            update_config: '⚙️ Updated Config',
-            add_word_filter: '🔤 Added Word Filter',
-            delete_word_filter: '🔤 Removed Word Filter',
-            resolve_report: '✅ Resolved Report',
-            dismiss_report: '❌ Dismissed Report',
-          };
-
-          return (
-            <div>
-              {/* ═══ Reports Section ═══ */}
-              <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-                    Message Reports {reports?.pendingCount > 0 && <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 700, background: '#ef4444', color: '#fff', marginLeft: '6px' }}>{reports.pendingCount}</span>}
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    {['pending', 'resolved', 'dismissed'].map(s => (
-                      <button key={s} onClick={() => { setReportFilter(s); fetchReports(s); }} style={{
-                        padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit', textTransform: 'capitalize',
-                        background: reportFilter === s ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-                        color: reportFilter === s ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)',
-                      }}>{s}</button>
-                    ))}
-                  </div>
-                </div>
-                {reports?.reports?.length === 0 ? (
-                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ display: 'block', margin: '0 auto 8px' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    No {reportFilter} reports
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {reports?.reports?.map(r => (
-                      <div key={r.id} style={{ padding: '10px 12px', borderRadius: '10px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.82rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                          <div>
-                            <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>@{r.reporter_username}</span>
-                            <span style={{ color: 'var(--md-sys-color-outline)' }}> reported </span>
-                            <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>@{r.message_sender}</span>
-                          </div>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>{new Date(r.created_at).toLocaleDateString()}</span>
-                        </div>
-                        <div style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface)', fontSize: '0.8rem', color: 'var(--md-sys-color-on-surface)', marginBottom: '6px', borderLeft: '3px solid var(--md-sys-color-error)' }}>
-                          "{r.message_text?.substring(0, 200) || '[deleted]'}"
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)', flex: 1 }}>Reason: {r.reason}</span>
-                          {r.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleReportAction(r.id, 'resolved', true)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                Delete Message
-                              </button>
-                              <button onClick={() => handleReportAction(r.id, 'resolved')} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit' }}>Resolve</button>
-                              <button onClick={() => handleReportAction(r.id, 'dismissed')} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit' }}>Dismiss</button>
-                            </>
-                          )}
-                          {r.status !== 'pending' && (
-                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: r.status === 'resolved' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)' }}>
-                              {r.status === 'resolved' ? '✅' : '❌'} {r.resolved_by} · {new Date(r.resolved_at).toLocaleDateString()}
-                            </span>
-                          )}
+                  {/* Branding */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                      </svg>
+                      Branding
+                    </div>
+                    {inputRow('App Name', 'app_name', 'text', { placeholder: 'Prado Chat' })}
+                    {/* Custom Logo Upload */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 0',
+                        borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>Custom Logo</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>
+                          PNG, JPG, or SVG. Replaces default icon.
                         </div>
                       </div>
-                    ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <img
+                          src={appLogo || '/icon.png'}
+                          alt="Logo preview"
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: '8px',
+                            objectFit: 'cover',
+                            border: '1px solid var(--md-sys-color-outline-variant)',
+                          }}
+                        />
+                        <label
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            background: 'var(--md-sys-color-primary)',
+                            color: 'var(--md-sys-color-on-primary)',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Upload
+                          <input
+                            type="file"
+                            accept="image/*"
+                            hidden
+                            onChange={async (e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+                              const fd = new FormData();
+                              fd.append('logo', file);
+                              try {
+                                const res = await fetch(`${socketUrl}/api/config/logo`, {
+                                  method: 'POST',
+                                  headers: { Authorization: `Bearer ${token}` },
+                                  body: fd,
+                                });
+                                const data = await res.json();
+                                if (data.logo) setAppLogo(data.logo + '?t=' + Date.now());
+                              } catch (err) {
+                                console.error('Logo upload failed', err);
+                              }
+                            }}
+                          />
+                        </label>
+                        {appLogo && (
+                          <button
+                            onClick={async () => {
+                              await updateConfig('custom_logo', '');
+                              setAppLogo(null);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--md-sys-color-error)',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {inputRow('Default Theme', 'default_theme', 'select', {
+                      options: [
+                        { value: 'dark', label: 'Dark' },
+                        { value: 'light', label: 'Light' },
+                      ],
+                      description: 'Theme applied to new users on first login',
+                    })}
+                    {inputRow('Default Accent Color', 'default_accent_color', 'color')}
                   </div>
-                )}
-              </div>
 
-              {/* ═══ Word Filters Section ═══ */}
-              <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
-                <div className="dash-section-title">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                  Word Filters
-                </div>
-                <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-outline)" strokeWidth="2" style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    <input type="text" placeholder="Add a word or phrase..." value={newFilterWord} onChange={(e) => setNewFilterWord(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddWordFilter(); }}
-                      style={{ flex: 1, padding: '8px 12px 8px 32px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', outline: 'none', fontFamily: 'inherit', fontSize: '0.82rem' }} />
+                  {/* Uploads */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                      </svg>
+                      Uploads
+                    </div>
+                    {inputRow('Max Upload Size (MB)', 'max_upload_size_mb', 'number', {
+                      description: 'Maximum file size for uploads in megabytes',
+                    })}
                   </div>
-                  <select value={newFilterAction} onChange={(e) => setNewFilterAction(e.target.value)}
-                    style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontFamily: 'inherit', fontSize: '0.82rem', cursor: 'pointer' }}>
-                    <option value="block">Block</option>
-                    <option value="flag">Flag</option>
-                  </select>
-                  <button onClick={handleAddWordFilter} disabled={!newFilterWord.trim()} style={{
-                    padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: newFilterWord.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
-                    background: newFilterWord.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-                    color: newFilterWord.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
-                  }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add
-                  </button>
+
+                  {/* Maintenance */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                      </svg>
+                      Maintenance Mode
+                    </div>
+                    {inputRow('Maintenance Mode', 'maintenance_mode', 'toggle', {
+                      description: 'When enabled, non-admin users see a maintenance screen',
+                    })}
+                    {inputRow('Maintenance Message', 'maintenance_message', 'textarea', {
+                      placeholder: 'System is undergoing maintenance...',
+                    })}
+                  </div>
                 </div>
-                {wordFilters.length === 0 ? (
-                  <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.82rem' }}>No word filters configured</div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {wordFilters.map(f => (
-                      <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', borderRadius: '8px', background: f.action === 'block' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)', fontSize: '0.8rem' }}>
-                        <span style={{ color: f.action === 'block' ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
-                          {f.action === 'block' ? '🚫' : '⚠️'}
+
+                {/* ═══ API Keys ═══ */}
+                <div className="dash-section" style={{ marginTop: '0.85rem' }}>
+                  <div className="dash-section-title">
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                    </svg>
+                    API Keys
+                  </div>
+
+                  {/* Create Key */}
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-outline)"
+                        strokeWidth="2"
+                        style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}
+                      >
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="Key name (e.g. CI/CD, Monitoring)"
+                        value={newKeyName}
+                        onChange={(e) => setNewKeyName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCreateApiKey();
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px 8px 32px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--md-sys-color-outline-variant)',
+                          background: 'var(--md-sys-color-surface-variant)',
+                          color: 'var(--md-sys-color-on-surface)',
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          fontSize: '0.82rem',
+                        }}
+                      />
+                    </div>
+                    <select
+                      value={newKeyPerm}
+                      onChange={(e) => setNewKeyPerm(e.target.value)}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        background: 'var(--md-sys-color-surface-variant)',
+                        color: 'var(--md-sys-color-on-surface)',
+                        fontFamily: 'inherit',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="read">Read</option>
+                      <option value="write">Read + Write</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      onClick={handleCreateApiKey}
+                      disabled={!newKeyName.trim()}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        cursor: newKeyName.trim() ? 'pointer' : 'not-allowed',
+                        fontFamily: 'inherit',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        background: newKeyName.trim()
+                          ? 'var(--md-sys-color-primary)'
+                          : 'var(--md-sys-color-surface-variant)',
+                        color: newKeyName.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      Generate
+                    </button>
+                  </div>
+
+                  {/* Newly created key banner */}
+                  {createdKey && (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: 'rgba(34,197,94,0.1)',
+                        border: '1px solid rgba(34,197,94,0.3)',
+                        marginBottom: '0.75rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                          <polyline points="22 4 12 14.01 9 11.01" />
+                        </svg>
+                        <span style={{ fontWeight: 600, color: '#22c55e' }}>
+                          Key created! Copy it now — it won't be shown again.
                         </span>
-                        <span style={{ color: 'var(--md-sys-color-on-surface)' }}>{f.pattern}</span>
-                        <button onClick={() => handleDeleteWordFilter(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--md-sys-color-outline)', display: 'flex' }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <code
+                          style={{
+                            flex: 1,
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            background: 'var(--md-sys-color-surface)',
+                            fontSize: '0.75rem',
+                            wordBreak: 'break-all',
+                            color: 'var(--md-sys-color-on-surface)',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          {createdKey}
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(createdKey);
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--md-sys-color-outline-variant)',
+                            background: 'var(--md-sys-color-surface)',
+                            color: 'var(--md-sys-color-on-surface)',
+                            cursor: 'pointer',
+                            fontSize: '0.72rem',
+                            fontFamily: 'inherit',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                          }}
+                        >
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Copy
+                        </button>
+                        <button
+                          onClick={() => setCreatedKey(null)}
+                          style={{
+                            padding: '6px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: 'none',
+                            color: 'var(--md-sys-color-outline)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
 
-              {/* ═══ Audit Log Section ═══ */}
-              <div className="dash-section">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <div className="dash-section-title" style={{ marginBottom: 0 }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                    Audit Log {auditLogs?.total > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--md-sys-color-outline)' }}>({auditLogs.total} entries)</span>}
-                  </div>
-                  <button onClick={() => fetchAuditLogs(auditFilter)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'var(--md-sys-color-surface)', color: 'var(--md-sys-color-on-surface-variant)', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                    Refresh
-                  </button>
-                </div>
-                {auditLogs?.logs?.length === 0 ? (
-                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--md-sys-color-outline)', fontSize: '0.85rem' }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ display: 'block', margin: '0 auto 8px' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    No audit entries yet
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '300px', overflow: 'auto' }}>
-                    {auditLogs?.logs?.map(log => (
-                      <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '8px', background: 'var(--md-sys-color-surface-variant)', fontSize: '0.78rem' }}>
-                        <span style={{ fontSize: '1rem', flexShrink: 0 }}>{(actionLabels[log.action] || log.action).split(' ')[0]}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>@{log.admin_username}</span>
-                          <span style={{ color: 'var(--md-sys-color-outline)' }}> {actionLabels[log.action]?.substring(2) || log.action} </span>
-                          {log.target_id && <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 500 }}>#{log.target_id}</span>}
-                          {log.details && <span style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem' }}> — {log.details.substring(0, 60)}</span>}
+                  {/* Key list */}
+                  {apiKeys.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.82rem',
+                      }}
+                    >
+                      No API keys created yet
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {apiKeys.map((k) => (
+                        <div
+                          key={k.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="var(--md-sys-color-outline)"
+                            strokeWidth="2"
+                            style={{ flexShrink: 0 }}
+                          >
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                          </svg>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>{k.name}</div>
+                            <div
+                              style={{
+                                fontSize: '0.72rem',
+                                color: 'var(--md-sys-color-outline)',
+                                fontFamily: 'monospace',
+                              }}
+                            >
+                              {k.key_prefix}
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              background:
+                                k.permissions === 'admin'
+                                  ? 'rgba(239,68,68,0.12)'
+                                  : k.permissions === 'write'
+                                    ? 'rgba(245,158,11,0.12)'
+                                    : 'rgba(34,197,94,0.12)',
+                              color:
+                                k.permissions === 'admin'
+                                  ? '#ef4444'
+                                  : k.permissions === 'write'
+                                    ? '#f59e0b'
+                                    : '#22c55e',
+                            }}
+                          >
+                            {k.permissions}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)' }}>
+                            {new Date(k.created_at).toLocaleDateString()}
+                          </span>
+                          <button
+                            onClick={() => handleRevokeApiKey(k.id)}
+                            title="Revoke"
+                            style={{
+                              padding: '4px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              background: 'none',
+                              color: 'var(--md-sys-color-error)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                            }}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>{new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                {activeTab === 'broadcast' && (
-          <div className="dash-section">
-            <div className="dash-section-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-              System Broadcast
-            </div>
-            <p style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-outline)', marginBottom: '1rem', marginTop: 0 }}>Send a real-time announcement banner to all connected users. The message appears at the top of their screen with an auto-dismiss countdown.</p>
-            <textarea value={broadcastText} onChange={(e) => setBroadcastText(e.target.value)} placeholder="Type your broadcast message..." rows={3} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface)', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '0.75rem' }}>
-              <button onClick={() => {
-                if (!broadcastText.trim()) return;
-                socket?.emit('admin broadcast', { message: broadcastText.trim() });
-                setBroadcastText('');
-                setBroadcastSent(true);
-                setTimeout(() => setBroadcastSent(false), 3000);
-              }} disabled={!broadcastText.trim()} style={{
-                padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: broadcastText.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s',
-                background: broadcastText.trim() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-variant)',
-                color: broadcastText.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
-              }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                Send Broadcast
-              </button>
-              {broadcastSent && <span style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.82rem', fontWeight: 600, animation: 'fadeIn 0.3s ease-in', display: 'flex', alignItems: 'center', gap: '4px' }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Broadcast sent!</span>}
-            </div>
+                {/* ═══ Email & TURN/STUN ═══ */}
+                <div className="dash-two-col" style={{ gridTemplateColumns: '1fr 1fr', marginTop: '0.85rem' }}>
+                  {/* Email Provider */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                        <polyline points="22,6 12,13 2,6" />
+                      </svg>
+                      Email Provider
+                    </div>
+                    {inputRow('Resend API Key', 'resend_api_key', 'text', {
+                      placeholder: 're_••••••••',
+                      description: 'Used for password resets and notifications',
+                    })}
+                    {inputRow('From Address', 'email_from', 'text', { placeholder: 'noreply@yourdomain.com' })}
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.82rem',
+                          fontWeight: 500,
+                          color: 'var(--md-sys-color-on-surface)',
+                          marginBottom: '4px',
+                        }}
+                      >
+                        Test Email Delivery
+                      </label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input
+                          type="email"
+                          placeholder="test@example.com"
+                          value={testEmailAddr}
+                          onChange={(e) => setTestEmailAddr(e.target.value)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--md-sys-color-outline-variant)',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            color: 'var(--md-sys-color-on-surface)',
+                            outline: 'none',
+                            fontFamily: 'inherit',
+                            fontSize: '0.82rem',
+                          }}
+                        />
+                        <button
+                          onClick={handleTestEmail}
+                          disabled={!testEmailAddr.trim() || testEmailStatus === 'sending'}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            cursor: testEmailAddr.trim() ? 'pointer' : 'not-allowed',
+                            fontFamily: 'inherit',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: testEmailAddr.trim()
+                              ? 'var(--md-sys-color-primary)'
+                              : 'var(--md-sys-color-surface-variant)',
+                            color: testEmailAddr.trim()
+                              ? 'var(--md-sys-color-on-primary)'
+                              : 'var(--md-sys-color-outline)',
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <line x1="22" y1="2" x2="11" y2="13" />
+                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                          </svg>
+                          {testEmailStatus === 'sending' ? 'Sending...' : 'Send Test'}
+                        </button>
+                      </div>
+                      {testEmailStatus && testEmailStatus !== 'sending' && (
+                        <div
+                          style={{
+                            marginTop: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 500,
+                            color: testEmailStatus === 'sent' ? '#22c55e' : '#ef4444',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          {testEmailStatus === 'sent' ? (
+                            <>
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>{' '}
+                              Test email sent successfully
+                            </>
+                          ) : (
+                            testEmailStatus
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* TURN/STUN */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M15.6 11.6L22 7v10l-6.4-4.6" />
+                        <rect x="2" y="7" width="14" height="10" rx="2" ry="2" />
+                      </svg>
+                      TURN / STUN (WebRTC)
+                    </div>
+                    {inputRow('TURN Server URL', 'turn_server', 'text', {
+                      placeholder: 'turn:your-server.com:3478',
+                      description: 'TURN relay for NAT traversal in video calls',
+                    })}
+                    {inputRow('TURN Username', 'turn_username', 'text', { placeholder: 'username' })}
+                    {inputRow('TURN Credential', 'turn_credential', 'text', {
+                      placeholder: '••••••••',
+                      description: 'Shared secret for TURN authentication',
+                    })}
+                    {inputRow('STUN Server URL', 'stun_server', 'text', {
+                      placeholder: 'stun:stun.l.google.com:19302',
+                      description: "STUN server for connection discovery. Defaults to Google's.",
+                    })}
+
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <button
+                        onClick={async () => {
+                          setTurnTestStatus('testing');
+                          const stunUrl = serverConfig.stun_server || 'stun:stun.l.google.com:19302';
+                          const iceServers = [{ urls: stunUrl }];
+                          if (serverConfig.turn_server) {
+                            iceServers.push({
+                              urls: serverConfig.turn_server,
+                              username: serverConfig.turn_username || '',
+                              credential: serverConfig.turn_credential || '',
+                            });
+                          }
+                          const result = {
+                            host: false,
+                            srflx: false,
+                            relay: false,
+                            candidates: [],
+                            errors: [],
+                            config: iceServers,
+                            elapsed: 0,
+                          };
+                          const start = Date.now();
+
+                          // Phase 1: Full ICE gathering (STUN + TURN)
+                          try {
+                            const pc = new RTCPeerConnection({ iceServers });
+                            pc.createDataChannel('test');
+                            pc.onicecandidateerror = (e) => {
+                              result.errors.push(
+                                `[${e.errorCode}] ${e.errorText || 'ICE candidate error'} (${e.url || 'unknown URL'})`
+                              );
+                            };
+                            const offer = await pc.createOffer();
+                            await pc.setLocalDescription(offer);
+                            await new Promise((resolve) => {
+                              const timeout = setTimeout(() => {
+                                pc.onicecandidate = null;
+                                resolve();
+                              }, 8000);
+                              pc.onicecandidate = (e) => {
+                                if (e.candidate && e.candidate.candidate) {
+                                  const c = e.candidate.candidate;
+                                  const typ = c.match(/typ (\w+)/);
+                                  const addr = c.match(/(\d+\.\d+\.\d+\.\d+)/);
+                                  if (typ) {
+                                    result[typ[1]] = true;
+                                    result.candidates.push({
+                                      type: typ[1],
+                                      address: addr ? addr[1] : '?',
+                                      full: c.substring(0, 80),
+                                    });
+                                  }
+                                } else {
+                                  clearTimeout(timeout);
+                                  resolve();
+                                }
+                              };
+                            });
+                            pc.close();
+                          } catch (err) {
+                            result.errors.push('Phase 1: ' + err.message);
+                          }
+
+                          // Phase 2: TURN-only isolation test
+                          if (serverConfig.turn_server && !result.relay) {
+                            try {
+                              const turnOnly = [
+                                {
+                                  urls: serverConfig.turn_server,
+                                  username: serverConfig.turn_username || '',
+                                  credential: serverConfig.turn_credential || '',
+                                },
+                              ];
+                              const pc2 = new RTCPeerConnection({ iceServers: turnOnly, iceTransportPolicy: 'relay' });
+                              pc2.createDataChannel('turn-test');
+                              pc2.onicecandidateerror = (e) => {
+                                result.errors.push(
+                                  `[TURN-only ${e.errorCode}] ${e.errorText || 'error'} (${e.url || ''})`
+                                );
+                              };
+                              const offer2 = await pc2.createOffer();
+                              await pc2.setLocalDescription(offer2);
+                              await new Promise((resolve) => {
+                                const timeout = setTimeout(() => {
+                                  pc2.onicecandidate = null;
+                                  resolve();
+                                }, 6000);
+                                pc2.onicecandidate = (e) => {
+                                  if (e.candidate && e.candidate.candidate) {
+                                    const typ = e.candidate.candidate.match(/typ (\w+)/);
+                                    if (typ && typ[1] === 'relay') {
+                                      result.relay = true;
+                                      result.candidates.push({
+                                        type: 'relay (isolated)',
+                                        address: e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1] || '?',
+                                        full: '',
+                                      });
+                                    }
+                                  } else {
+                                    clearTimeout(timeout);
+                                    resolve();
+                                  }
+                                };
+                              });
+                              pc2.close();
+                            } catch (err) {
+                              result.errors.push('TURN-only: ' + err.message);
+                            }
+                          }
+
+                          result.elapsed = ((Date.now() - start) / 1000).toFixed(1);
+                          setTurnTestStatus(result);
+                        }}
+                        disabled={turnTestStatus === 'testing'}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          cursor: turnTestStatus === 'testing' ? 'not-allowed' : 'pointer',
+                          fontFamily: 'inherit',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: 'var(--md-sys-color-primary)',
+                          color: 'var(--md-sys-color-on-primary)',
+                          opacity: turnTestStatus === 'testing' ? 0.7 : 1,
+                        }}
+                      >
+                        {turnTestStatus === 'testing' ? (
+                          <>
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{ animation: 'spin 1s linear infinite' }}
+                            >
+                              <polyline points="23 4 23 10 17 10" />
+                              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>{' '}
+                            Testing (up to 14s)...
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                              <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>{' '}
+                            Test Connectivity
+                          </>
+                        )}
+                      </button>
+                      {turnTestStatus && turnTestStatus !== 'testing' && (
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          {/* Status summary */}
+                          {[
+                            { label: 'Host (local)', ok: turnTestStatus.host },
+                            { label: 'STUN (srflx)', ok: turnTestStatus.srflx },
+                            { label: 'TURN (relay)', ok: turnTestStatus.relay },
+                          ].map((item) => (
+                            <div
+                              key={item.label}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontWeight: 500,
+                                color: item.ok ? '#22c55e' : '#ef4444',
+                              }}
+                            >
+                              {item.ok ? (
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="#22c55e"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="#ef4444"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              )}
+                              {item.label}
+                            </div>
+                          ))}
+
+                          {/* Timing */}
+                          <div style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem', marginTop: '4px' }}>
+                            Completed in {turnTestStatus.elapsed}s
+                          </div>
+
+                          {/* Candidates discovered */}
+                          {turnTestStatus.candidates?.length > 0 && (
+                            <details style={{ marginTop: '4px' }}>
+                              <summary
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--md-sys-color-on-surface-variant)',
+                                  fontWeight: 500,
+                                  fontSize: '0.75rem',
+                                }}
+                              >
+                                {turnTestStatus.candidates.length} candidate(s) discovered
+                              </summary>
+                              <div
+                                style={{
+                                  marginTop: '4px',
+                                  padding: '8px',
+                                  borderRadius: '8px',
+                                  background: 'var(--md-sys-color-surface-variant)',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1.6,
+                                  overflowX: 'auto',
+                                  maxHeight: '150px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                {turnTestStatus.candidates.map((c, i) => (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      color:
+                                        c.type === 'relay' || c.type === 'relay (isolated)'
+                                          ? '#22c55e'
+                                          : c.type === 'srflx'
+                                            ? '#3b82f6'
+                                            : 'var(--md-sys-color-on-surface-variant)',
+                                    }}
+                                  >
+                                    {c.type} → {c.address} {c.full ? `(${c.full})` : ''}
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+
+                          {/* Errors */}
+                          {turnTestStatus.errors?.length > 0 && (
+                            <details open style={{ marginTop: '2px' }}>
+                              <summary
+                                style={{ cursor: 'pointer', color: '#ef4444', fontWeight: 500, fontSize: '0.75rem' }}
+                              >
+                                {turnTestStatus.errors.length} error(s)
+                              </summary>
+                              <div
+                                style={{
+                                  marginTop: '4px',
+                                  padding: '8px',
+                                  borderRadius: '8px',
+                                  background: 'rgba(239,68,68,0.08)',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1.6,
+                                  color: '#ef4444',
+                                }}
+                              >
+                                {turnTestStatus.errors.map((e, i) => (
+                                  <div key={i}>{e}</div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+
+                          {/* Config used */}
+                          <details style={{ marginTop: '2px' }}>
+                            <summary
+                              style={{
+                                cursor: 'pointer',
+                                color: 'var(--md-sys-color-outline)',
+                                fontWeight: 500,
+                                fontSize: '0.72rem',
+                              }}
+                            >
+                              ICE config used
+                            </summary>
+                            <div
+                              style={{
+                                marginTop: '4px',
+                                padding: '8px',
+                                borderRadius: '8px',
+                                background: 'var(--md-sys-color-surface-variant)',
+                                fontFamily: 'monospace',
+                                fontSize: '0.65rem',
+                                lineHeight: 1.5,
+                                overflowX: 'auto',
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                              }}
+                            >
+                              {JSON.stringify(
+                                turnTestStatus.config?.map((s) => ({
+                                  ...s,
+                                  credential: s.credential ? '••••' : undefined,
+                                })),
+                                null,
+                                2
+                              )}
+                            </div>
+                          </details>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Giphy */}
+                  <div className="dash-section">
+                    <div className="dash-section-title">
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+                        <line x1="7" y1="2" x2="7" y2="22" />
+                        <line x1="17" y1="2" x2="17" y2="22" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <line x1="2" y1="7" x2="7" y2="7" />
+                        <line x1="2" y1="17" x2="7" y2="17" />
+                        <line x1="17" y1="7" x2="22" y2="7" />
+                        <line x1="17" y1="17" x2="22" y2="17" />
+                      </svg>
+                      Giphy Integration
+                    </div>
+                    {inputRow('Giphy API Key', 'giphy_api_key', 'text', {
+                      placeholder: 'your_giphy_api_key',
+                      description: 'API key for GIF search. Get one at developers.giphy.com',
+                    })}
+                  </div>
+                </div>
+
+                {/* ═══ Environment Overview ═══ */}
+                <div className="dash-section" style={{ marginTop: '0.85rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '0.75rem',
+                    }}
+                  >
+                    <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                      </svg>
+                      Environment
+                    </div>
+                    <button
+                      onClick={fetchEnvironment}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        background: 'var(--md-sys-color-surface)',
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                        cursor: 'pointer',
+                        fontSize: '0.72rem',
+                        fontFamily: 'inherit',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                      </svg>
+                      {envInfo ? 'Refresh' : 'Load'}
+                    </button>
+                  </div>
+                  {!envInfo ? (
+                    <div
+                      style={{
+                        padding: '1rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.82rem',
+                      }}
+                    >
+                      Click "Load" to fetch environment details
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                        gap: '8px',
+                      }}
+                    >
+                      {[
+                        {
+                          label: 'Node.js',
+                          value: envInfo.nodeVersion,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#4CAF50"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                              <path d="M2 17l10 5 10-5" />
+                              <path d="M2 12l10 5 10-5" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: 'Platform',
+                          value: `${envInfo.platform} ${envInfo.arch}`,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <rect x="2" y="3" width="20" height="14" rx="2" />
+                              <line x1="8" y1="21" x2="16" y2="21" />
+                              <line x1="12" y1="17" x2="12" y2="21" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: 'Hostname',
+                          value: envInfo.hostname,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <rect x="2" y="2" width="20" height="8" rx="2" />
+                              <rect x="2" y="14" width="20" height="8" rx="2" />
+                              <line x1="6" y1="6" x2="6.01" y2="6" />
+                              <line x1="6" y1="18" x2="6.01" y2="18" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: 'CPUs',
+                          value: envInfo.cpus,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <rect x="4" y="4" width="16" height="16" rx="2" />
+                              <rect x="9" y="9" width="6" height="6" />
+                              <path d="M15 2v2" />
+                              <path d="M15 20v2" />
+                              <path d="M2 15h2" />
+                              <path d="M2 9h2" />
+                              <path d="M20 15h2" />
+                              <path d="M20 9h2" />
+                              <path d="M9 2v2" />
+                              <path d="M9 20v2" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: 'Memory',
+                          value: `${(envInfo.freeMemory / 1e9).toFixed(1)} / ${(envInfo.totalMemory / 1e9).toFixed(1)} GB`,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M6 19v-3" />
+                              <path d="M10 19v-6" />
+                              <path d="M14 19v-9" />
+                              <path d="M18 19V5" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: 'Uptime',
+                          value: `${Math.floor(envInfo.uptime / 3600)}h ${Math.floor((envInfo.uptime % 3600) / 60)}m`,
+                          icon: (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                          ),
+                        },
+                      ].map((item, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: '0.7rem',
+                              color: 'var(--md-sys-color-outline)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              marginBottom: '2px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            {item.icon} {item.label}
+                          </div>
+                          <div
+                            style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)', fontSize: '0.85rem' }}
+                          >
+                            {item.value}
+                          </div>
+                        </div>
+                      ))}
+                      {envInfo.env &&
+                        Object.entries(envInfo.env).map(([key, entry]) => {
+                          const val = typeof entry === 'object' ? entry.value : entry;
+                          const status = typeof entry === 'object' ? entry.status : 'ok';
+                          const statusColor =
+                            status === 'error' ? '#ef4444' : status === 'warn' ? '#f59e0b' : '#4CAF50';
+                          const statusIcon =
+                            status === 'error' ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#ef4444"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                              </svg>
+                            ) : status === 'warn' ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 8v4" />
+                                <path d="M12 16h.01" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#4CAF50"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                <polyline points="9 12 11 14 15 10" />
+                              </svg>
+                            );
+                          return (
+                            <div
+                              key={key}
+                              style={{
+                                padding: '8px 10px',
+                                borderRadius: '8px',
+                                background: 'var(--md-sys-color-surface-variant)',
+                                fontSize: '0.78rem',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '0.7rem',
+                                  color: 'var(--md-sys-color-outline)',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.05em',
+                                  marginBottom: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                {statusIcon} {key}
+                              </div>
+                              <div
+                                style={{
+                                  fontWeight: 500,
+                                  color: statusColor,
+                                  fontSize: '0.8rem',
+                                  fontFamily: val.includes('••') ? 'monospace' : 'inherit',
+                                }}
+                              >
+                                {val}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                <style>{`@media (max-width: 700px) { .dash-section { margin-bottom: 0 !important; } }`}</style>
+              </div>
+            );
+          })()}
+
+        {activeTab === 'config' && !serverConfig && (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>
+            Loading configuration...
           </div>
         )}
 
+        {activeTab === 'moderation' &&
+          (() => {
+            // Auto-fetch on tab open
+            if (!auditLogs) fetchAuditLogs();
+            if (!reports) fetchReports();
+            if (wordFilters.length === 0) fetchWordFilters();
 
+            const actionLabels = {
+              suspend_user: '🚫 Suspended User',
+              unsuspend_user: '✅ Unsuspended User',
+              delete_user: '🗑️ Deleted User',
+              bulk_delete_users: '🗑️ Bulk Deleted Users',
+              update_config: '⚙️ Updated Config',
+              add_word_filter: '🔤 Added Word Filter',
+              delete_word_filter: '🔤 Removed Word Filter',
+              resolve_report: '✅ Resolved Report',
+              dismiss_report: '❌ Dismissed Report',
+            };
+
+            return (
+              <div>
+                {/* ═══ Reports Section ═══ */}
+                <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '0.75rem',
+                    }}
+                  >
+                    <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                        <line x1="4" y1="22" x2="4" y2="15" />
+                      </svg>
+                      Message Reports{' '}
+                      {reports?.pendingCount > 0 && (
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            background: '#ef4444',
+                            color: '#fff',
+                            marginLeft: '6px',
+                          }}
+                        >
+                          {reports.pendingCount}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {['pending', 'resolved', 'dismissed'].map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setReportFilter(s);
+                            fetchReports(s);
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            fontFamily: 'inherit',
+                            textTransform: 'capitalize',
+                            background:
+                              reportFilter === s
+                                ? 'var(--md-sys-color-primary)'
+                                : 'var(--md-sys-color-surface-variant)',
+                            color:
+                              reportFilter === s
+                                ? 'var(--md-sys-color-on-primary)'
+                                : 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {reports?.reports?.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        style={{ display: 'block', margin: '0 auto 8px' }}
+                      >
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      No {reportFilter} reports
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {reports?.reports?.map((r) => (
+                        <div
+                          key={r.id}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            fontSize: '0.82rem',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              gap: '8px',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>
+                                @{r.reporter_username}
+                              </span>
+                              <span style={{ color: 'var(--md-sys-color-outline)' }}> reported </span>
+                              <span style={{ fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>
+                                @{r.message_sender}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>
+                              {new Date(r.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              background: 'var(--md-sys-color-surface)',
+                              fontSize: '0.8rem',
+                              color: 'var(--md-sys-color-on-surface)',
+                              marginBottom: '6px',
+                              borderLeft: '3px solid var(--md-sys-color-error)',
+                            }}
+                          >
+                            "{r.message_text?.substring(0, 200) || '[deleted]'}"
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)', flex: 1 }}>
+                              Reason: {r.reason}
+                            </span>
+                            {r.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleReportAction(r.id, 'resolved', true)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: '#ef4444',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    fontFamily: 'inherit',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                  }}
+                                >
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  </svg>
+                                  Delete Message
+                                </button>
+                                <button
+                                  onClick={() => handleReportAction(r.id, 'resolved')}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: 'var(--md-sys-color-primary)',
+                                    color: 'var(--md-sys-color-on-primary)',
+                                    cursor: 'pointer',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  Resolve
+                                </button>
+                                <button
+                                  onClick={() => handleReportAction(r.id, 'dismissed')}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid var(--md-sys-color-outline-variant)',
+                                    background: 'transparent',
+                                    color: 'var(--md-sys-color-on-surface-variant)',
+                                    cursor: 'pointer',
+                                    fontSize: '0.72rem',
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  Dismiss
+                                </button>
+                              </>
+                            )}
+                            {r.status !== 'pending' && (
+                              <span
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  color:
+                                    r.status === 'resolved'
+                                      ? 'var(--md-sys-color-primary)'
+                                      : 'var(--md-sys-color-outline)',
+                                }}
+                              >
+                                {r.status === 'resolved' ? '✅' : '❌'} {r.resolved_by} ·{' '}
+                                {new Date(r.resolved_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* ═══ Word Filters Section ═══ */}
+                <div className="dash-section" style={{ marginBottom: '0.85rem' }}>
+                  <div className="dash-section-title">
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    </svg>
+                    Word Filters
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '0.75rem' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1 }}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-outline)"
+                        strokeWidth="2"
+                        style={{ position: 'absolute', left: '10px', pointerEvents: 'none' }}
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="Add a word or phrase..."
+                        value={newFilterWord}
+                        onChange={(e) => setNewFilterWord(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleAddWordFilter();
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px 8px 32px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--md-sys-color-outline-variant)',
+                          background: 'var(--md-sys-color-surface-variant)',
+                          color: 'var(--md-sys-color-on-surface)',
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          fontSize: '0.82rem',
+                        }}
+                      />
+                    </div>
+                    <select
+                      value={newFilterAction}
+                      onChange={(e) => setNewFilterAction(e.target.value)}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        background: 'var(--md-sys-color-surface-variant)',
+                        color: 'var(--md-sys-color-on-surface)',
+                        fontFamily: 'inherit',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="block">Block</option>
+                      <option value="flag">Flag</option>
+                    </select>
+                    <button
+                      onClick={handleAddWordFilter}
+                      disabled={!newFilterWord.trim()}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        cursor: newFilterWord.trim() ? 'pointer' : 'not-allowed',
+                        fontFamily: 'inherit',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        background: newFilterWord.trim()
+                          ? 'var(--md-sys-color-primary)'
+                          : 'var(--md-sys-color-surface-variant)',
+                        color: newFilterWord.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      Add
+                    </button>
+                  </div>
+                  {wordFilters.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.82rem',
+                      }}
+                    >
+                      No word filters configured
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {wordFilters.map((f) => (
+                        <div
+                          key={f.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '5px 10px',
+                            borderRadius: '8px',
+                            background: f.action === 'block' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          <span style={{ color: f.action === 'block' ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
+                            {f.action === 'block' ? '🚫' : '⚠️'}
+                          </span>
+                          <span style={{ color: 'var(--md-sys-color-on-surface)' }}>{f.pattern}</span>
+                          <button
+                            onClick={() => handleDeleteWordFilter(f.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '2px',
+                              color: 'var(--md-sys-color-outline)',
+                              display: 'flex',
+                            }}
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* ═══ Audit Log Section ═══ */}
+                <div className="dash-section">
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '0.75rem',
+                    }}
+                  >
+                    <div className="dash-section-title" style={{ marginBottom: 0 }}>
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                        <polyline points="10 9 9 9 8 9" />
+                      </svg>
+                      Audit Log{' '}
+                      {auditLogs?.total > 0 && (
+                        <span style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--md-sys-color-outline)' }}>
+                          ({auditLogs.total} entries)
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => fetchAuditLogs(auditFilter)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        background: 'var(--md-sys-color-surface)',
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                        cursor: 'pointer',
+                        fontSize: '0.72rem',
+                        fontFamily: 'inherit',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                      </svg>
+                      Refresh
+                    </button>
+                  </div>
+                  {auditLogs?.logs?.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        color: 'var(--md-sys-color-outline)',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        style={{ display: 'block', margin: '0 auto 8px' }}
+                      >
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                      No audit entries yet
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                        maxHeight: '300px',
+                        overflow: 'auto',
+                      }}
+                    >
+                      {auditLogs?.logs?.map((log) => (
+                        <div
+                          key={log.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: 'var(--md-sys-color-surface-variant)',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          <span style={{ fontSize: '1rem', flexShrink: 0 }}>
+                            {(actionLabels[log.action] || log.action).split(' ')[0]}
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
+                              @{log.admin_username}
+                            </span>
+                            <span style={{ color: 'var(--md-sys-color-outline)' }}>
+                              {' '}
+                              {actionLabels[log.action]?.substring(2) || log.action}{' '}
+                            </span>
+                            {log.target_id && (
+                              <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 500 }}>
+                                #{log.target_id}
+                              </span>
+                            )}
+                            {log.details && (
+                              <span style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.72rem' }}>
+                                {' '}
+                                — {log.details.substring(0, 60)}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--md-sys-color-outline)', flexShrink: 0 }}>
+                            {new Date(log.timestamp).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+        {activeTab === 'broadcast' && (
+          <div className="dash-section">
+            <div className="dash-section-title">
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+              System Broadcast
+            </div>
+            <p
+              style={{ fontSize: '0.82rem', color: 'var(--md-sys-color-outline)', marginBottom: '1rem', marginTop: 0 }}
+            >
+              Send a real-time announcement banner to all connected users. The message appears at the top of their
+              screen with an auto-dismiss countdown.
+            </p>
+            <textarea
+              value={broadcastText}
+              onChange={(e) => setBroadcastText(e.target.value)}
+              placeholder="Type your broadcast message..."
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '12px',
+                border: '1px solid var(--md-sys-color-outline-variant)',
+                backgroundColor: 'var(--md-sys-color-surface-variant)',
+                color: 'var(--md-sys-color-on-surface)',
+                fontSize: '0.88rem',
+                fontFamily: 'inherit',
+                outline: 'none',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '0.75rem' }}>
+              <button
+                onClick={() => {
+                  if (!broadcastText.trim()) return;
+                  socket?.emit('admin broadcast', { message: broadcastText.trim() });
+                  setBroadcastText('');
+                  setBroadcastSent(true);
+                  setTimeout(() => setBroadcastSent(false), 3000);
+                }}
+                disabled={!broadcastText.trim()}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  cursor: broadcastText.trim() ? 'pointer' : 'not-allowed',
+                  fontFamily: 'inherit',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                  background: broadcastText.trim()
+                    ? 'var(--md-sys-color-primary)'
+                    : 'var(--md-sys-color-surface-variant)',
+                  color: broadcastText.trim() ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-outline)',
+                }}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+                Send Broadcast
+              </button>
+              {broadcastSent && (
+                <span
+                  style={{
+                    color: 'var(--md-sys-color-primary)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    animation: 'fadeIn 0.3s ease-in',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>{' '}
+                  Broadcast sent!
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       {adminCroppingImage && (
-        <AvatarCropper 
-          image={adminCroppingImage} 
+        <AvatarCropper
+          image={adminCroppingImage}
           onComplete={(croppedBase64) => {
-            setEditingUser({...editingUser, avatar: croppedBase64});
+            setEditingUser({ ...editingUser, avatar: croppedBase64 });
             setAdminCroppingImage(null);
-          }} 
-          onCancel={() => setAdminCroppingImage(null)} 
+          }}
+          onCancel={() => setAdminCroppingImage(null)}
         />
       )}
     </div>
@@ -2605,7 +6521,7 @@ function App() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
-  
+
   // Phase 12: Pinned Messages Board
   const [showPinnedBoard, setShowPinnedBoard] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState([]);
@@ -2633,8 +6549,10 @@ function App() {
     if (rawJwkStr) {
       syncPrivateKeyToIDB(rawJwkStr);
       importPrivateKey(rawJwkStr)
-        .then(key => { privateKeyRef.current = key; })
-        .catch(err => console.error("Failed to import cached private key", err));
+        .then((key) => {
+          privateKeyRef.current = key;
+        })
+        .catch((err) => console.error('Failed to import cached private key', err));
     }
   }, []);
 
@@ -2669,11 +6587,12 @@ function App() {
   // Fetch public config (app name, logo) on mount
   useEffect(() => {
     fetch(`${socketUrl}/api/config/public`)
-      .then(res => res.json())
-      .then(cfg => {
+      .then((res) => res.json())
+      .then((cfg) => {
         if (cfg.app_name) setAppName(cfg.app_name);
         if (cfg.custom_logo) setAppLogo(cfg.custom_logo);
-      }).catch(() => {});
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -2696,10 +6615,12 @@ function App() {
     bio: '',
     status_text: '',
     status_emoji: 'available',
-    timezone: ''
+    timezone: '',
   });
   const profileDataRef = useRef(null);
-  useEffect(() => { profileDataRef.current = profileData; }, [profileData]);
+  useEffect(() => {
+    profileDataRef.current = profileData;
+  }, [profileData]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const weather = useWeather(profileData.location);
   const [tempAvatar, setTempAvatar] = useState(null);
@@ -2713,8 +6634,8 @@ function App() {
   // Fetch Global Settings
   useEffect(() => {
     fetch(`${socketUrl}/api/settings`)
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         if (data.global_font) setGlobalFont(data.global_font);
       })
       .catch(console.error);
@@ -2751,7 +6672,7 @@ function App() {
     currentSpaceRef.current = currentSpace?.id;
     if (currentSpace?.id) {
       localStorage.setItem('lastSpaceId', currentSpace.id);
-      setUnreadCounts(prev => ({ ...prev, [currentSpace.id]: 0 }));
+      setUnreadCounts((prev) => ({ ...prev, [currentSpace.id]: 0 }));
     }
   }, [currentSpace?.id]);
 
@@ -2763,9 +6684,13 @@ function App() {
   const [newSpaceE2EE, setNewSpaceE2EE] = useState(false);
   const [activeKeys, setActiveKeys] = useState({});
   const activeKeysRef = useRef({});
-  useEffect(() => { activeKeysRef.current = activeKeys; }, [activeKeys]);
+  useEffect(() => {
+    activeKeysRef.current = activeKeys;
+  }, [activeKeys]);
   const spacesRef = useRef([]);
-  useEffect(() => { spacesRef.current = spaces; }, [spaces]);
+  useEffect(() => {
+    spacesRef.current = spaces;
+  }, [spaces]);
 
   const [showDMModal, setShowDMModal] = useState(false);
   const [showStartChatMenu, setShowStartChatMenu] = useState(false);
@@ -2791,11 +6716,53 @@ function App() {
   const [formatToolbar, setFormatToolbar] = useState(null); // { top, left }
   const richInputRef = useRef(null);
 
+  // ─── Message Search ───
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchHighlightIdx, setSearchHighlightIdx] = useState(0);
+  const searchInputRef = useRef(null);
+  const messageCacheRef = useRef({}); // { [spaceId]: [decryptedMessages] }
+
+  // ─── Voice Messages ───
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const recordingTimerRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  // ─── URL Unfurling ───
+  const unfurlCacheRef = useRef({}); // { [url]: { title, description, image, ... } }
+  const [unfurlData, setUnfurlData] = useState({}); // { [msgId]: { url, title, description, image, ... } }
+  const [collapsedUnfurls, setCollapsedUnfurls] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('collapsedUnfurls') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const toggleUnfurl = (msgId) => {
+    setCollapsedUnfurls((prev) => {
+      const next = { ...prev, [msgId]: !prev[msgId] };
+      localStorage.setItem('collapsedUnfurls', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // ─── @Mentions ───
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const [mentionSpaces, setMentionSpaces] = useState({}); // { spaceId: count } — unread mention dots
+
   const applyFormat = (command) => {
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
     const anchor = sel.anchorNode;
-    const el = anchor?.nodeType === Node.TEXT_NODE ? anchor.parentElement?.closest('[contenteditable]') : anchor?.closest?.('[contenteditable]');
+    const el =
+      anchor?.nodeType === Node.TEXT_NODE
+        ? anchor.parentElement?.closest('[contenteditable]')
+        : anchor?.closest?.('[contenteditable]');
     if (!el) return;
     el.focus();
     if (command === 'code') {
@@ -2821,7 +6788,7 @@ function App() {
     // Position the toolbar above the selection
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
-    setFormatToolbar({ top: rect.top - 44, left: rect.left + (rect.width / 2) });
+    setFormatToolbar({ top: rect.top - 44, left: rect.left + rect.width / 2 });
   };
 
   // ─── Global Keyboard Shortcuts ───
@@ -2832,19 +6799,69 @@ function App() {
 
       // Escape — close the topmost modal/panel (works even when in inputs)
       if (e.key === 'Escape') {
-        if (showSettings) { setShowSettings(false); return; }
-        if (showSpaceModal) { setShowSpaceModal(false); return; }
-        if (showDMModal) { setShowDMModal(false); return; }
-        if (showRoomSettingsModal) { setShowRoomSettingsModal(false); return; }
-        if (showAdminPanel) { setShowAdminPanel(false); return; }
-        if (editingId) { setEditingId(null); return; }
-        if (msgToDelete) { setMsgToDelete(null); return; }
-        if (spaceToDelete) { setSpaceToDelete(null); return; }
-        if (spaceToLeave) { setSpaceToLeave(null); return; }
+        if (showSearch) {
+          setShowSearch(false);
+          setSearchQuery('');
+          setSearchResults([]);
+          return;
+        }
+        if (showSettings) {
+          setShowSettings(false);
+          return;
+        }
+        if (showSpaceModal) {
+          setShowSpaceModal(false);
+          return;
+        }
+        if (showDMModal) {
+          setShowDMModal(false);
+          return;
+        }
+        if (showRoomSettingsModal) {
+          setShowRoomSettingsModal(false);
+          return;
+        }
+        if (showAdminPanel) {
+          setShowAdminPanel(false);
+          return;
+        }
+        if (editingId) {
+          setEditingId(null);
+          return;
+        }
+        if (msgToDelete) {
+          setMsgToDelete(null);
+          return;
+        }
+        if (spaceToDelete) {
+          setSpaceToDelete(null);
+          return;
+        }
+        if (spaceToLeave) {
+          setSpaceToLeave(null);
+          return;
+        }
 
-        if (selectedAsset) { setSelectedAsset(null); return; }
-        if (showPinnedBoard) { setShowPinnedBoard(false); return; }
-        if (formatToolbar) { setFormatToolbar(null); return; }
+        if (selectedAsset) {
+          setSelectedAsset(null);
+          return;
+        }
+        if (showPinnedBoard) {
+          setShowPinnedBoard(false);
+          return;
+        }
+        if (formatToolbar) {
+          setFormatToolbar(null);
+          return;
+        }
+        return;
+      }
+
+      // Ctrl+F — Open/focus global message search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
         return;
       }
 
@@ -2877,7 +6894,7 @@ function App() {
       // Ctrl+Shift+, — Settings
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === ',' || e.key === '<')) {
         e.preventDefault();
-        setShowSettings(prev => !prev);
+        setShowSettings((prev) => !prev);
         return;
       }
 
@@ -2886,8 +6903,8 @@ function App() {
         e.preventDefault();
         if (!spaces || spaces.length === 0) return;
         // Build visual order: non-DM spaces first, then DMs (matches sidebar rendering)
-        const visualOrder = [...spaces.filter(s => s.is_dm !== 1), ...spaces.filter(s => s.is_dm === 1)];
-        const currentIdx = visualOrder.findIndex(s => s.id === currentSpace?.id);
+        const visualOrder = [...spaces.filter((s) => s.is_dm !== 1), ...spaces.filter((s) => s.is_dm === 1)];
+        const currentIdx = visualOrder.findIndex((s) => s.id === currentSpace?.id);
         let nextIdx;
         if (e.key === 'ArrowUp') {
           nextIdx = currentIdx <= 0 ? visualOrder.length - 1 : currentIdx - 1;
@@ -2901,12 +6918,32 @@ function App() {
 
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [spaces, currentSpace, showSettings, showSpaceModal, showDMModal, showRoomSettingsModal,
-      showAdminPanel, editingId, msgToDelete, spaceToDelete, spaceToLeave,
-      selectedAsset, showPinnedBoard, formatToolbar]);
+  }, [
+    spaces,
+    currentSpace,
+    showSettings,
+    showSpaceModal,
+    showDMModal,
+    showRoomSettingsModal,
+    showAdminPanel,
+    editingId,
+    msgToDelete,
+    spaceToDelete,
+    spaceToLeave,
+    selectedAsset,
+    showPinnedBoard,
+    formatToolbar,
+    showSearch,
+  ]);
 
   const handleSpaceSelect = async (space) => {
     if (space.id === currentSpace?.id) return;
+    // Clear mention dot for the space being opened
+    setMentionSpaces((prev) => {
+      const n = { ...prev };
+      delete n[space.id];
+      return n;
+    });
     // Save draft for current space before switching
     if (currentSpace?.id) {
       const el = richInputRef.current;
@@ -2917,37 +6954,46 @@ function App() {
         localStorage.removeItem(`draft_${currentSpace.id}`);
       }
     }
+    // Save current messages to cache before clearing
+    if (currentSpace?.id && messages.length > 0) {
+      messageCacheRef.current[currentSpace.id] = messages;
+    }
     setMessages([]);
     setHistoryLoaded(false);
     if (isEncryptedSpace(space) && !activeKeys[space.id] && privateKeyRef.current) {
       try {
-        const keysRes = await fetch(`${socketUrl}/api/spaces/keys`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+        const keysRes = await fetch(`${socketUrl}/api/spaces/keys`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
         if (keysRes.ok) {
           const keysData = await keysRes.json();
-          const targetKeyObj = keysData.find(kd => kd.space_id === space.id);
+          const targetKeyObj = keysData.find((kd) => kd.space_id === space.id);
           if (targetKeyObj) {
             const roomKey = await decryptRoomKeyWithPrivateKey(targetKeyObj.encrypted_room_key, privateKeyRef.current);
-            setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
+            setActiveKeys((prev) => ({ ...prev, [space.id]: roomKey }));
             await syncRoomKeyToIDB(space.id, roomKey);
           } else {
             // Try server-side escrow recovery
             try {
               const escrowRes = await fetch(`${socketUrl}/api/spaces/${space.id}/request-key`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${token}` },
               });
               if (escrowRes.ok) {
                 const { encrypted_room_key } = await escrowRes.json();
                 if (encrypted_room_key) {
                   const roomKey = await decryptRoomKeyWithPrivateKey(encrypted_room_key, privateKeyRef.current);
-                  setActiveKeys(prev => ({ ...prev, [space.id]: roomKey }));
+                  setActiveKeys((prev) => ({ ...prev, [space.id]: roomKey }));
                   await syncRoomKeyToIDB(space.id, roomKey);
                 }
               }
-            } catch (e) { console.error('[E2EE] Space select escrow recovery failed', e); }
+            } catch (e) {
+              console.error('[E2EE] Space select escrow recovery failed', e);
+            }
           }
         }
       } catch (e) {
-        console.error("Silent key fetch failed for handleSpaceSelect", e);
+        console.error('Silent key fetch failed for handleSpaceSelect', e);
       }
     }
     // Restore draft for target space
@@ -2968,7 +7014,6 @@ function App() {
     setMobileView('chat');
   };
 
-
   // Location Autocomplete State
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -2984,26 +7029,26 @@ function App() {
     setIsSubscribing(true);
     try {
       const registration = await navigator.serviceWorker.ready;
-      
+
       // Get VAPID public key
       const keyRes = await fetch(`${socketUrl}/api/push/vapid-public-key`);
       const { publicKey } = await keyRes.json();
-      
+
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey)
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
-      
+
       // Send to backend
       const res = await fetch(`${socketUrl}/api/push/subscribe`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(subscription.toJSON ? subscription.toJSON() : subscription)
+        body: JSON.stringify(subscription.toJSON ? subscription.toJSON() : subscription),
       });
-      
+
       if (res.ok) {
         setPushEnabled(true);
         console.log('Push subscription successful');
@@ -3031,22 +7076,23 @@ function App() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator && token) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => {
-          reg.pushManager.getSubscription().then(sub => {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          reg.pushManager.getSubscription().then((sub) => {
             setPushEnabled(!!sub);
             if (sub) {
               fetch(`${socketUrl}/api/push/subscribe`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify(sub)
-              }).catch(e => console.error("Silent Re-sync failed", e));
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(sub),
+              }).catch((e) => console.error('Silent Re-sync failed', e));
             } else if ('Notification' in window && Notification.permission === 'default') {
               setPromptNotification(true);
             }
           });
         })
-        .catch(err => console.error('SW Registration Failed', err));
+        .catch((err) => console.error('SW Registration Failed', err));
     }
   }, [token, socketUrl]);
 
@@ -3055,9 +7101,9 @@ function App() {
     if (!('serviceWorker' in navigator)) return;
     const handler = (event) => {
       const { type, spaceId, text, focusInput } = event.data || {};
-      
+
       if (type === 'NAVIGATE_TO_SPACE' && spaceId) {
-        const target = spaces.find(s => Number(s.id) === Number(spaceId));
+        const target = spaces.find((s) => Number(s.id) === Number(spaceId));
         if (target) {
           setCurrentSpace(target);
           setMobileView('chat');
@@ -3071,7 +7117,7 @@ function App() {
           }
         }
       }
-      
+
       if (type === 'PUSH_REPLY' && spaceId && text && socket) {
         socket.emit('chat message', { text, spaceId: Number(spaceId) });
       }
@@ -3124,7 +7170,7 @@ function App() {
         const container = chatEndRef.current.parentElement;
         container.scrollTo({
           top: container.scrollHeight,
-          behavior: instant ? 'auto' : 'smooth'
+          behavior: instant ? 'auto' : 'smooth',
         });
       }
     }, 50);
@@ -3134,7 +7180,9 @@ function App() {
     if (messages.length > 0 || typingUsers.length > 0) {
       scrollToBottom(isInitialLoad.current);
       if (isInitialLoad.current) {
-        setTimeout(() => { isInitialLoad.current = false; }, 500);
+        setTimeout(() => {
+          isInitialLoad.current = false;
+        }, 500);
       }
     }
   }, [messages, typingUsers]);
@@ -3147,10 +7195,10 @@ function App() {
     }
     // If logged in, wait for connection, spaces AND history
     if (isConnected && spaces.length > 0 && historyLoaded) {
-      const timer = setTimeout(() => setAppReady(true), 1000); 
+      const timer = setTimeout(() => setAppReady(true), 1000);
       return () => clearTimeout(timer);
     }
-    
+
     // Failsafe for orphaned DB wipes
     const failsafe = setTimeout(() => setAppReady(true), 3500);
     return () => clearTimeout(failsafe);
@@ -3158,8 +7206,8 @@ function App() {
 
   // Detect currentSpace removal cleanly
   useEffect(() => {
-    if (spaces.length > 0 && !spaces.find(s => s.id === currentSpace.id)) {
-      const selfDm = spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
+    if (spaces.length > 0 && !spaces.find((s) => s.id === currentSpace.id)) {
+      const selfDm = spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_'));
       setCurrentSpace(selfDm || spaces[0]);
     }
   }, [spaces, currentSpace.id]);
@@ -3170,8 +7218,8 @@ function App() {
     const fetchSpaces = async () => {
       try {
         const [spacesRes, keysRes] = await Promise.all([
-          fetch(`${socketUrl}/api/spaces`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' }),
-          fetch(`${socketUrl}/api/spaces/keys`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' })
+          fetch(`${socketUrl}/api/spaces`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }),
+          fetch(`${socketUrl}/api/spaces/keys`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }),
         ]);
 
         if (spacesRes.status === 401 || spacesRes.status === 403) {
@@ -3193,20 +7241,22 @@ function App() {
             }
           }
           if (keysRes.ok) {
-             const keysData = await keysRes.json();
+            const keysData = await keysRes.json();
 
-             if (pKey && keysData.length > 0) {
-               await Promise.all(keysData.map(async (kd) => {
-                 try {
-                   const roomKey = await decryptRoomKeyWithPrivateKey(kd.encrypted_room_key, pKey);
-                   newActiveKeys[kd.space_id] = roomKey;
-                   await syncRoomKeyToIDB(kd.space_id, roomKey);
-                 } catch (e) {
-                   console.error(`Failed to silently decrypt room key for space ${kd.space_id}`, e);
-                 }
-               }));
-               setActiveKeys(prev => ({ ...prev, ...newActiveKeys }));
-             }
+            if (pKey && keysData.length > 0) {
+              await Promise.all(
+                keysData.map(async (kd) => {
+                  try {
+                    const roomKey = await decryptRoomKeyWithPrivateKey(kd.encrypted_room_key, pKey);
+                    newActiveKeys[kd.space_id] = roomKey;
+                    await syncRoomKeyToIDB(kd.space_id, roomKey);
+                  } catch (e) {
+                    console.error(`Failed to silently decrypt room key for space ${kd.space_id}`, e);
+                  }
+                })
+              );
+              setActiveKeys((prev) => ({ ...prev, ...newActiveKeys }));
+            }
           }
 
           // Force React DOM to delay mapping spaces until activeKeys have completely synced Cyphers synchronously
@@ -3221,36 +7271,69 @@ function App() {
 
           // Auto-recover missing room keys from server-side escrow
           if (pKey) {
-            const missingSpaces = spacesData.filter(s => isEncryptedSpace(s) && !newActiveKeys[s.id]);
+            const missingSpaces = spacesData.filter((s) => isEncryptedSpace(s) && !newActiveKeys[s.id]);
             if (missingSpaces.length > 0) {
-              await Promise.all(missingSpaces.map(async (space) => {
-                try {
-                  const keyRes = await fetch(`${socketUrl}/api/spaces/${space.id}/request-key`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                  });
-                  if (keyRes.ok) {
-                    const { encrypted_room_key } = await keyRes.json();
-                    if (encrypted_room_key) {
-                      const roomKey = await decryptRoomKeyWithPrivateKey(encrypted_room_key, pKey);
-                      newActiveKeys[space.id] = roomKey;
-                      await syncRoomKeyToIDB(space.id, roomKey);
-                      console.log(`[E2EE] Recovered key from escrow for space ${space.id}`);
+              await Promise.all(
+                missingSpaces.map(async (space) => {
+                  try {
+                    const keyRes = await fetch(`${socketUrl}/api/spaces/${space.id}/request-key`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (keyRes.ok) {
+                      const { encrypted_room_key } = await keyRes.json();
+                      if (encrypted_room_key) {
+                        const roomKey = await decryptRoomKeyWithPrivateKey(encrypted_room_key, pKey);
+                        newActiveKeys[space.id] = roomKey;
+                        await syncRoomKeyToIDB(space.id, roomKey);
+                        console.log(`[E2EE] Recovered key from escrow for space ${space.id}`);
+                      }
                     }
+                  } catch (e) {
+                    console.error(`[E2EE] Escrow recovery failed for space ${space.id}`, e);
                   }
-                } catch (e) { console.error(`[E2EE] Escrow recovery failed for space ${space.id}`, e); }
-              }));
-              setActiveKeys(prev => ({ ...prev, ...newActiveKeys }));
+                })
+              );
+              setActiveKeys((prev) => ({ ...prev, ...newActiveKeys }));
             }
           }
 
           if (spacesData.length > 0) {
             const lastSpaceId = localStorage.getItem('lastSpaceId');
-            const lastSpace = lastSpaceId ? spacesData.find(s => Number(s.id) === Number(lastSpaceId)) : null;
-            const selfDm = spacesData.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
+            const lastSpace = lastSpaceId ? spacesData.find((s) => Number(s.id) === Number(lastSpaceId)) : null;
+            const selfDm = spacesData.find((s) => s.is_dm === 1 && s.name.startsWith('self_'));
             setCurrentSpace(lastSpace || selfDm || spacesData[0]);
+
+            // Background pre-fetch: silently load & decrypt messages from all spaces for global search
+            const selectedId = (lastSpace || selfDm || spacesData[0])?.id;
+            setTimeout(() => {
+              spacesData.forEach(async (space) => {
+                if (space.id === selectedId) return; // current space loads via socket
+                if (messageCacheRef.current[space.id]) return; // already cached
+                try {
+                  const res = await fetch(`${socketUrl}/api/messages/${space.id}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!res.ok) return;
+                  const history = await res.json();
+                  const key = newActiveKeys[space.id];
+                  const decrypted = await Promise.all(
+                    history.map(async (msg) => {
+                      if (!msg.text || typeof msg.text !== 'string') return msg;
+                      const d = await tryDecryptMsg(msg.text, key);
+                      return { ...msg, ...d };
+                    })
+                  );
+                  messageCacheRef.current[space.id] = decrypted;
+                } catch (e) {
+                  // Silent fail - search will just not include this space
+                }
+              });
+            }, 2000); // Delay to not compete with initial page load
           }
         }
-      } catch (err) { console.error('Failed to load spaces or keys', err) }
+      } catch (err) {
+        console.error('Failed to load spaces or keys', err);
+      }
     };
     fetchSpaces();
   }, [token]);
@@ -3258,38 +7341,38 @@ function App() {
   // Auto-Provision Keys for Notes to Self robustly deferred until component mounts completely
   useEffect(() => {
     if (!profileData?.id || !profileData?.public_key || spaces.length === 0 || !isConnected) return;
-    const selfDm = spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
+    const selfDm = spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_'));
     if (!selfDm || activeKeys[selfDm.id] || provisioningLocksRef.current.has(selfDm.id)) return;
-    
+
     provisioningLocksRef.current.add(selfDm.id);
     const provisionKey = async () => {
       try {
         let localPrivKey = privateKeyRef.current;
         if (!localPrivKey) {
-           const jwkString = localStorage.getItem('prado_decryption_key');
-           if (jwkString) {
-              localPrivKey = await importPrivateKey(jwkString);
-              privateKeyRef.current = localPrivKey;
-           } else {
-              return;
-           }
+          const jwkString = localStorage.getItem('prado_decryption_key');
+          if (jwkString) {
+            localPrivKey = await importPrivateKey(jwkString);
+            privateKeyRef.current = localPrivKey;
+          } else {
+            return;
+          }
         }
         const roomKey = await generateRoomKey();
         const peerEnc = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
         const res = await fetch(`${socketUrl}/api/spaces/${selfDm.id}/invite`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ invited_users: [profileData.id], keyShares: { [profileData.id]: peerEnc } })
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ invited_users: [profileData.id], keyShares: { [profileData.id]: peerEnc } }),
         });
         if (res.ok) {
-          setActiveKeys(prev => ({ ...prev, [selfDm.id]: roomKey }));
+          setActiveKeys((prev) => ({ ...prev, [selfDm.id]: roomKey }));
           await syncRoomKeyToIDB(selfDm.id, roomKey);
           await escrowRoomKey(selfDm.id, roomKey, token, socketUrl);
         } else {
           provisioningLocksRef.current.delete(selfDm.id);
         }
       } catch (e) {
-        console.error("Failed auto-provisioning Notes to Self", e);
+        console.error('Failed auto-provisioning Notes to Self', e);
         provisioningLocksRef.current.delete(selfDm.id);
       }
     };
@@ -3302,21 +7385,23 @@ function App() {
     if (isDecryptingRef.current) return;
     if (!activeKeys[currentSpace?.id] || messages.length === 0) return;
     const key = activeKeys[currentSpace.id];
-    const hasEncrypted = messages.some(m => m.pending || (m.raw_text && !m.text));
+    const hasEncrypted = messages.some((m) => m.pending || (m.raw_text && !m.text));
     if (!hasEncrypted) return;
-    
+
     isDecryptingRef.current = true;
-    Promise.all(messages.map(async (msg) => {
-      if (msg.pending || (msg.raw_text && !msg.text)) {
-        try {
-          const dec = await decryptMessage(msg.raw_text, key);
-          return { ...msg, text: dec, raw_text: null, pending: false };
-        } catch(e) {
-          return msg; // Keep pending — key might still be wrong, retry later
+    Promise.all(
+      messages.map(async (msg) => {
+        if (msg.pending || (msg.raw_text && !msg.text)) {
+          try {
+            const dec = await decryptMessage(msg.raw_text, key);
+            return { ...msg, text: dec, raw_text: null, pending: false };
+          } catch (e) {
+            return msg; // Keep pending — key might still be wrong, retry later
+          }
         }
-      }
-      return msg;
-    })).then(newMsgs => {
+        return msg;
+      })
+    ).then((newMsgs) => {
       setMessages(newMsgs);
       isDecryptingRef.current = false;
     });
@@ -3328,16 +7413,18 @@ function App() {
 
     const newSocket = io(socketUrl, {
       auth: { token },
-      autoConnect: true
+      autoConnect: true,
     });
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
       setIsConnected(true);
       // Fetch ICE servers (TURN/STUN) config for WebRTC
-      fetch(`${socketUrl}/api/ice-servers`, { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(r => r.json())
-        .then(data => { if (data.iceServers) setIceServers(data.iceServers); })
+      fetch(`${socketUrl}/api/ice-servers`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.iceServers) setIceServers(data.iceServers);
+        })
         .catch(() => {});
     });
     newSocket.on('disconnect', () => setIsConnected(false));
@@ -3347,13 +7434,13 @@ function App() {
       }
     });
 
-        newSocket.on('force_logout', (data) => {
+    newSocket.on('force_logout', (data) => {
       alert(data.reason || 'You have been disconnected by an administrator.');
       localStorage.clear();
       window.location.reload();
     });
 
-        newSocket.on('message_blocked', (data) => {
+    newSocket.on('message_blocked', (data) => {
       alert(data.reason || 'Your message was blocked by content filters.');
     });
 
@@ -3367,14 +7454,14 @@ function App() {
     });
 
     newSocket.on('user typing', ({ username: typer, spaceId, avatar, first_name }) => {
-      setTypingUsers(prev => {
-        if (prev.find(u => u.username === typer && Number(u.spaceId) === Number(spaceId))) return prev;
-        return [...prev.filter(u => u.username !== typer), { username: typer, spaceId, avatar, first_name }];
+      setTypingUsers((prev) => {
+        if (prev.find((u) => u.username === typer && Number(u.spaceId) === Number(spaceId))) return prev;
+        return [...prev.filter((u) => u.username !== typer), { username: typer, spaceId, avatar, first_name }];
       });
     });
 
     newSocket.on('user stopped typing', ({ username: typer, spaceId }) => {
-      setTypingUsers(prev => prev.filter(u => !(u.username === typer && Number(u.spaceId) === Number(spaceId))));
+      setTypingUsers((prev) => prev.filter((u) => !(u.username === typer && Number(u.spaceId) === Number(spaceId))));
     });
 
     // WebRTC: Incoming call ringing
@@ -3406,7 +7493,9 @@ function App() {
           playRing();
           ringInterval = setInterval(playRing, 2500);
           ringtoneRef.current = { ctx, interval: ringInterval };
-        } catch (e) { console.warn('Ringtone failed:', e); }
+        } catch (e) {
+          console.warn('Ringtone failed:', e);
+        }
 
         // Start countdown timer
         if (ringCountdownRef.current) clearInterval(ringCountdownRef.current);
@@ -3423,14 +7512,14 @@ function App() {
               ringtoneRef.current.ctx.close().catch(() => {});
               ringtoneRef.current = null;
             }
-            setIncomingCall(prev => prev?.spaceId === ringSpaceId ? null : prev);
+            setIncomingCall((prev) => (prev?.spaceId === ringSpaceId ? null : prev));
           }
         }, 1000);
       }
     });
 
     newSocket.on('call-ended', ({ spaceId: endedSpaceId }) => {
-      setIncomingCall(prev => {
+      setIncomingCall((prev) => {
         if (prev?.spaceId === endedSpaceId) {
           // Stop ringtone + countdown
           if (ringtoneRef.current) {
@@ -3438,7 +7527,10 @@ function App() {
             ringtoneRef.current.ctx.close().catch(() => {});
             ringtoneRef.current = null;
           }
-          if (ringCountdownRef.current) { clearInterval(ringCountdownRef.current); ringCountdownRef.current = null; }
+          if (ringCountdownRef.current) {
+            clearInterval(ringCountdownRef.current);
+            ringCountdownRef.current = null;
+          }
           return null;
         }
         return prev;
@@ -3449,12 +7541,16 @@ function App() {
       const spaceId = Number(currentSpaceRef.current);
       let processedHistory = history;
 
-      processedHistory = await Promise.all(history.map(async (msg) => {
-         if (!msg.text || typeof msg.text !== 'string') return msg;
-         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
-         return { ...msg, ...d };
-      }));
+      processedHistory = await Promise.all(
+        history.map(async (msg) => {
+          if (!msg.text || typeof msg.text !== 'string') return msg;
+          const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
+          return { ...msg, ...d };
+        })
+      );
       setMessages(processedHistory);
+      // Cache decrypted messages for global search
+      messageCacheRef.current[spaceId] = processedHistory;
       setHistoryLoaded(true);
     });
 
@@ -3463,19 +7559,19 @@ function App() {
       let processedMsg = msg;
 
       if (msg.text && typeof msg.text === 'string') {
-         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
-         processedMsg = { ...msg, ...d };
+        const d = await tryDecryptMsg(msg.text, activeKeysRef.current[spaceId]);
+        processedMsg = { ...msg, ...d };
       }
 
       if (Number(currentSpaceRef.current) === spaceId) {
-        setMessages(prev => [...prev, processedMsg]);
+        setMessages((prev) => [...prev, processedMsg]);
       } else {
-        setUnreadCounts(prev => ({ ...prev, [spaceId]: (prev[spaceId] || 0) + 1 }));
+        setUnreadCounts((prev) => ({ ...prev, [spaceId]: (prev[spaceId] || 0) + 1 }));
       }
     });
 
     newSocket.on('message stored', ({ tempId, id }) => {
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id } : m));
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id } : m)));
     });
 
     newSocket.on('message updated', async ({ id, text, edited, spaceId }) => {
@@ -3483,34 +7579,47 @@ function App() {
         const d = await tryDecryptMsg(text, activeKeysRef.current[spaceId]);
         if (d.raw_text) {
           // Key not available — preserve raw_text for retroactive sweeper
-          setMessages(prev => prev.map(m => m.id === id ? { ...m, text: d.text, raw_text: d.raw_text, edited } : m));
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, text: d.text, raw_text: d.raw_text, edited } : m))
+          );
           return;
         }
-        setMessages(prev => prev.map(m => m.id === id ? { ...m, text: d.text, edited } : m));
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text: d.text, edited } : m)));
       } else {
-        setMessages(prev => prev.map(m => m.id === id ? { ...m, text, edited } : m));
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text, edited } : m)));
       }
     });
 
     newSocket.on('message deleted', ({ id }) => {
-      setMessages(prev => prev.filter(m => m.id !== id));
+      setMessages((prev) => prev.filter((m) => m.id !== id));
     });
 
     newSocket.on('message pinned', ({ id, is_pinned }) => {
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, is_pinned } : m));
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, is_pinned } : m)));
       // Re-hydrate the absolute Pinned Drawer ensuring fresh display data seamlessly overrides
       fetchPinnedMessages();
     });
 
     newSocket.on('message reacted', ({ id, reactions }) => {
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, reactions } : m));
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reactions } : m)));
     });
-    newSocket.on('user profile updated', ({ username: uName, avatar, font_family, location, status_text, status_emoji }) => {
-      setMessages(prev => prev.map(m => m.sender === uName ? { ...m, avatar, font_family } : m));
-      setSpaces(prev => prev.map(s => (s.is_dm === 1 && s.dm_username === uName) ? { ...s, dm_avatar: avatar } : s));
-      setCurrentSpace(prev => (prev && prev.is_dm === 1 && prev.dm_username === uName) ? { ...prev, dm_avatar: avatar } : prev);
-      setAllUsers(prev => prev.map(u => u.username === uName ? { ...u, avatar, font_family, location, status_text, status_emoji } : u));
-    });
+    newSocket.on(
+      'user profile updated',
+      ({ username: uName, avatar, font_family, location, status_text, status_emoji }) => {
+        setMessages((prev) => prev.map((m) => (m.sender === uName ? { ...m, avatar, font_family } : m)));
+        setSpaces((prev) =>
+          prev.map((s) => (s.is_dm === 1 && s.dm_username === uName ? { ...s, dm_avatar: avatar } : s))
+        );
+        setCurrentSpace((prev) =>
+          prev && prev.is_dm === 1 && prev.dm_username === uName ? { ...prev, dm_avatar: avatar } : prev
+        );
+        setAllUsers((prev) =>
+          prev.map((u) =>
+            u.username === uName ? { ...u, avatar, font_family, location, status_text, status_emoji } : u
+          )
+        );
+      }
+    );
 
     newSocket.on('settings-updated', (settings) => {
       if (settings.global_font) {
@@ -3529,7 +7638,7 @@ function App() {
           spaceId,
           requesterId,
           encryptedRoomKey: encryptedForRequester,
-          requesterSocketId
+          requesterSocketId,
         });
       } catch (e) {
         console.error('Failed to grant room key', e);
@@ -3542,7 +7651,7 @@ function App() {
       if (!encryptedRoomKey || !privateKeyRef.current || activeKeysRef.current[spaceId]) return;
       try {
         const roomKey = await decryptRoomKeyWithPrivateKey(encryptedRoomKey, privateKeyRef.current);
-        setActiveKeys(prev => ({ ...prev, [spaceId]: roomKey }));
+        setActiveKeys((prev) => ({ ...prev, [spaceId]: roomKey }));
         await syncRoomKeyToIDB(spaceId, roomKey);
       } catch (e) {
         console.error('Failed to import granted room key', e);
@@ -3558,33 +7667,35 @@ function App() {
       try {
         // Fetch remaining members with their public keys
         const membersRes = await fetch(`${socketUrl}/api/spaces/${spaceId}/members`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (!membersRes.ok) return;
         const members = await membersRes.json();
-        const membersWithKeys = members.filter(m => m.public_key);
+        const membersWithKeys = members.filter((m) => m.public_key);
         if (membersWithKeys.length === 0) return;
 
         // Generate new room key
         const newRoomKey = await generateRoomKey();
-        
+
         // Encrypt for each remaining member
         const keyShares = {};
         for (const m of membersWithKeys) {
           try {
             keyShares[m.id] = await encryptRoomKeyWithPublicKey(newRoomKey, m.public_key);
-          } catch (e) { console.error(`[E2EE] Failed to encrypt key for member ${m.id}`, e); }
+          } catch (e) {
+            console.error(`[E2EE] Failed to encrypt key for member ${m.id}`, e);
+          }
         }
 
         // Upload key shares
         await fetch(`${socketUrl}/api/spaces/${spaceId}/invite`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ invited_users: Object.keys(keyShares).map(Number), keyShares })
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ invited_users: Object.keys(keyShares).map(Number), keyShares }),
         });
 
         // Update local key and escrow
-        setActiveKeys(prev => ({ ...prev, [spaceId]: newRoomKey }));
+        setActiveKeys((prev) => ({ ...prev, [spaceId]: newRoomKey }));
         await syncRoomKeyToIDB(spaceId, newRoomKey);
         await escrowRoomKey(spaceId, newRoomKey, token, socketUrl);
         console.log(`[E2EE] Re-keyed space ${spaceId} with ${membersWithKeys.length} members`);
@@ -3595,42 +7706,80 @@ function App() {
       }
     });
 
+    // ─── @Mention Alert ───
+    newSocket.on('mentioned', (data) => {
+      const { spaceId, sender, displayName, spaceName } = data;
+      // Add orange dot to sidebar for this space
+      setMentionSpaces((prev) => ({ ...prev, [spaceId]: (prev[spaceId] || 0) + 1 }));
+
+      // Play 2-note ascending chime
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const playNote = (freq, startTime, duration) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.15, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + duration);
+        };
+        playNote(523.25, ctx.currentTime, 0.15); // C5
+        playNote(659.25, ctx.currentTime + 0.15, 0.2); // E5
+        setTimeout(() => ctx.close().catch(() => {}), 1000);
+      } catch (e) {
+        /* AudioContext not available */
+      }
+    });
+
     const reloadSpacesSilently = async () => {
       try {
-        const res = await fetch(`${socketUrl}/api/spaces`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await fetch(`${socketUrl}/api/spaces`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) setSpaces(await res.json());
-      } catch(e) { console.error('Failed to sync spaces:', e); }
+      } catch (e) {
+        console.error('Failed to sync spaces:', e);
+      }
     };
 
     newSocket.on('space created', (newSpace) => {
       console.log('Socket received space created:', newSpace);
       if (newSpace.is_dm === 1) reloadSpacesSilently();
-      else setSpaces(prev => {
-        if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace];
-        return prev;
-      });
+      else
+        setSpaces((prev) => {
+          if (!prev.find((s) => s.id === newSpace.id)) return [...prev, newSpace];
+          return prev;
+        });
     });
 
     newSocket.on('space invited', (spaceObj) => {
       console.log('Socket received space invited:', spaceObj);
       if (spaceObj.is_dm === 1) reloadSpacesSilently();
-      else setSpaces(prev => {
-        if (!prev.find(s => s.id === spaceObj.id)) return [...prev, spaceObj];
-        return prev;
-      });
+      else
+        setSpaces((prev) => {
+          if (!prev.find((s) => s.id === spaceObj.id)) return [...prev, spaceObj];
+          return prev;
+        });
     });
 
     newSocket.on('space deleted', (deletedId) => {
       const id = parseInt(deletedId, 10);
-      setSpaces(prev => prev.filter(s => s.id !== id));
-      setCurrentSpace(curr => curr.id === id ? (spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' }) : curr);
+      setSpaces((prev) => prev.filter((s) => s.id !== id));
+      setCurrentSpace((curr) =>
+        curr.id === id
+          ? spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_')) ||
+            spaces[0] || { id: null, name: 'Loading...' }
+          : curr
+      );
     });
 
     newSocket.on('space left', () => {
-      fetch(`${socketUrl}/api/spaces`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' })
-        .then(res => res.json())
-        .then(data => setSpaces(data))
-        .catch(err => console.error('Failed to sync spaces after leave sync', err));
+      fetch(`${socketUrl}/api/spaces`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+        .then((res) => res.json())
+        .then((data) => setSpaces(data))
+        .catch((err) => console.error('Failed to sync spaces after leave sync', err));
     });
 
     newSocket.on('read_receipts_init', (map) => {
@@ -3638,7 +7787,7 @@ function App() {
     });
 
     newSocket.on('read_receipt_update', ({ username: rUser, message_id: rMsgId }) => {
-      setReadReceipts(prev => ({ ...prev, [rUser]: rMsgId }));
+      setReadReceipts((prev) => ({ ...prev, [rUser]: rMsgId }));
     });
 
     return () => {
@@ -3673,19 +7822,21 @@ function App() {
     if (!currentSpace) return;
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${currentSpace.id}/pinned`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      
+
       let processedData = data;
 
-      processedData = await Promise.all(data.map(async (msg) => {
-         if (!msg.text || typeof msg.text !== 'string') return msg;
-         const d = await tryDecryptMsg(msg.text, activeKeysRef.current[currentSpace.id]);
-         return { ...msg, ...d };
-      }));
+      processedData = await Promise.all(
+        data.map(async (msg) => {
+          if (!msg.text || typeof msg.text !== 'string') return msg;
+          const d = await tryDecryptMsg(msg.text, activeKeysRef.current[currentSpace.id]);
+          return { ...msg, ...d };
+        })
+      );
       setPinnedMessages(processedData);
-    } catch(err) {
+    } catch (err) {
       console.error('Failed fetching pinned messages:', err);
     }
   }, [currentSpace, token]);
@@ -3704,35 +7855,40 @@ function App() {
   useEffect(() => {
     if (!topAnchorRef.current || !hasMoreHistory || isFetchingHistory || messages.length === 0) return;
 
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setIsFetchingHistory(true);
-        const oldestId = messages[0].id;
-        const container = topAnchorRef.current.parentElement;
-        const previousScrollHeight = container.scrollHeight;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsFetchingHistory(true);
+          const oldestId = messages[0].id;
+          const container = topAnchorRef.current.parentElement;
+          const previousScrollHeight = container.scrollHeight;
 
-        fetch(`${socketUrl}/api/spaces/${currentSpace.id}/messages?before_id=${oldestId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        .then(res => res.json())
-        .then(async olderMessages => {
-          if (olderMessages.length < 50) setHasMoreHistory(false);
-          if (olderMessages.length > 0) {
-            const processedOlder = await Promise.all(olderMessages.map(async (msg) => {
-              if (!msg.text || typeof msg.text !== 'string') return msg;
-              const d = await tryDecryptMsg(msg.text, activeKeys[currentSpace.id]);
-              return { ...msg, ...d };
-            }));
-            setMessages(prev => [...processedOlder, ...prev]);
-            requestAnimationFrame(() => {
-              if (container) container.scrollTop = container.scrollHeight - previousScrollHeight;
-            });
-          }
-        })
-        .catch(err => console.error('History fetch failed:', err))
-        .finally(() => setIsFetchingHistory(false));
-      }
-    }, { root: null, rootMargin: '100px' });
+          fetch(`${socketUrl}/api/spaces/${currentSpace.id}/messages?before_id=${oldestId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((res) => res.json())
+            .then(async (olderMessages) => {
+              if (olderMessages.length < 50) setHasMoreHistory(false);
+              if (olderMessages.length > 0) {
+                const processedOlder = await Promise.all(
+                  olderMessages.map(async (msg) => {
+                    if (!msg.text || typeof msg.text !== 'string') return msg;
+                    const d = await tryDecryptMsg(msg.text, activeKeys[currentSpace.id]);
+                    return { ...msg, ...d };
+                  })
+                );
+                setMessages((prev) => [...processedOlder, ...prev]);
+                requestAnimationFrame(() => {
+                  if (container) container.scrollTop = container.scrollHeight - previousScrollHeight;
+                });
+              }
+            })
+            .catch((err) => console.error('History fetch failed:', err))
+            .finally(() => setIsFetchingHistory(false));
+        }
+      },
+      { root: null, rootMargin: '100px' }
+    );
 
     observer.observe(topAnchorRef.current);
     return () => observer.disconnect();
@@ -3756,6 +7912,45 @@ function App() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
+  // ─── URL Unfurling Effect ───
+  useEffect(() => {
+    // Match URLs with or without protocol
+    const urlRegex =
+      /(?:https?:\/\/[^\s<>"'`,)}\]]+|(?:(?:www\.)|(?:[a-zA-Z0-9-]+\.(?:com|org|net|io|dev|co|app|me|tv|info|edu|gov|mil|int)))(?:\.[a-zA-Z]{2,})?(?:\/[^\s<>"'`,)}\]]*)?)/gi;
+    messages.forEach((msg) => {
+      if (!msg.text || msg.pending || unfurlData[msg.id]) return;
+      const urls = msg.text.match(urlRegex);
+      if (!urls || urls.length === 0) return;
+      let firstUrl = urls[0].replace(/[.,;:!?)}\]]+$/, ''); // trim trailing punctuation
+      // Ensure URL has a protocol
+      if (!/^https?:\/\//i.test(firstUrl)) {
+        firstUrl = 'https://' + firstUrl;
+      }
+      // Check client cache
+      if (unfurlCacheRef.current[firstUrl]) {
+        const cached = unfurlCacheRef.current[firstUrl];
+        if (cached.title || cached.description || cached.image) {
+          setUnfurlData((prev) => ({ ...prev, [msg.id]: cached }));
+        }
+        return;
+      }
+      // Fetch from backend
+      fetch(`${socketUrl}/api/unfurl?url=${encodeURIComponent(firstUrl)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          unfurlCacheRef.current[firstUrl] = data;
+          if (data.title || data.description || data.image) {
+            setUnfurlData((prev) => ({ ...prev, [msg.id]: data }));
+          }
+        })
+        .catch(() => {
+          unfurlCacheRef.current[firstUrl] = { url: firstUrl };
+        });
+    });
+  }, [messages, token]);
+
   const handleInstallClick = () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -3775,14 +7970,14 @@ function App() {
       try {
         const roomKeyObj = activeKeysRef.current[currentSpace.id];
         for (const uId of roomSettingsInvitedUsers) {
-           const userObj = allUsers.find(u => u.id === Number(uId));
-           if (userObj && userObj.public_key) {
-             const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
-             keyShares[uId] = peerEnc;
-           }
+          const userObj = allUsers.find((u) => u.id === Number(uId));
+          if (userObj && userObj.public_key) {
+            const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
+            keyShares[uId] = peerEnc;
+          }
         }
       } catch (keyErr) {
-        console.error("Failed to generate Room Key matrix for invites", keyErr);
+        console.error('Failed to generate Room Key matrix for invites', keyErr);
         alert('E2EE Setup Failed for invitations. Ensure all users have valid profiles.');
         setIsUpdatingRoom(false);
         return;
@@ -3792,8 +7987,8 @@ function App() {
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${currentSpace.id}/invite`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ invited_users: roomSettingsInvitedUsers, keyShares })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ invited_users: roomSettingsInvitedUsers, keyShares }),
       });
       if (res.ok) {
         setShowRoomSettingsModal(false);
@@ -3817,7 +8012,7 @@ function App() {
     setAuthSuccess('');
     try {
       const payload = { email: authEmail, password: authPassword };
-      
+
       let fetchMode = authMode;
       if (authMode === 'register') {
         try {
@@ -3864,7 +8059,7 @@ function App() {
         if (data.wrapped_private_key) {
           try {
             const privateKey = await unwrapPrivateKey(data.wrapped_private_key, authPassword, authEmail);
-            const exportedPrivateJwk = await window.crypto.subtle.exportKey("jwk", privateKey);
+            const exportedPrivateJwk = await window.crypto.subtle.exportKey('jwk', privateKey);
             const jwkStr = JSON.stringify(exportedPrivateJwk);
             localStorage.setItem('prado_decryption_key', jwkStr);
             syncPrivateKeyToIDB(jwkStr);
@@ -3878,10 +8073,10 @@ function App() {
               // Update server with new keys
               await fetch(`${socketUrl}/api/profile`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.token}` },
-                body: JSON.stringify({ public_key: newPubKey, wrapped_private_key: newWrapped })
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.token}` },
+                body: JSON.stringify({ public_key: newPubKey, wrapped_private_key: newWrapped }),
               });
-              const exportedJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.privateKey);
+              const exportedJwk = await window.crypto.subtle.exportKey('jwk', newKeyPair.privateKey);
               const jwkStr = JSON.stringify(exportedJwk);
               localStorage.setItem('prado_decryption_key', jwkStr);
               syncPrivateKeyToIDB(jwkStr);
@@ -3913,7 +8108,7 @@ function App() {
         localStorage.setItem('role', data.role || 'user');
 
         if (data.font_family) {
-          setProfileData(prev => ({ ...prev, font_family: data.font_family }));
+          setProfileData((prev) => ({ ...prev, font_family: data.font_family }));
         }
 
         setToken(data.token);
@@ -3936,7 +8131,7 @@ function App() {
     if (!t) return;
     try {
       const res = await fetch(`${socketUrl}/api/profile`, {
-        headers: { 'Authorization': `Bearer ${t}`, 'Cache-Control': 'no-cache' }
+        headers: { Authorization: `Bearer ${t}`, 'Cache-Control': 'no-cache' },
       });
       if (res.ok) {
         const data = await res.json();
@@ -3955,7 +8150,7 @@ function App() {
           bio: data.bio || '',
           status_text: data.status_text || '',
           status_emoji: data.status_emoji || 'available',
-          timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+          timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
         });
 
         // Auto-save timezone on first load if not set
@@ -3964,18 +8159,21 @@ function App() {
           if (detectedTz) {
             fetch(`${socketUrl}/api/profile`, {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` },
-              body: JSON.stringify({ timezone: detectedTz })
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+              body: JSON.stringify({ timezone: detectedTz }),
             }).catch(() => {});
           }
         }
-        
+
         if (!data.first_name || !data.first_name.trim()) {
           setShowOnboarding(true);
         }
 
         localStorage.setItem('theme', data.theme || 'dark');
-        localStorage.setItem('colorPalette', (data.color_palette === '#d0bcff' ? '#4CAF50' : data.color_palette) || '#4CAF50');
+        localStorage.setItem(
+          'colorPalette',
+          (data.color_palette === '#d0bcff' ? '#4CAF50' : data.color_palette) || '#4CAF50'
+        );
         localStorage.setItem('role', data.role || 'user');
         if (data.avatar) localStorage.setItem('avatar', data.avatar);
         else localStorage.removeItem('avatar');
@@ -3989,9 +8187,11 @@ function App() {
     if (token) {
       fetchProfile();
       // Eagerly load all users for sidebar status icons
-      fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(data => { if (Array.isArray(data)) setAllUsers(data.filter(u => u.username !== username)); })
+      fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setAllUsers(data.filter((u) => u.username !== username));
+        })
         .catch(() => {});
     }
   }, [token]);
@@ -4000,8 +8200,8 @@ function App() {
     const verifyToken = params.get('token');
     if (window.location.pathname === '/verify' && verifyToken) {
       fetch(`${socketUrl}/api/verify?token=${verifyToken}`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (data.message) {
             setAuthSuccess(data.message);
             setAuthMode('login');
@@ -4010,7 +8210,7 @@ function App() {
           }
           window.history.replaceState({}, document.title, '/');
         })
-        .catch(err => {
+        .catch((err) => {
           setAuthError('Verification failed. Server unreachable.');
           window.history.replaceState({}, document.title, '/');
         });
@@ -4031,7 +8231,7 @@ function App() {
   // Consume deep-link once spaces are loaded
   useEffect(() => {
     if (window._pendingDeepSpaceId && spaces.length > 0) {
-      const target = spaces.find(s => Number(s.id) === Number(window._pendingDeepSpaceId));
+      const target = spaces.find((s) => Number(s.id) === Number(window._pendingDeepSpaceId));
       if (target) {
         setCurrentSpace(target);
         setMobileView('chat');
@@ -4049,13 +8249,13 @@ function App() {
           try {
             const res = await fetch(`${socketUrl}/api/spaces/join/${inviteKey}`, {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` }
+              headers: { Authorization: `Bearer ${token}` },
             });
             const data = await res.json();
             if (res.ok || data.message === 'Already a member') {
               if (data.space) {
-                setSpaces(prev => {
-                  if (!prev.find(s => s.id === data.space.id)) return [...prev, data.space];
+                setSpaces((prev) => {
+                  if (!prev.find((s) => s.id === data.space.id)) return [...prev, data.space];
                   return prev;
                 });
                 setCurrentSpace(data.space);
@@ -4080,11 +8280,16 @@ function App() {
       return;
     }
     try {
-      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en`);
+      const res = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en`
+      );
       if (res.ok) {
         const data = await res.json();
-        if (!data.results) { setLocationSuggestions([]); return; }
-        const suggestions = data.results.map(f => {
+        if (!data.results) {
+          setLocationSuggestions([]);
+          return;
+        }
+        const suggestions = data.results.map((f) => {
           const parts = [f.name, f.admin1, f.country].filter(Boolean);
           return parts.join(', ');
         });
@@ -4098,7 +8303,7 @@ function App() {
   const handleLocationChange = (val) => {
     setProfileData({ ...profileData, location: val });
     setShowSuggestions(true);
-    
+
     if (locationTimeoutRef.current) clearTimeout(locationTimeoutRef.current);
     locationTimeoutRef.current = setTimeout(() => {
       fetchLocationSuggestions(val);
@@ -4109,14 +8314,14 @@ function App() {
     try {
       await fetch(`${socketUrl}/api/profile`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
-          theme, 
-          color_palette: colorPalette, 
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          theme,
+          color_palette: colorPalette,
           avatar,
           ...profileData,
-          ...overrides 
-        })
+          ...overrides,
+        }),
       });
     } catch (e) {
       console.error('Failed to save profile on backend', e);
@@ -4156,7 +8361,7 @@ function App() {
     localStorage.setItem('avatar', croppedBase64);
     saveProfileSettings({ avatar: croppedBase64 });
   };
-  
+
   const handleAssetUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -4171,8 +8376,8 @@ function App() {
     try {
       const res = await fetch(`${socketUrl}/api/upload?token=${token}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
       const data = await res.json();
       if (res.ok && data.url) {
@@ -4201,32 +8406,32 @@ function App() {
         roomKeyObj = await generateRoomKey();
 
         // 1. Generate encrypted share for the creator
-        const creatorId = allUsers.find(u => u.username === username)?.id;
+        const creatorId = allUsers.find((u) => u.username === username)?.id;
         if (!creatorId) {
           throw new Error('Creator ID lookup failed in allUsers list.');
         }
-        
+
         const ourEncrypted = await encryptRoomKeyWithPublicKey(roomKeyObj, profileData.public_key);
         keyShares[creatorId] = ourEncrypted;
 
         // 2. Generate encrypted shares for all invited users
         if (invitedUsers && invitedUsers.length > 0) {
           for (const uId of invitedUsers) {
-            const userObj = allUsers.find(u => u.id === Number(uId));
+            const userObj = allUsers.find((u) => u.id === Number(uId));
             if (userObj && userObj.public_key) {
-               const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
-               keyShares[uId] = peerEnc;
+              const peerEnc = await encryptRoomKeyWithPublicKey(roomKeyObj, userObj.public_key);
+              keyShares[uId] = peerEnc;
             }
           }
         }
       } catch (keyErr) {
-        console.error("Failed to generate Room Key matrix", keyErr);
+        console.error('Failed to generate Room Key matrix', keyErr);
         alert('E2EE Setup Failed: Check console. Make sure user profiles are loaded.');
         setIsCreatingSpace(false);
         return;
       }
     } else {
-      alert("Your E2EE Identity is missing. Log out and back in to sync it.");
+      alert('Your E2EE Identity is missing. Log out and back in to sync it.');
       setIsCreatingSpace(false);
       return;
     }
@@ -4234,20 +8439,25 @@ function App() {
     try {
       const res = await fetch(`${socketUrl}/api/spaces`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers, keyShares })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: newSpaceName,
+          is_private: isNewSpacePrivate,
+          invited_users: invitedUsers,
+          keyShares,
+        }),
       });
       if (res.ok) {
         const newSpace = await res.json();
-        
+
         if (roomKeyObj) {
-          setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKeyObj }));
+          setActiveKeys((prev) => ({ ...prev, [newSpace.id]: roomKeyObj }));
           await syncRoomKeyToIDB(newSpace.id, roomKeyObj);
           await escrowRoomKey(newSpace.id, roomKeyObj, token, socketUrl);
         }
 
-        setSpaces(prev => {
-          if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace];
+        setSpaces((prev) => {
+          if (!prev.find((s) => s.id === newSpace.id)) return [...prev, newSpace];
           return prev;
         });
         setNewSpaceName('');
@@ -4260,7 +8470,7 @@ function App() {
         const data = await res.json();
         alert(data.error || 'Failed to create space');
       }
-    } catch (err) { 
+    } catch (err) {
       console.error('Failed to create space', err);
       alert('Network error while creating space. Please try again.');
     } finally {
@@ -4272,12 +8482,15 @@ function App() {
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        setSpaces(prev => prev.filter(s => s.id !== id));
+        setSpaces((prev) => prev.filter((s) => s.id !== id));
         if (currentSpace.id === id) {
-          setCurrentSpace(spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' });
+          setCurrentSpace(
+            spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_')) ||
+              spaces[0] || { id: null, name: 'Loading...' }
+          );
         }
         setSpaceToDelete(null);
       } else {
@@ -4285,20 +8498,26 @@ function App() {
         alert(data.error || 'Failed to delete space');
         setSpaceToDelete(null);
       }
-    } catch (err) { console.error('Failed to delete space', err); setSpaceToDelete(null); }
+    } catch (err) {
+      console.error('Failed to delete space', err);
+      setSpaceToDelete(null);
+    }
   };
 
   const leaveSpace = async (id) => {
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${id}/leave`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({})
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
       });
       if (res.ok) {
-        setSpaces(prev => prev.filter(s => s.id !== id));
+        setSpaces((prev) => prev.filter((s) => s.id !== id));
         if (currentSpace.id === id) {
-          setCurrentSpace(spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_')) || spaces[0] || { id: null, name: 'Loading...' });
+          setCurrentSpace(
+            spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_')) ||
+              spaces[0] || { id: null, name: 'Loading...' }
+          );
         }
         setSpaceToLeave(null);
       } else {
@@ -4306,7 +8525,10 @@ function App() {
         alert(data.error || 'Failed to leave space');
         setSpaceToLeave(null);
       }
-    } catch (err) { console.error('Failed to leave space', err); setSpaceToLeave(null); }
+    } catch (err) {
+      console.error('Failed to leave space', err);
+      setSpaceToLeave(null);
+    }
   };
 
   const removeUserFromSpace = async (userId) => {
@@ -4314,16 +8536,18 @@ function App() {
     try {
       const res = await fetch(`${socketUrl}/api/spaces/${currentSpace.id}/remove`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ userId })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId }),
       });
       if (res.ok) {
-        setAlreadyInvited(prev => prev.filter(id => id !== userId));
+        setAlreadyInvited((prev) => prev.filter((id) => id !== userId));
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to remove user');
       }
-    } catch (err) { console.error('Failed to remove user', err); }
+    } catch (err) {
+      console.error('Failed to remove user', err);
+    }
   };
 
   const handleLogout = () => {
@@ -4341,17 +8565,19 @@ function App() {
     setCurrentSpace({ id: null, name: 'Loading...' });
     setSpaces([]);
     if (socket) socket.disconnect();
-  }
+  };
 
   const searchGiphy = async () => {
     if (!gifSearch.trim()) return;
     try {
       const res = await fetch(`${socketUrl}/api/gifs?q=${encodeURIComponent(gifSearch)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       setGifs(data);
-    } catch(err) { console.error('Giphy error', err); }
+    } catch (err) {
+      console.error('Giphy error', err);
+    }
   };
 
   useEffect(() => {
@@ -4379,30 +8605,54 @@ function App() {
     if ((input.trim() || pendingAsset) && socket && isConnected) {
       const el = richInputRef.current;
       let payloadText = el ? serializeToMarkdown(el) : input;
-      
+
       const spaceObj = currentSpace;
       if (!spaceObj || !spaceObj.id) return;
-      
+
       if (isEncryptedSpace(spaceObj) && !activeKeys[spaceObj.id]) {
-         alert("Encryption Key missing. Security context unavailable. Message blocked.");
-         return;
+        alert('Encryption Key missing. Security context unavailable. Message blocked.');
+        return;
       }
+
+      // Extract @mentions from plaintext BEFORE encryption
+      // Text contains @DisplayName (with spaces), so match against known users
+      const allKnownUsers = (allUsers || []).concat(
+        onlineUsers.filter((u) => !(allUsers || []).some((a) => a.username === u.username))
+      );
+      const mentionedUsers = [];
+      for (const u of allKnownUsers) {
+        const displayName = u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username;
+        if (payloadText.includes(`@${displayName}`)) {
+          mentionedUsers.push(u.username);
+        }
+      }
+
       if (payloadText.trim()) {
-         try {
-           if (isEncryptedSpace(spaceObj)) {
-             payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
-           }
-         } catch (err) {
-           console.error("Encryption failed:", err);
-           alert("Failed to encrypt message natively. Aborting transmission.");
-           return;
-         }
+        try {
+          if (isEncryptedSpace(spaceObj)) {
+            payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+          }
+        } catch (err) {
+          console.error('Encryption failed:', err);
+          alert('Failed to encrypt message natively. Aborting transmission.');
+          return;
+        }
       }
 
       socket.emit('chat message', { text: payloadText, spaceId: spaceObj.id, asset: pendingAsset });
+
+      // Emit mentions separately (plaintext usernames, not encrypted)
+      if (mentionedUsers.length > 0) {
+        socket.emit('mention', { spaceId: spaceObj.id, mentionedUsers, sender: username });
+      }
+
       setInput('');
+      setShowMentionDropdown(false);
       if (spaceObj?.id) localStorage.removeItem(`draft_${spaceObj.id}`);
-      if (el) { el.innerHTML = ''; el.style.height = 'auto'; }
+      if (el) {
+        el.innerHTML = '';
+        el.style.height = 'auto';
+      }
       setPendingAsset(null);
       socket.emit('stop typing', spaceObj.id);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -4424,10 +8674,31 @@ function App() {
     // Auto-detect markdown shortcuts (e.g., **bold** → <strong>bold</strong>)
     processMarkdownShortcuts(el);
     setInput(serializeToMarkdown(el));
+
+    // @Mention detection
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const textNode = range.startContainer;
+      if (textNode.nodeType === Node.TEXT_NODE) {
+        const text = textNode.textContent.substring(0, range.startOffset);
+        const atMatch = text.match(/@(\w*)$/);
+        if (atMatch) {
+          setMentionFilter(atMatch[1].toLowerCase());
+          setShowMentionDropdown(true);
+          setMentionIdx(0);
+        } else {
+          setShowMentionDropdown(false);
+        }
+      } else {
+        setShowMentionDropdown(false);
+      }
+    }
+
     if (!socket || !isConnected) return;
-    
+
     socket.emit('typing', { spaceId: currentSpace.id, avatar });
-    
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('stop typing', { spaceId: currentSpace.id });
@@ -4462,18 +8733,18 @@ function App() {
     if (editText.trim() && socket && isConnected) {
       let payloadText = editText;
       const spaceObj = currentSpace;
-      
+
       if (isEncryptedSpace(spaceObj)) {
         if (!activeKeys[spaceObj.id]) {
-           alert("Encryption Key missing. Security context unavailable. Message blocked.");
-           return;
+          alert('Encryption Key missing. Security context unavailable. Message blocked.');
+          return;
         }
         try {
-           payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
+          payloadText = await encryptMessage(payloadText, activeKeys[spaceObj.id]);
         } catch (err) {
-           console.error("Encryption failed:", err);
-           alert("Failed to encrypt message.");
-           return;
+          console.error('Encryption failed:', err);
+          alert('Failed to encrypt message.');
+          return;
         }
       }
 
@@ -4490,7 +8761,70 @@ function App() {
     }
   };
 
+  const insertMention = (user) => {
+    const el = richInputRef.current;
+    if (!el) return;
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const textNode = range.startContainer;
+    if (textNode.nodeType !== Node.TEXT_NODE) return;
+    const text = textNode.textContent;
+    const cursorPos = range.startOffset;
+    const before = text.substring(0, cursorPos);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx === -1) return;
+    const after = text.substring(cursorPos);
+    // Insert display name visually (e.g. @John Smith)
+    const displayName = getMentionDisplayName(user);
+    textNode.textContent = before.substring(0, atIdx) + `@${displayName} ` + after;
+    const newRange = document.createRange();
+    newRange.setStart(textNode, atIdx + displayName.length + 2);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    setShowMentionDropdown(false);
+    setInput(serializeToMarkdown(el));
+  };
+
+  const getMentionDisplayName = (u) => (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username);
+
+  const getFilteredMentionUsers = () => {
+    return onlineUsers
+      .concat((allUsers || []).filter((u) => !onlineUsers.some((o) => o.username === u.username)))
+      .filter((u) => {
+        if (u.username === username) return false;
+        const displayName = getMentionDisplayName(u).toLowerCase();
+        return displayName.includes(mentionFilter) || u.username.toLowerCase().includes(mentionFilter);
+      });
+  };
+
   const handleKeyDown = (e) => {
+    // Mention dropdown navigation
+    if (showMentionDropdown) {
+      const filtered = getFilteredMentionUsers();
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIdx((i) => Math.min(i + 1, filtered.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && filtered.length > 0) {
+        e.preventDefault();
+        insertMention(filtered[mentionIdx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowMentionDropdown(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const el = richInputRef.current;
@@ -4501,7 +8835,7 @@ function App() {
       return;
     }
     if (e.key === 'ArrowUp' && input === '' && messages.length > 0) {
-      const myMessages = messages.filter(m => m.sender === username);
+      const myMessages = messages.filter((m) => m.sender === username);
       if (myMessages.length > 0) {
         startEditing(myMessages[myMessages.length - 1]);
       }
@@ -4513,7 +8847,11 @@ function App() {
     return (
       <div className="auth-wrapper" data-theme={theme} style={dynamicStyles}>
         <div className="auth-card">
-          <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '80px', height: '80px', marginBottom: '1rem', borderRadius: '16px' }} />
+          <img
+            src={appLogo || '/icon.png'}
+            alt="Logo"
+            style={{ width: '80px', height: '80px', marginBottom: '1rem', borderRadius: '16px' }}
+          />
           <h1>{appName}</h1>
           <form onSubmit={handleAuth}>
             <div className="input-group">
@@ -4530,7 +8868,9 @@ function App() {
                     name="email"
                     autoComplete="email"
                   />
-                  <label htmlFor="auth-email" className="material-label">Email Address</label>
+                  <label htmlFor="auth-email" className="material-label">
+                    Email Address
+                  </label>
                 </div>
               )}
               {authMode !== 'forgot' && (
@@ -4547,21 +8887,57 @@ function App() {
                     autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                     style={{ paddingRight: '44px' }}
                   />
-                  <label htmlFor="auth-pass" className="material-label">Password{authMode === 'reset' ? ' (New)' : ''}</label>
+                  <label htmlFor="auth-pass" className="material-label">
+                    Password{authMode === 'reset' ? ' (New)' : ''}
+                  </label>
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     style={{
-                      position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 'none', color: 'var(--md-sys-color-on-background)', opacity: 0.6,
-                      cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--md-sys-color-on-background)',
+                      opacity: 0.6,
+                      cursor: 'pointer',
+                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                     tabIndex="-1"
                   >
                     {showPassword ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                      </svg>
                     ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                      </svg>
                     )}
                   </button>
                 </div>
@@ -4569,22 +8945,66 @@ function App() {
             </div>
             {authMode === 'login' && (
               <div style={{ textAlign: 'right', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-                <span onClick={() => { setAuthMode('forgot'); setAuthError(''); setAuthSuccess(''); }} style={{ fontSize: '0.8rem', color: 'var(--md-sys-color-primary)', cursor: 'pointer', fontWeight: 500 }}>Forgot Password?</span>
+                <span
+                  onClick={() => {
+                    setAuthMode('forgot');
+                    setAuthError('');
+                    setAuthSuccess('');
+                  }}
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--md-sys-color-primary)',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  Forgot Password?
+                </span>
               </div>
             )}
-            {authSuccess && <p style={{ color: 'var(--md-sys-color-primary)', fontSize: '0.875rem', marginBottom: '1rem', fontWeight: 600 }}>{authSuccess}</p>}
-            {authError && <p style={{ color: '#ffb4ab', fontSize: '0.875rem', marginBottom: '1rem', fontWeight: 600 }}>{authError}</p>}
+            {authSuccess && (
+              <p
+                style={{
+                  color: 'var(--md-sys-color-primary)',
+                  fontSize: '0.875rem',
+                  marginBottom: '1rem',
+                  fontWeight: 600,
+                }}
+              >
+                {authSuccess}
+              </p>
+            )}
+            {authError && (
+              <p style={{ color: '#ffb4ab', fontSize: '0.875rem', marginBottom: '1rem', fontWeight: 600 }}>
+                {authError}
+              </p>
+            )}
             <button type="submit" className="btn-primary" style={{ width: '100%' }}>
-              {authMode === 'login' ? 'Sign In' : authMode === 'register' ? 'Create Account' : authMode === 'forgot' ? 'Send Reset Link' : 'Set New Password'}
+              {authMode === 'login'
+                ? 'Sign In'
+                : authMode === 'register'
+                  ? 'Create Account'
+                  : authMode === 'forgot'
+                    ? 'Send Reset Link'
+                    : 'Set New Password'}
             </button>
           </form>
           {authMode === 'forgot' || authMode === 'reset' ? (
             <p style={{ marginTop: '2rem', fontSize: '0.875rem', color: 'var(--md-sys-color-outline)' }}>
-              <span onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }} style={{ color: 'var(--md-sys-color-primary)', cursor: 'pointer', fontWeight: '500' }}>Back to Login</span>
+              <span
+                onClick={() => {
+                  setAuthMode('login');
+                  setAuthError('');
+                  setAuthSuccess('');
+                }}
+                style={{ color: 'var(--md-sys-color-primary)', cursor: 'pointer', fontWeight: '500' }}
+              >
+                Back to Login
+              </span>
             </p>
           ) : (
             <p style={{ marginTop: '2rem', fontSize: '0.875rem', color: 'var(--md-sys-color-outline)' }}>
-              {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
+              {authMode === 'login' ? "Don't have an account? " : 'Already have an account? '}
               <span
                 onClick={() => {
                   setAuthMode(authMode === 'login' ? 'register' : 'login');
@@ -4607,7 +9027,9 @@ function App() {
     if (!spaceObj) return '';
     if (spaceObj.is_dm !== 1) return spaceObj.name;
     if (spaceObj.name.startsWith('self_')) return `${profileData.first_name || username} (Notes to Self)`;
-    return spaceObj.dm_first ? `${spaceObj.dm_first} ${spaceObj.dm_last || ''}`.trim() : (spaceObj.dm_username || 'Direct Message');
+    return spaceObj.dm_first
+      ? `${spaceObj.dm_first} ${spaceObj.dm_last || ''}`.trim()
+      : spaceObj.dm_username || 'Direct Message';
   };
 
   return (
@@ -4615,955 +9037,3687 @@ function App() {
       {showOnboarding ? (
         <div className="auth-wrapper" data-theme={theme} style={dynamicStyles}>
           <div className="auth-card" style={{ maxWidth: '500px', width: '100%', padding: '2rem' }}>
-            <img src="/icon.png" alt="Logo" style={{ width: '64px', height: '64px', marginBottom: '1rem', borderRadius: '12px' }} />
+            <img
+              src="/icon.png"
+              alt="Logo"
+              style={{ width: '64px', height: '64px', marginBottom: '1rem', borderRadius: '12px' }}
+            />
             <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Welcome to {appName}</h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', marginBottom: '2rem' }}>Let's set up your new profile before you join.</p>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              if (!profileData.first_name.trim() || !profileData.last_name.trim()) return;
-              await saveProfileSettings();
-              setShowOnboarding(false);
-            }} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
+            <p style={{ color: 'var(--md-sys-color-outline)', marginBottom: '2rem' }}>
+              Let's set up your new profile before you join.
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!profileData.first_name.trim() || !profileData.last_name.trim()) return;
+                await saveProfileSettings();
+                setShowOnboarding(false);
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}
+            >
               <div className="material-input-wrapper">
-                <input type="text" id="ob-first" className="material-input" placeholder=" " required value={profileData.first_name} onChange={(e) => setProfileData({...profileData, first_name: e.target.value})} />
-                <label htmlFor="ob-first" className="material-label">First Name</label>
+                <input
+                  type="text"
+                  id="ob-first"
+                  className="material-input"
+                  placeholder=" "
+                  required
+                  value={profileData.first_name}
+                  onChange={(e) => setProfileData({ ...profileData, first_name: e.target.value })}
+                />
+                <label htmlFor="ob-first" className="material-label">
+                  First Name
+                </label>
               </div>
               <div className="material-input-wrapper">
-                <input type="text" id="ob-last" className="material-input" placeholder=" " required value={profileData.last_name} onChange={(e) => setProfileData({...profileData, last_name: e.target.value})} />
-                <label htmlFor="ob-last" className="material-label">Last Name</label>
+                <input
+                  type="text"
+                  id="ob-last"
+                  className="material-input"
+                  placeholder=" "
+                  required
+                  value={profileData.last_name}
+                  onChange={(e) => setProfileData({ ...profileData, last_name: e.target.value })}
+                />
+                <label htmlFor="ob-last" className="material-label">
+                  Last Name
+                </label>
               </div>
-              <div className="material-input-wrapper" style={{ position: 'relative', zIndex: showSuggestions ? 100 : 1 }}>
-                <input type="text" id="ob-loc" className="material-input" placeholder=" " value={profileData.location} onChange={(e) => handleLocationChange(e.target.value)} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} />
-                <label htmlFor="ob-loc" className="material-label">Location (Optional)</label>
+              <div
+                className="material-input-wrapper"
+                style={{ position: 'relative', zIndex: showSuggestions ? 100 : 1 }}
+              >
+                <input
+                  type="text"
+                  id="ob-loc"
+                  className="material-input"
+                  placeholder=" "
+                  value={profileData.location}
+                  onChange={(e) => handleLocationChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                />
+                <label htmlFor="ob-loc" className="material-label">
+                  Location (Optional)
+                </label>
                 {showSuggestions && locationSuggestions.length > 0 && (
                   <div className="location-suggestions">
                     {locationSuggestions.map((s, idx) => (
-                      <div key={idx} className="suggestion-item" onClick={() => { setProfileData({ ...profileData, location: s }); saveProfileSettings({ location: s }); setShowSuggestions(false); }}>
+                      <div
+                        key={idx}
+                        className="suggestion-item"
+                        onClick={() => {
+                          setProfileData({ ...profileData, location: s });
+                          saveProfileSettings({ location: s });
+                          setShowSuggestions(false);
+                        }}
+                      >
                         {s}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '0.85rem', marginTop: '1rem' }}>Complete Setup</button>
+              <button
+                type="submit"
+                className="btn-primary"
+                style={{ width: '100%', padding: '0.85rem', marginTop: '1rem' }}
+              >
+                Complete Setup
+              </button>
             </form>
           </div>
         </div>
       ) : (
         // Main UI Container
-        <div className={`app-container ${mobileView === 'list' ? 'show-list' : 'show-chat'}`} data-theme={theme} style={dynamicStyles}>
-      
-      {/* Broadcast Banner */}
-      {broadcastBanner && (
-        <div className="broadcast-banner" onClick={() => setBroadcastBanner(null)}>
-          <div className="broadcast-banner-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 13v-2z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path></svg></div>
-          <div className="broadcast-banner-content">
-            <strong>{broadcastBanner.sender}</strong>
-            <span>{broadcastBanner.message}</span>
-          </div>
-          <button className="broadcast-banner-close" onClick={(e) => { e.stopPropagation(); setBroadcastBanner(null); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
-        </div>
-      )}
-      {/* Sidebar Overlay - Legacy/Optional depending on CSS */}
-      <div
-        className={`sidebar-overlay ${showSidebar ? 'active' : ''}`}
-        onClick={() => setShowSidebar(false)}
-      ></div>
-
-      {/* Universal Top App Bar */}
-      <div className="top-app-bar">
-         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
-            <h1 style={{ fontSize: '1.25rem', margin: 0, fontWeight: '500', color: 'var(--md-sys-color-on-surface)', letterSpacing: '0.15px' }}>{appName}</h1>
-         </div>
-         
-         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-           {weather && (
-             <div className="weather-widget" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--md-sys-color-on-surface-variant)', userSelect: 'none' }} title={`Weather in ${profileData.location}`}>
-               <WeatherIcon type={weather.icon} />
-               {weather.temp}°
-             </div>
-           )}
-           <button 
-             onClick={() => setShowSettings(true)}
-             className="icon-btn"
-             title="Settings"
-             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-on-surface-variant)', transition: 'background-color 0.2s' }}
-             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)'}
-             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-           >
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-           </button>
-           <div className="auth-actions" ref={dropdownRef} style={{ position: 'relative' }}>
-             <button
-               onClick={() => setShowDropdown(!showDropdown)}
-               style={{ cursor: 'pointer', border: `2px solid ${isConnected ? 'var(--md-sys-color-primary)' : '#dc3545'}`, display: 'flex', alignItems: 'center', padding: '2px', justifyContent: 'center', borderRadius: '50%', backgroundColor: 'transparent', transition: 'all 0.2s', width: '36px', height: '36px', outline: 'none' }}
-               title={isConnected ? "Profile Menu" : "Disconnected"}
-             >
-               {isConnected && avatar ? (
-                 <img src={avatar} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} alt="Avatar" />
-               ) : isConnected ? (
-                 <div style={{ width: '100%', height: '100%', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 'bold' }}>
-                   {profileData.first_name ? profileData.first_name.charAt(0).toUpperCase() : username.charAt(0).toUpperCase()}
-                 </div>
-               ) : (
-                 <div style={{ width: '100%', height: '100%', borderRadius: '50%', backgroundColor: '#fce8e8', color: '#dc3545', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                 </div>
-               )}
-             </button>
-             {profileData.status_emoji && profileData.status_emoji !== 'none' && (
-               <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', background: 'var(--md-sys-color-surface)', borderRadius: '50%', padding: '2px', display: 'flex', zIndex: 5, pointerEvents: 'none' }}>
-                 <StatusIcon statusId={profileData.status_emoji} size={12} />
-               </div>
-             )}
-
-             {showDropdown && (
-               <div className="user-dropdown">
-                 {role === 'admin' && (
-                   <button onClick={() => { setShowAdminPanel(true); setShowDropdown(false); }} className="dropdown-item" style={{ color: 'var(--md-sys-color-primary)', fontWeight: 'bold' }}>Admin Panel</button>
-                 )}
-                 {deferredPrompt && (
-                   <button onClick={() => { handleInstallClick(); setShowDropdown(false); }} className="dropdown-item">Install App</button>
-                 )}
-                 <button onClick={() => { handleLogout(); setShowDropdown(false); }} className="dropdown-item danger">Logout</button>
-               </div>
-             )}
-           </div>
-         </div>
-      </div>
-
-      {/* LEFT PANE: Sidebar */}
-      <div className={`sidebar ${showSidebar ? 'open' : ''}`}>
-        
-        {promptNotification && (
-          <div style={{ backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem', zIndex: 50, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-            <div style={{ fontWeight: 600 }}>Enable Desktop Notifications?</div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button style={{ background: 'var(--md-sys-color-on-primary)', color: 'var(--md-sys-color-primary)', border: 'none', padding: '4px 12px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }} onClick={async () => { await togglePushNotifications(); setPromptNotification(false); }}>Enable</button>
-              <button style={{ background: 'transparent', border: '1px solid var(--md-sys-color-on-primary)', color: 'inherit', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setPromptNotification(false)}>Dismiss</button>
-            </div>
-          </div>
-        )}
-        
-        {/* Start Chat Button */}
-        <div style={{ padding: '16px 20px 8px 20px', position: 'relative' }} ref={startChatRef}>
-          <button 
-            className="btn-primary" 
-            style={{ width: '100%', padding: '12px', fontSize: '0.95rem', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: 'none' }}
-            onClick={() => setShowStartChatMenu(!showStartChatMenu)}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            Start chat
-          </button>
-
-          {showStartChatMenu && (
-             <div style={{ position: 'absolute', top: 'calc(100% - 4px)', left: '20px', right: '20px', backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '12px', padding: '8px', zIndex: 100, boxShadow: '0 8px 16px rgba(0,0,0,0.5)', border: '1px solid var(--md-sys-color-outline-variant)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <button 
-                  className="media-option" 
-                  onClick={() => { 
-                    setShowStartChatMenu(false); 
-                    if (allUsers.length === 0) fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json()).then(data => setAllUsers(data.filter(u => u.username !== username)));
-                    setShowSpaceModal(true); 
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', border: 'none', background: 'none', color: 'var(--md-sys-color-on-surface)', width: '100%', textAlign: 'left', transition: 'background-color 0.2s', fontWeight: 500 }}
+        <div
+          className={`app-container ${mobileView === 'list' ? 'show-list' : 'show-chat'}`}
+          data-theme={theme}
+          style={dynamicStyles}
+        >
+          {/* Broadcast Banner */}
+          {broadcastBanner && (
+            <div className="broadcast-banner" onClick={() => setBroadcastBanner(null)}>
+              <div className="broadcast-banner-icon">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                  Create a Space
-                </button>
-                <button 
-                  className="media-option" 
-                  onClick={() => { 
-                    setShowStartChatMenu(false); 
-                    if (allUsers.length === 0) fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json()).then(data => setAllUsers(data.filter(u => u.username !== username)));
-                    setShowDMModal(true); 
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', border: 'none', background: 'none', color: 'var(--md-sys-color-on-surface)', width: '100%', textAlign: 'left', transition: 'background-color 0.2s', fontWeight: 500 }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                  New Direct Message
-                </button>
-             </div>
-          )}
-        </div>
-
-        <div className="space-list" style={{ flex: 1, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0px 20px 8px 20px' }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Spaces</div>
-            <button 
-              className="icon-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (allUsers.length === 0) {
-                  fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-                    .then(res => res.json())
-                    .then(data => setAllUsers(data.filter(u => u.username !== username)));
-                }
-                setShowSpaceModal(true);
-              }}
-              title="Create Space"
-              style={{ width: '24px', height: '24px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-outline)' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          {spaces.filter(s => s.is_dm !== 1).map(space => (
-            <div
-              key={space.id}
-              className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
-              onClick={() => handleSpaceSelect(space)}
-            >
-              <span className="space-name" style={{ display: 'flex', alignItems: 'center' }}>
-                {space.is_private === 1 ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', opacity: 0.7 }}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', opacity: 0.5 }}><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{space.name}</span>
-                {unreadCounts[space.id] > 0 && <span style={{ marginLeft: '8px', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 6px', borderRadius: '12px' }}>{unreadCounts[space.id]}</span>}
-              </span>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <button className="delete-space-btn" style={{ color: 'var(--md-sys-color-outline)' }} onClick={(e) => { e.stopPropagation(); setActiveSpaceMenu(activeSpaceMenu === space.id ? null : space.id); }} title="Space Options">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-                </button>
-                {activeSpaceMenu === space.id && (
-                  <div ref={spaceMenuRef} style={{ position: 'absolute', top: '100%', right: 0, backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '8px', padding: '4px', zIndex: 110, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-outline-variant)', minWidth: '150px' }}>
-                    {(role === 'admin' || username === space.created_by) && !(space.is_dm === 1 && space.name.startsWith('self_')) && (
-                      <button className="dropdown-item danger" onClick={(e) => { e.stopPropagation(); setSpaceToDelete(space); setActiveSpaceMenu(null); }} style={{ width: '100%', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        Delete Space
-                      </button>
-                    )}
-                    {role !== 'admin' && username !== space.created_by && (space.is_private == 1 || space.is_private === true || space.is_private === '1') && (
-                      <button className="dropdown-item" onClick={(e) => { e.stopPropagation(); setSpaceToLeave(space); setActiveSpaceMenu(null); }} style={{ width: '100%', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-                        Leave Space
-                      </button>
-                    )}
-                    {!(role === 'admin' || username === space.created_by) && !(role !== 'admin' && username !== space.created_by && (space.is_private == 1 || space.is_private === true || space.is_private === '1')) && (
-                       <div style={{ padding: '8px 12px', fontSize: '0.85rem', color: 'var(--md-sys-color-outline)', textAlign: 'center' }}>No actions</div>
-                    )}
-                  </div>
-                )}
+                  <path d="m3 11 18-5v12L3 13v-2z"></path>
+                  <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>
+                </svg>
               </div>
-            </div>
-          ))}
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 20px 8px 20px' }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--md-sys-color-outline)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Direct Messages</div>
-            <button 
-              className="icon-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (allUsers.length === 0) {
-                  fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-                    .then(res => res.json())
-                    .then(data => setAllUsers(data.filter(u => u.username !== username)));
-                }
-                setShowDMModal(true);
-              }}
-              title="New DM"
-              style={{ width: '24px', height: '24px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-outline)' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-          </div>
-          {spaces.filter(s => s.is_dm === 1).map(space => {
-            const isSelf = space.name.startsWith('self_');
-            const displayName = isSelf ? `${profileData.first_name || username} (You)` : (space.dm_first ? `${space.dm_first} ${space.dm_last || ''}`.trim() : space.dm_username);
-            const displayAvatar = isSelf ? avatar : space.dm_avatar;
-            const isOnline = isSelf || onlineUsers.some(u => u.username === space.dm_username);
-            
-            return (
-              <div
-                key={space.id}
-                className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
-                onClick={() => handleSpaceSelect(space)}
-                style={{ padding: '8px 20px' }}
+              <div className="broadcast-banner-content">
+                <strong>{broadcastBanner.sender}</strong>
+                <span>{broadcastBanner.message}</span>
+              </div>
+              <button
+                className="broadcast-banner-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBroadcastBanner(null);
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
-                  <ProfileHoverCard
-                    userData={allUsers.find(u => u.username === space.dm_username)}
-                    isSelf={isSelf}
-                    profileData={profileData}
-                    avatar={avatar}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          )}
+          {/* Sidebar Overlay - Legacy/Optional depending on CSS */}
+          <div className={`sidebar-overlay ${showSidebar ? 'active' : ''}`} onClick={() => setShowSidebar(false)}></div>
+
+          {/* Universal Top App Bar */}
+          <div className="top-app-bar">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <img
+                src={appLogo || '/icon.png'}
+                alt="Logo"
+                style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+              />
+              <h1
+                style={{
+                  fontSize: '1.25rem',
+                  margin: 0,
+                  fontWeight: '500',
+                  color: 'var(--md-sys-color-on-surface)',
+                  letterSpacing: '0.15px',
+                }}
+              >
+                {appName}
+              </h1>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* Global Search */}
+              <div
+                className={`global-search${showSearch ? ' active' : ''}`}
+                style={{ position: 'relative', zIndex: 9999 }}
+              >
+                <button
+                  className="icon-btn"
+                  onClick={() => {
+                    setShowSearch((s) => !s);
+                    if (!showSearch) setTimeout(() => searchInputRef.current?.focus(), 50);
+                    else {
+                      setSearchQuery('');
+                      setSearchResults([]);
+                    }
+                  }}
+                  title="Search Messages (Ctrl+F)"
+                  style={{
+                    display: showSearch ? 'none' : 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    transition: 'background-color 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                  <div style={{ position: 'relative', display: 'flex' }}>
-                    {displayAvatar ? (
-                      <img src={displayAvatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} alt="Avatar" />
-                    ) : (
-                      <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                        {displayName ? displayName.charAt(0).toUpperCase() : '?'}
-                      </div>
-                    )}
-                    {(() => {
-                      const statusEmoji = isSelf ? profileData.status_emoji : allUsers.find(u => u.username === space.dm_username)?.status_emoji;
-                      if (statusEmoji && statusEmoji !== 'none') {
-                        return <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', zIndex: 10, background: 'var(--md-sys-color-surface)', borderRadius: '50%', padding: '1px', display: 'flex' }}><StatusIcon statusId={statusEmoji} size={12} /></div>;
-                      }
-                      return <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: isOnline ? '#4CAF50' : 'var(--md-sys-color-outline-variant)', border: '2px solid var(--md-sys-color-surface)', zIndex: 10 }}></div>;
-                    })()}
-                  </div>
-                  </ProfileHoverCard>
-                  <span className="space-name" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
-                    {(() => { const se = isSelf ? profileData.status_emoji : allUsers.find(u => u.username === space.dm_username)?.status_emoji; return se && se !== 'none' ? <StatusIcon statusId={se} size={13} /> : null; })()}
-                    {unreadCounts[space.id] > 0 && <span style={{ marginLeft: '4px', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 6px', borderRadius: '12px' }}>{unreadCounts[space.id]}</span>}
-                  </span>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <button className="delete-space-btn" style={{ color: 'var(--md-sys-color-outline)' }} onClick={(e) => { e.stopPropagation(); setActiveSpaceMenu(activeSpaceMenu === space.id ? null : space.id); }} title="Space Options">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </button>
+                {showSearch && (
+                  <div className="global-search-box">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ flexShrink: 0, opacity: 0.5 }}
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search all messages..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        const q = e.target.value;
+                        setSearchQuery(q);
+                        if (!q.trim()) {
+                          setSearchResults([]);
+                          return;
+                        }
+                        const lower = q.toLowerCase();
+                        // Search all decrypted messages across all cached spaces
+                        // Global search: combine current messages + cached messages from other spaces
+                        const currentSpaceId = currentSpace?.id;
+                        const allMessages = [...messages.map((m) => ({ ...m, spaceId: m.spaceId || currentSpaceId }))];
+                        // Add cached messages from other spaces
+                        Object.entries(messageCacheRef.current).forEach(([sid, msgs]) => {
+                          if (Number(sid) !== currentSpaceId) {
+                            allMessages.push(...msgs.map((m) => ({ ...m, spaceId: Number(sid) })));
+                          }
+                        });
+                        const results = allMessages
+                          .filter((m) => m.text && m.text.toLowerCase().includes(lower))
+                          .map((m) => ({
+                            id: m.id,
+                            text: m.text,
+                            sender: m.sender,
+                            spaceId: m.spaceId,
+                            first_name: m.first_name,
+                            last_name: m.last_name,
+                            timestamp: m.timestamp,
+                          }));
+                        setSearchResults(results);
+                        setSearchHighlightIdx(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setShowSearch(false);
+                          setSearchQuery('');
+                          setSearchResults([]);
+                        }
+                        if (e.key === 'Enter' && searchResults.length > 0) {
+                          e.preventDefault();
+                          const result = searchResults[searchHighlightIdx];
+                          if (result) {
+                            const targetSpace = spaces.find((s) => s.id === result.spaceId);
+                            if (targetSpace && targetSpace.id !== currentSpace?.id) handleSpaceSelect(targetSpace);
+                            setTimeout(
+                              () =>
+                                document
+                                  .getElementById(`msg-${result.id}`)
+                                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                              300
+                            );
+                            setShowSearch(false);
+                            setSearchQuery('');
+                            setSearchResults([]);
+                          }
+                        }
+                        if (e.key === 'ArrowDown' && searchResults.length > 0) {
+                          e.preventDefault();
+                          setSearchHighlightIdx((i) => Math.min(i + 1, searchResults.length - 1));
+                        }
+                        if (e.key === 'ArrowUp' && searchResults.length > 0) {
+                          e.preventDefault();
+                          setSearchHighlightIdx((i) => Math.max(i - 1, 0));
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      className="icon-btn"
+                      onClick={() => {
+                        setShowSearch(false);
+                        setSearchQuery('');
+                        setSearchResults([]);
+                      }}
+                      style={{ flexShrink: 0 }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
                     </button>
-                    {activeSpaceMenu === space.id && (
-                      <div ref={spaceMenuRef} style={{ position: 'absolute', top: '100%', right: 0, backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '8px', padding: '4px', zIndex: 110, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-outline-variant)', minWidth: '150px' }}>
-                        {(role === 'admin' || username === space.created_by) && !isSelf ? (
-                          <button className="dropdown-item danger" onClick={(e) => { e.stopPropagation(); setSpaceToDelete(space); setActiveSpaceMenu(null); }} style={{ width: '100%', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                            Delete Space
-                          </button>
+                    {searchQuery.trim() && (
+                      <div className="global-search-results">
+                        {searchResults.length === 0 ? (
+                          <div
+                            style={{
+                              padding: '16px',
+                              textAlign: 'center',
+                              color: 'var(--md-sys-color-outline)',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            No results found
+                          </div>
                         ) : (
-                           <div style={{ padding: '8px 12px', fontSize: '0.85rem', color: 'var(--md-sys-color-outline)', textAlign: 'center' }}>No actions</div>
+                          searchResults.slice(0, 20).map((r, i) => {
+                            const matchedSpace = spaces.find((s) => s.id === r.spaceId);
+                            const spaceName = matchedSpace ? getSpaceDisplayName(matchedSpace) : 'Unknown';
+                            const senderDisplay = r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : 'User';
+                            const lower = searchQuery.toLowerCase();
+                            const idx = r.text.toLowerCase().indexOf(lower);
+                            const start = Math.max(0, idx - 30);
+                            const snippet =
+                              (start > 0 ? '...' : '') +
+                              r.text.substring(start, idx) +
+                              r.text.substring(idx, idx + searchQuery.length) +
+                              r.text.substring(idx + searchQuery.length, idx + searchQuery.length + 40) +
+                              (idx + searchQuery.length + 40 < r.text.length ? '...' : '');
+                            return (
+                              <div
+                                key={r.id}
+                                className={`global-search-item${i === searchHighlightIdx ? ' active' : ''}`}
+                                onClick={() => {
+                                  const targetSpace = spaces.find((s) => s.id === r.spaceId);
+                                  if (targetSpace && targetSpace.id !== currentSpace?.id)
+                                    handleSpaceSelect(targetSpace);
+                                  setTimeout(
+                                    () =>
+                                      document
+                                        .getElementById(`msg-${r.id}`)
+                                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                                    300
+                                  );
+                                  setShowSearch(false);
+                                  setSearchQuery('');
+                                  setSearchResults([]);
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                                  <span
+                                    style={{
+                                      fontSize: '0.75rem',
+                                      color: 'var(--md-sys-color-primary)',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    {matchedSpace?.is_dm === 1 ? '💬' : '#'} {spaceName}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '0.85rem',
+                                    color: 'var(--md-sys-color-on-surface)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  dangerouslySetInnerHTML={{
+                                    __html: snippet.replace(
+                                      new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                                      '<mark>$1</mark>'
+                                    ),
+                                  }}
+                                />
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     )}
                   </div>
-                </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-
-
-      </div>
-
-      {/* RIGHT PANE: Chat Area */}
-      <div className="chat-area">
-        {currentSpace ? (
-          <>
-            {/* Space Context Header */}
-            <header className="space-header" style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--md-sys-color-surface-variant)', backgroundColor: 'var(--md-sys-color-surface)' }}>
-              
-              {/* Mobile Only Native Back Button mapped to CSS media toggles */}
-              <button 
-                className="icon-btn mobile-back-btn" 
-                onClick={() => setMobileView('list')}
-                title="Back to Conversations"
+              {weather && (
+                <div
+                  className="weather-widget"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '0.85rem',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    userSelect: 'none',
+                  }}
+                  title={`Weather in ${profileData.location}`}
+                >
+                  <WeatherIcon type={weather.icon} />
+                  {weather.temp}°
+                </div>
+              )}
+              <button
+                onClick={() => setShowSettings(true)}
+                className="icon-btn"
+                title="Settings"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--md-sys-color-on-surface-variant)',
+                  transition: 'background-color 0.2s',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--md-sys-color-surface-variant)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
-                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
               </button>
-              
-              <div style={{ flex: 1 }}>
-                <h2 style={{ fontSize: '1.25rem', margin: 0, fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {getSpaceDisplayName()}
-                  {currentSpace.is_private === 1 && currentSpace.is_dm !== 1 && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: '4px', opacity: 0.6 }}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>}
-                </h2>
-              </div>
-
-              <div className="space-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                 {isConnected && (
-                   <button
-                     onClick={() => setShowPinnedBoard(prev => !prev)}
-                     title="Pinned Messages"
-                     style={{ background: showPinnedBoard ? 'var(--md-sys-color-primary-container)' : 'none', border: 'none', color: showPinnedBoard ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
-                     onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary-container)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary-container)'; }}
-                     onMouseLeave={(e) => { 
-                       if (!showPinnedBoard) {
-                         e.currentTarget.style.color = 'var(--md-sys-color-outline)'; 
-                         e.currentTarget.style.backgroundColor = 'transparent'; 
-                       }
-                     }}
-                   >
-                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M12 17v5"/><path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z"/></svg>
-                   </button>
-                 )}
-                 {isConnected && !showVideoRoom && (
-                    <>
-                    <button 
-                      onClick={() => {
-                        fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-                          .then(res => res.json())
-                          .then(data => {
-                            const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
-                            setCallInviteMembers(members);
-                            setCallInviteSelected(members.map(m => m.id)); // Select all by default
-                          }).catch(() => setCallInviteMembers([]));
-                        setShowCallInvite({ audioOnly: false });
+              <div className="auth-actions" ref={dropdownRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowDropdown(!showDropdown)}
+                  style={{
+                    cursor: 'pointer',
+                    border: `2px solid ${isConnected ? 'var(--md-sys-color-primary)' : '#dc3545'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '2px',
+                    justifyContent: 'center',
+                    borderRadius: '50%',
+                    backgroundColor: 'transparent',
+                    transition: 'all 0.2s',
+                    width: '36px',
+                    height: '36px',
+                    outline: 'none',
+                  }}
+                  title={isConnected ? 'Profile Menu' : 'Disconnected'}
+                >
+                  {isConnected && avatar ? (
+                    <img
+                      src={avatar}
+                      style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                      alt="Avatar"
+                    />
+                  ) : isConnected ? (
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--md-sys-color-primary)',
+                        color: 'var(--md-sys-color-on-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1rem',
+                        fontWeight: 'bold',
                       }}
-                      title="Video Call"
-                      style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-outline)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
                     >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                    </button>
-                    <button 
-                      onClick={() => {
-                        fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-                          .then(res => res.json())
-                          .then(data => {
-                            const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
-                            setCallInviteMembers(members);
-                            setCallInviteSelected(members.map(m => m.id));
-                          }).catch(() => setCallInviteMembers([]));
-                        setShowCallInvite({ audioOnly: true });
-                      }}
-                      title="Audio Only Call"
-                      style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'all 0.2s', borderRadius: '50%' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-on-primary)'; e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--md-sys-color-outline)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                    </button>
-                    </>
-                  )}
-                 {isConnected && currentSpace.is_private === 1 && currentSpace.is_dm !== 1 && (
-                   <button 
-                     onClick={() => {
-                       fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json()).then(data => Array.isArray(data) && setAllUsers(data.filter(u => u.username !== username)));
-                       fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json()).then(data => setAlreadyInvited(data || [])).catch(() => setAlreadyInvited([]));
-                       setRoomSettingsInvitedUsers([]);
-                       setShowRoomSettingsModal(true);
-                     }}
-                     title="Room Settings"
-                     style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', transition: 'color 0.2s' }}
-                     onMouseEnter={(e) => e.currentTarget.style.color = 'var(--md-sys-color-primary)'}
-                     onMouseLeave={(e) => e.currentTarget.style.color = 'var(--md-sys-color-outline)'}
-                   >
-                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                   </button>
-                 )}
-              </div>
-            </header>
-
-      <main className="chat-window">
-        {/* Incoming Call Ringing Banner */}
-        {incomingCall && !showVideoRoom && (() => {
-          const stopRing = () => {
-            if (ringtoneRef.current) { clearInterval(ringtoneRef.current.interval); ringtoneRef.current.ctx.close().catch(() => {}); ringtoneRef.current = null; }
-            if (ringCountdownRef.current) { clearInterval(ringCountdownRef.current); ringCountdownRef.current = null; }
-          };
-          const acceptCall = (audioOnly) => {
-            const targetSpace = spaces.find(s => Number(s.id) === Number(incomingCall.spaceId));
-            if (targetSpace) { handleSpaceSelect(targetSpace); }
-            setVideoAudioOnly(audioOnly);
-            setShowVideoRoom(true);
-            stopRing();
-            setIncomingCall(null);
-          };
-          const spaceName = (() => {
-            const s = spaces.find(sp => Number(sp.id) === Number(incomingCall.spaceId));
-            if (!s) return '';
-            if (s.is_dm === 1) return '';
-            return s.name;
-          })();
-          return (
-          <div className="call-ringing-banner">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-              {/* Caller Avatar */}
-              {incomingCall.caller.avatar ? (
-                <img src={incomingCall.caller.avatar} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(76,175,80,0.5)' }} />
-              ) : (
-                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 600 }}>
-                  {(incomingCall.caller.first_name || incomingCall.caller.username || '?')[0].toUpperCase()}
-                </div>
-              )}
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                  {incomingCall.caller.first_name || incomingCall.caller.username} is calling...
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {spaceName && <span>in #{spaceName}</span>}
-                  <span>{incomingCall.audioOnly ? 'Audio call' : 'Video call'}</span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>0:{ringCountdown < 10 ? '0' : ''}{ringCountdown}</span>
-                </div>
-              </div>
-            </div>
-            <div className="ring-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-            </div>
-            <div className="ring-actions">
-              <button className="ring-accept" onClick={() => acceptCall(false)} title="Join with video">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                Video
-              </button>
-              <button className="ring-accept ring-accept-audio" onClick={() => acceptCall(true)} title="Join with audio only">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-                Audio
-              </button>
-              <button className="ring-decline" onClick={() => { stopRing(); setIncomingCall(null); }}>Dismiss</button>
-            </div>
-          </div>
-          );
-        })()}
-
-        {messages.length === 0 && (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8, color: 'var(--md-sys-color-outline)' }}>
-            No messages in {currentSpace.is_dm === 1 ? '' : '#'}{getSpaceDisplayName()} yet.
-          </div>
-        )}
-        <div style={{ flex: 1 }}></div> {/* Pushes messages to bottom if few */}
-        <div ref={topAnchorRef} style={{ width: '100%', height: '1px', flexShrink: 0 }}></div>
-        {isFetchingHistory && (
-          <div style={{ textAlign: 'center', padding: '1rem', opacity: 0.8 }}>
-            <div className="spinner" style={{ width: '24px', height: '24px', margin: '0 auto', borderColor: 'var(--md-sys-color-outline)' }}></div>
-          </div>
-        )}
-        {messages.map((msg, idx) => {
-          const isMe = msg.sender === username;
-          
-          let showDateDivider = false;
-          let dateString = '';
-          if (msg.timestamp) {
-            const msgDate = new Date(msg.timestamp);
-            dateString = msgDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-            if (idx === 0) {
-              showDateDivider = true;
-            } else {
-              const prevMsg = messages[idx - 1];
-              if (prevMsg && prevMsg.timestamp) {
-                const prevDate = new Date(prevMsg.timestamp).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-                if (dateString !== prevDate) showDateDivider = true;
-              }
-            }
-          }
-
-          return (
-            <React.Fragment key={msg.id || idx}>
-              {showDateDivider && (
-                <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', padding: '0 1rem' }}>
-                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}></div>
-                  <div style={{ padding: '4px 12px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface-variant)', border: '1px solid var(--md-sys-color-surface-variant)', borderRadius: '16px', backgroundColor: 'var(--md-sys-color-surface)' }}>
-                    {dateString}
-                  </div>
-                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}></div>
-                </div>
-              )}
-              <div className={`message-wrapper ${isMe ? 'me' : 'them'}`} id={`msg-${msg.id}`}>
-                {!isMe && (
-                msg.avatar ? (
-                  <img loading="lazy" src={msg.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: '2px' }} alt={msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender} />
-                ) : (
-                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-background)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 'bold', flexShrink: 0, marginBottom: '2px' }}>
-                    {msg.first_name ? msg.first_name.charAt(0).toUpperCase() : msg.sender.charAt(0).toUpperCase()}
-                  </div>
-                )
-              )}
-              <div className={`message ${isMe ? 'sent' : 'received'}`} onClick={() => setShowTimestampId(showTimestampId === msg.id ? null : msg.id)} style={{ cursor: 'pointer' }}>
-                {Object.entries(readReceipts).filter(([u, id]) => id === msg.id && u !== username).length > 0 && (
-                  <div style={{ position: 'absolute', top: '-6px', right: '-6px', display: 'flex', gap: '2px', zIndex: 10 }}>
-                    {Object.entries(readReceipts)
-                      .filter(([u, id]) => id === msg.id && u !== username)
-                      .map(([u]) => {
-                         let av = null;
-                         let displayName = u;
-                         const ou = onlineUsers.find(o => o.username === u);
-                         if (ou) {
-                           if (ou.avatar) av = ou.avatar;
-                           if (ou.first_name) displayName = `${ou.first_name} ${ou.last_name || ''}`.trim();
-                         }
-                         if (!av || displayName === u) {
-                           for (let i = messages.length - 1; i >= 0; i--) {
-                             if (messages[i].sender === u) {
-                               if (!av && messages[i].avatar) av = messages[i].avatar;
-                               if (displayName === u && messages[i].first_name) displayName = `${messages[i].first_name} ${messages[i].last_name || ''}`.trim();
-                               if (av && displayName !== u) break;
-                             }
-                           }
-                         }
-                         if (av) {
-                           return <img key={u} src={av} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${displayName}`} />;
-                         }
-                         return <div key={u} style={{ width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', border: '1px solid var(--md-sys-color-background)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} title={`Read by ${displayName}`}>{displayName.charAt(0).toUpperCase()}</div>;
-                      })}
-                  </div>
-                )}
-                {!isMe && <div className="sender-name">{msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}</div>}
-                <div className="message-actions" style={{ display: 'flex', gap: '4px', opacity: reactingToMsgId === msg.id ? 1 : '' }}>
-                  <button onClick={() => setReactingToMsgId(reactingToMsgId === msg.id ? null : msg.id)} title="React">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-                  </button>
-                  {((role === 'admin' || (currentSpace && currentSpace.created_by === username)) && !msg.asset) && (
-                    <button onClick={() => pinMessage(msg.id, msg.is_pinned === 1 ? 0 : 1)} title={msg.is_pinned ? "Unpin Message" : "Pin Message"}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill={msg.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><path d="M12 17v5"/><path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z"/></svg> 
-                    </button>
-                  )}
-                  {isMe && !msg.asset && (
-                    <button onClick={() => startEditing(msg)} title="Edit">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                    </button>
-                  )}
-                  {(isMe || role === 'admin' || (currentSpace && currentSpace.created_by === username)) && !msg.asset && (
-                    <button onClick={() => setMsgToDelete(msg)} title="Delete" className="delete-action">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
-                  )}
-                  {!isMe && (
-                    <button onClick={() => {
-                      const reason = prompt('Why are you reporting this message?');
-                      if (reason && reason.trim()) {
-                        fetch(`${socketUrl}/api/messages/${msg.id}/report`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                          body: JSON.stringify({ reason: reason.trim(), spaceId: selectedSpace })
-                        }).then(r => r.json()).then(data => {
-                          if (data.error) alert(data.error);
-                          else alert('Report submitted — an admin will review it.');
-                        }).catch(() => alert('Failed to submit report'));
-                      }
-                    }} title="Report" className="report-action">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-                    </button>
-                  )}
-                </div>
-                {reactingToMsgId === msg.id && (
-                  <>
-                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 140 }} onClick={() => setReactingToMsgId(null)} />
-                    <div className="reaction-picker-overlay" style={{ position: 'absolute', zIndex: 150, left: isMe ? 'auto' : 0, right: isMe ? 0 : 'auto', bottom: 'calc(100% + 4px)', boxShadow: '0 8px 16px rgba(0,0,0,0.5)', borderRadius: '8px' }}>
-                      <EmojiPicker onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)} theme={theme === 'light' ? 'light' : 'dark'} width={300} height={400} />
+                      {profileData.first_name
+                        ? profileData.first_name.charAt(0).toUpperCase()
+                        : username.charAt(0).toUpperCase()}
                     </div>
-                  </>
+                  ) : (
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        backgroundColor: '#fce8e8',
+                        color: '#dc3545',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+                {profileData.status_emoji && profileData.status_emoji !== 'none' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '-2px',
+                      right: '-2px',
+                      background: 'var(--md-sys-color-surface)',
+                      borderRadius: '50%',
+                      padding: '2px',
+                      display: 'flex',
+                      zIndex: 5,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <StatusIcon statusId={profileData.status_emoji} size={12} />
+                  </div>
                 )}
-                {msg.asset && (
-                  <div className="message-asset">
-                    {msg.asset.startsWith('data:image/') || msg.asset.match(/\.(jpeg|jpg|gif|png|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
-                      <img 
-                        src={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset} 
-                        alt="Attachment" 
-                        onLoad={() => scrollToBottom(isInitialLoad.current)}
-                        style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px', marginBottom: '8px', display: 'block', objectFit: 'contain', cursor: 'pointer' }} 
-                        onClick={() => setSelectedAsset(msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset)}
-                      />
-                    ) : msg.asset.startsWith('data:video/') || msg.asset.match(/\.(mp4|webm|ogg|mov|qt|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) || msg.asset.includes('transcoded-') ? (
-                      <VideoMessage src={msg.asset} />
-                    ) : msg.asset.match(/\.(pdf|txt)$/i) ? (
-                      <div style={{ position: 'relative', cursor: 'pointer', display: 'inline-block', width: '100%', marginBottom: '8px' }} onClick={() => setSelectedAsset(msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset)}>
-                        <iframe src={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}#toolbar=0` : msg.asset} title="PDF Viewer" style={{ width: '100%', height: '300px', border: 'none', borderRadius: '8px', backgroundColor: '#fff', pointerEvents: 'none' }} />
-                        <div style={{ position: 'absolute', top: '10px', right: '10px', backgroundColor: 'rgba(0,0,0,0.6)', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', pointerEvents: 'none' }}>Click to Fullscreen</div>
-                      </div>
-                    ) : (
-                      <a href={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset} target="_blank" rel="noopener noreferrer" download="attachment" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', color: 'inherit', textDecoration: 'none', backgroundColor: 'var(--md-sys-color-surface-variant)', padding: '12px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', width: 'fit-content' }}>
-                        <div style={{ width: '48px', height: '56px', backgroundColor: 'var(--md-sys-color-primary)', borderRadius: '4px 14px 4px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', flexShrink: 0 }}>
-                           <div style={{ position: 'absolute', top: '-1px', right: '-1px', width: '16px', height: '16px', backgroundColor: 'var(--md-sys-color-surface-variant)', borderBottomLeftRadius: '8px', borderLeft: '1px solid rgba(0,0,0,0.1)', borderBottom: '1px solid rgba(0,0,0,0.1)' }}></div>
-                           <span style={{ color: 'var(--md-sys-color-on-primary)', fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.5px', marginTop: '8px', userSelect: 'none' }}>
-                             {msg.asset.split('.').pop().toUpperCase().substring(0, 4)}
-                           </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                          <span style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '200px' }}>
-                            {msg.asset.split('/').pop().replace(/^[^-]+-/, '') || 'Document'}
-                          </span>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--md-sys-color-outline)', marginTop: '2px' }}>Click to download</span>
-                        </div>
-                      </a>
+
+                {showDropdown && (
+                  <div className="user-dropdown">
+                    {role === 'admin' && (
+                      <button
+                        onClick={() => {
+                          setShowAdminPanel(true);
+                          setShowDropdown(false);
+                        }}
+                        className="dropdown-item"
+                        style={{ color: 'var(--md-sys-color-primary)', fontWeight: 'bold' }}
+                      >
+                        Admin Panel
+                      </button>
                     )}
-                    {(isMe || role === 'admin' || (currentSpace && currentSpace.created_by === username)) && (
-                      <button onClick={() => setMsgToDelete(msg)} title="Delete" className="delete-asset-btn">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    {deferredPrompt && (
+                      <button
+                        onClick={() => {
+                          handleInstallClick();
+                          setShowDropdown(false);
+                        }}
+                        className="dropdown-item"
+                      >
+                        Install App
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setShowDropdown(false);
+                      }}
+                      className="dropdown-item danger"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* LEFT PANE: Sidebar */}
+          <div className={`sidebar ${showSidebar ? 'open' : ''}`}>
+            {promptNotification && (
+              <div
+                style={{
+                  backgroundColor: 'var(--md-sys-color-primary)',
+                  color: 'var(--md-sys-color-on-primary)',
+                  padding: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  fontSize: '0.85rem',
+                  zIndex: 50,
+                  borderBottom: '1px solid rgba(0,0,0,0.1)',
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>Enable Desktop Notifications?</div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    style={{
+                      background: 'var(--md-sys-color-on-primary)',
+                      color: 'var(--md-sys-color-primary)',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                    }}
+                    onClick={async () => {
+                      await togglePushNotifications();
+                      setPromptNotification(false);
+                    }}
+                  >
+                    Enable
+                  </button>
+                  <button
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--md-sys-color-on-primary)',
+                      color: 'inherit',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setPromptNotification(false)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Start Chat Button */}
+            <div style={{ padding: '16px 20px 8px 20px', position: 'relative' }} ref={startChatRef}>
+              <button
+                className="btn-primary"
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  fontSize: '0.95rem',
+                  borderRadius: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: 'none',
+                }}
+                onClick={() => setShowStartChatMenu(!showStartChatMenu)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                Start chat
+              </button>
+
+              {showStartChatMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% - 4px)',
+                    left: '20px',
+                    right: '20px',
+                    backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                    borderRadius: '12px',
+                    padding: '8px',
+                    zIndex: 100,
+                    boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <button
+                    className="media-option"
+                    onClick={() => {
+                      setShowStartChatMenu(false);
+                      if (allUsers.length === 0)
+                        fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                          .then((res) => res.json())
+                          .then((data) => setAllUsers(data.filter((u) => u.username !== username)));
+                      setShowSpaceModal(true);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      border: 'none',
+                      background: 'none',
+                      color: 'var(--md-sys-color-on-surface)',
+                      width: '100%',
+                      textAlign: 'left',
+                      transition: 'background-color 0.2s',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Create a Space
+                  </button>
+                  <button
+                    className="media-option"
+                    onClick={() => {
+                      setShowStartChatMenu(false);
+                      if (allUsers.length === 0)
+                        fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                          .then((res) => res.json())
+                          .then((data) => setAllUsers(data.filter((u) => u.username !== username)));
+                      setShowDMModal(true);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      border: 'none',
+                      background: 'none',
+                      color: 'var(--md-sys-color-on-surface)',
+                      width: '100%',
+                      textAlign: 'left',
+                      transition: 'background-color 0.2s',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    New Direct Message
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="space-list" style={{ flex: 1, overflowY: 'auto' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0px 20px 8px 20px',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: 'var(--md-sys-color-outline)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Spaces
+                </div>
+                <button
+                  className="icon-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (allUsers.length === 0) {
+                      fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                        .then((res) => res.json())
+                        .then((data) => setAllUsers(data.filter((u) => u.username !== username)));
+                    }
+                    setShowSpaceModal(true);
+                  }}
+                  title="Create Space"
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    padding: '0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--md-sys-color-outline)',
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </button>
+              </div>
+              {spaces
+                .filter((s) => s.is_dm !== 1)
+                .map((space) => (
+                  <div
+                    key={space.id}
+                    className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
+                    onClick={() => handleSpaceSelect(space)}
+                  >
+                    <span className="space-name" style={{ display: 'flex', alignItems: 'center' }}>
+                      {space.is_private === 1 ? (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ marginRight: '6px', opacity: 0.7 }}
+                        >
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                      ) : (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ marginRight: '6px', opacity: 0.5 }}
+                        >
+                          <line x1="4" y1="9" x2="20" y2="9"></line>
+                          <line x1="4" y1="15" x2="20" y2="15"></line>
+                          <line x1="10" y1="3" x2="8" y2="21"></line>
+                          <line x1="16" y1="3" x2="14" y2="21"></line>
+                        </svg>
+                      )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {space.name}
+                      </span>
+                      {unreadCounts[space.id] > 0 && (
+                        <span
+                          style={{
+                            marginLeft: '8px',
+                            backgroundColor: 'var(--md-sys-color-primary)',
+                            color: 'var(--md-sys-color-on-primary)',
+                            fontSize: '0.7rem',
+                            fontWeight: 'bold',
+                            padding: '2px 6px',
+                            borderRadius: '12px',
+                          }}
+                        >
+                          {unreadCounts[space.id]}
+                        </span>
+                      )}
+                      {mentionSpaces[space.id] > 0 && (
+                        <span className="mention-dot" title={`${mentionSpaces[space.id]} mention(s)`}>
+                          @
+                        </span>
+                      )}
+                    </span>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <button
+                        className="delete-space-btn"
+                        style={{ color: 'var(--md-sys-color-outline)' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveSpaceMenu(activeSpaceMenu === space.id ? null : space.id);
+                        }}
+                        title="Space Options"
+                      >
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="1"></circle>
+                          <circle cx="12" cy="5" r="1"></circle>
+                          <circle cx="12" cy="19" r="1"></circle>
+                        </svg>
+                      </button>
+                      {activeSpaceMenu === space.id && (
+                        <div
+                          ref={spaceMenuRef}
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: 0,
+                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                            borderRadius: '8px',
+                            padding: '4px',
+                            zIndex: 110,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                            border: '1px solid var(--md-sys-color-outline-variant)',
+                            minWidth: '150px',
+                          }}
+                        >
+                          {(role === 'admin' || username === space.created_by) &&
+                            !(space.is_dm === 1 && space.name.startsWith('self_')) && (
+                              <button
+                                className="dropdown-item danger"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSpaceToDelete(space);
+                                  setActiveSpaceMenu(null);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '8px 12px',
+                                }}
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <polyline points="3 6 5 6 21 6"></polyline>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Delete Space
+                              </button>
+                            )}
+                          {role !== 'admin' &&
+                            username !== space.created_by &&
+                            (space.is_private == 1 || space.is_private === true || space.is_private === '1') && (
+                              <button
+                                className="dropdown-item"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSpaceToLeave(space);
+                                  setActiveSpaceMenu(null);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '8px 12px',
+                                }}
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                  <polyline points="16 17 21 12 16 7"></polyline>
+                                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                                </svg>
+                                Leave Space
+                              </button>
+                            )}
+                          {!(role === 'admin' || username === space.created_by) &&
+                            !(
+                              role !== 'admin' &&
+                              username !== space.created_by &&
+                              (space.is_private == 1 || space.is_private === true || space.is_private === '1')
+                            ) && (
+                              <div
+                                style={{
+                                  padding: '8px 12px',
+                                  fontSize: '0.85rem',
+                                  color: 'var(--md-sys-color-outline)',
+                                  textAlign: 'center',
+                                }}
+                              >
+                                No actions
+                              </div>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '24px 20px 8px 20px',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: 'var(--md-sys-color-outline)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Direct Messages
+                </div>
+                <button
+                  className="icon-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (allUsers.length === 0) {
+                      fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                        .then((res) => res.json())
+                        .then((data) => setAllUsers(data.filter((u) => u.username !== username)));
+                    }
+                    setShowDMModal(true);
+                  }}
+                  title="New DM"
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    padding: '0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--md-sys-color-outline)',
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </button>
+              </div>
+              {spaces
+                .filter((s) => s.is_dm === 1)
+                .map((space) => {
+                  const isSelf = space.name.startsWith('self_');
+                  const displayName = isSelf
+                    ? `${profileData.first_name || username} (You)`
+                    : space.dm_first
+                      ? `${space.dm_first} ${space.dm_last || ''}`.trim()
+                      : space.dm_username;
+                  const displayAvatar = isSelf ? avatar : space.dm_avatar;
+                  const isOnline = isSelf || onlineUsers.some((u) => u.username === space.dm_username);
+
+                  return (
+                    <div
+                      key={space.id}
+                      className={`space-item ${currentSpace.id === space.id ? 'active' : ''}`}
+                      onClick={() => handleSpaceSelect(space)}
+                      style={{ padding: '8px 20px' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+                        <ProfileHoverCard
+                          userData={allUsers.find((u) => u.username === space.dm_username)}
+                          isSelf={isSelf}
+                          profileData={profileData}
+                          avatar={avatar}
+                        >
+                          <div style={{ position: 'relative', display: 'flex' }}>
+                            {displayAvatar ? (
+                              <img
+                                src={displayAvatar}
+                                style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+                                alt="Avatar"
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '24px',
+                                  height: '24px',
+                                  borderRadius: '50%',
+                                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                  color: 'var(--md-sys-color-on-surface-variant)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                {displayName ? displayName.charAt(0).toUpperCase() : '?'}
+                              </div>
+                            )}
+                            {(() => {
+                              const statusEmoji = isSelf
+                                ? profileData.status_emoji
+                                : allUsers.find((u) => u.username === space.dm_username)?.status_emoji;
+                              if (statusEmoji && statusEmoji !== 'none') {
+                                return (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '-3px',
+                                      right: '-3px',
+                                      zIndex: 10,
+                                      background: 'var(--md-sys-color-surface)',
+                                      borderRadius: '50%',
+                                      padding: '1px',
+                                      display: 'flex',
+                                    }}
+                                  >
+                                    <StatusIcon statusId={statusEmoji} size={12} />
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: '-2px',
+                                    right: '-2px',
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    backgroundColor: isOnline ? '#4CAF50' : 'var(--md-sys-color-outline-variant)',
+                                    border: '2px solid var(--md-sys-color-surface)',
+                                    zIndex: 10,
+                                  }}
+                                ></div>
+                              );
+                            })()}
+                          </div>
+                        </ProfileHoverCard>
+                        <span
+                          className="space-name"
+                          style={{
+                            flex: 1,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {displayName}
+                          </span>
+                          {(() => {
+                            const se = isSelf
+                              ? profileData.status_emoji
+                              : allUsers.find((u) => u.username === space.dm_username)?.status_emoji;
+                            return se && se !== 'none' ? <StatusIcon statusId={se} size={13} /> : null;
+                          })()}
+                          {unreadCounts[space.id] > 0 && (
+                            <span
+                              style={{
+                                marginLeft: '4px',
+                                backgroundColor: 'var(--md-sys-color-primary)',
+                                color: 'var(--md-sys-color-on-primary)',
+                                fontSize: '0.7rem',
+                                fontWeight: 'bold',
+                                padding: '2px 6px',
+                                borderRadius: '12px',
+                              }}
+                            >
+                              {unreadCounts[space.id]}
+                            </span>
+                          )}
+                          {mentionSpaces[space.id] > 0 && (
+                            <span className="mention-dot" title={`${mentionSpaces[space.id]} mention(s)`}>
+                              @
+                            </span>
+                          )}
+                        </span>
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <button
+                            className="delete-space-btn"
+                            style={{ color: 'var(--md-sys-color-outline)' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveSpaceMenu(activeSpaceMenu === space.id ? null : space.id);
+                            }}
+                            title="Space Options"
+                          >
+                            <svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="12" r="1"></circle>
+                              <circle cx="12" cy="5" r="1"></circle>
+                              <circle cx="12" cy="19" r="1"></circle>
+                            </svg>
+                          </button>
+                          {activeSpaceMenu === space.id && (
+                            <div
+                              ref={spaceMenuRef}
+                              style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                                borderRadius: '8px',
+                                padding: '4px',
+                                zIndex: 110,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                                border: '1px solid var(--md-sys-color-outline-variant)',
+                                minWidth: '150px',
+                              }}
+                            >
+                              {(role === 'admin' || username === space.created_by) && !isSelf ? (
+                                <button
+                                  className="dropdown-item danger"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSpaceToDelete(space);
+                                    setActiveSpaceMenu(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 12px',
+                                  }}
+                                >
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                  </svg>
+                                  Delete Space
+                                </button>
+                              ) : (
+                                <div
+                                  style={{
+                                    padding: '8px 12px',
+                                    fontSize: '0.85rem',
+                                    color: 'var(--md-sys-color-outline)',
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  No actions
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* RIGHT PANE: Chat Area */}
+          <div className="chat-area">
+            {currentSpace ? (
+              <>
+                {/* Space Context Header */}
+                <header
+                  className="space-header"
+                  style={{
+                    padding: '12px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderBottom: '1px solid var(--md-sys-color-surface-variant)',
+                    backgroundColor: 'var(--md-sys-color-surface)',
+                  }}
+                >
+                  {/* Mobile Only Native Back Button mapped to CSS media toggles */}
+                  <button
+                    className="icon-btn mobile-back-btn"
+                    onClick={() => setMobileView('list')}
+                    title="Back to Conversations"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="19" y1="12" x2="5" y2="12"></line>
+                      <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                  </button>
+
+                  <div style={{ flex: 1 }}>
+                    <h2
+                      style={{
+                        fontSize: '1.25rem',
+                        margin: 0,
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {getSpaceDisplayName()}
+                      {currentSpace.is_private === 1 && currentSpace.is_dm !== 1 && (
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ marginLeft: '4px', opacity: 0.6 }}
+                        >
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                      )}
+                    </h2>
+                  </div>
+
+                  <div className="space-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isConnected && (
+                      <button
+                        onClick={() => setShowPinnedBoard((prev) => !prev)}
+                        title="Pinned Messages"
+                        style={{
+                          background: showPinnedBoard ? 'var(--md-sys-color-primary-container)' : 'none',
+                          border: 'none',
+                          color: showPinnedBoard
+                            ? 'var(--md-sys-color-on-primary-container)'
+                            : 'var(--md-sys-color-outline)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '8px',
+                          transition: 'all 0.2s',
+                          borderRadius: '50%',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = 'var(--md-sys-color-on-primary-container)';
+                          e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary-container)';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!showPinnedBoard) {
+                            e.currentTarget.style.color = 'var(--md-sys-color-outline)';
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                      >
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                        >
+                          <path d="M12 17v5" />
+                          <path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z" />
+                        </svg>
+                      </button>
+                    )}
+                    {isConnected && !showVideoRoom && (
+                      <>
+                        <button
+                          onClick={() => {
+                            fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                              .then((res) => res.json())
+                              .then((data) => {
+                                const members = (Array.isArray(data) ? data : []).filter(
+                                  (m) => m.username !== username
+                                );
+                                setCallInviteMembers(members);
+                                setCallInviteSelected(members.map((m) => m.id)); // Select all by default
+                              })
+                              .catch(() => setCallInviteMembers([]));
+                            setShowCallInvite({ audioOnly: false });
+                          }}
+                          title="Video Call"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--md-sys-color-outline)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '8px',
+                            transition: 'all 0.2s',
+                            borderRadius: '50%',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = 'var(--md-sys-color-on-primary)';
+                            e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = 'var(--md-sys-color-outline)';
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          >
+                            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => {
+                            fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                              .then((res) => res.json())
+                              .then((data) => {
+                                const members = (Array.isArray(data) ? data : []).filter(
+                                  (m) => m.username !== username
+                                );
+                                setCallInviteMembers(members);
+                                setCallInviteSelected(members.map((m) => m.id));
+                              })
+                              .catch(() => setCallInviteMembers([]));
+                            setShowCallInvite({ audioOnly: true });
+                          }}
+                          title="Audio Only Call"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--md-sys-color-outline)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '8px',
+                            transition: 'all 0.2s',
+                            borderRadius: '50%',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = 'var(--md-sys-color-on-primary)';
+                            e.currentTarget.style.backgroundColor = 'var(--md-sys-color-primary)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = 'var(--md-sys-color-outline)';
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          >
+                            <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                    {isConnected && currentSpace.is_private === 1 && currentSpace.is_dm !== 1 && (
+                      <button
+                        onClick={() => {
+                          fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                            .then((res) => res.json())
+                            .then(
+                              (data) => Array.isArray(data) && setAllUsers(data.filter((u) => u.username !== username))
+                            );
+                          fetch(`${socketUrl}/api/spaces/${currentSpace.id}/members`, {
+                            headers: { Authorization: `Bearer ${token}` },
+                          })
+                            .then((res) => res.json())
+                            .then((data) => setAlreadyInvited(data || []))
+                            .catch(() => setAlreadyInvited([]));
+                          setRoomSettingsInvitedUsers([]);
+                          setShowRoomSettingsModal(true);
+                        }}
+                        title="Room Settings"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--md-sys-color-outline)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '8px',
+                          transition: 'color 0.2s',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--md-sys-color-primary)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--md-sys-color-outline)')}
+                      >
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="3"></circle>
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
                       </button>
                     )}
                   </div>
-                )}
-                <div className="message-content">
-                  {editingId === msg.id ? (
-                    <form onSubmit={saveEdit} className="edit-form">
-                      <div
-                        ref={editInputRef}
-                        className="edit-input"
-                        contentEditable
-                        suppressContentEditableWarning
-                        onInput={() => { const el = editInputRef.current; if (el) { processMarkdownShortcuts(el); setEditInput(serializeToMarkdown(el)); } }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(e); } if (e.key === 'Escape') setEditingId(null); }}
-                        onMouseUp={handleTextSelect}
-                        onKeyUp={handleTextSelect}
-                        onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
-                        onPaste={(e) => { e.preventDefault(); const text = e.clipboardData.getData('text/plain'); document.execCommand('insertText', false, text); const el = editInputRef.current; if (el) { processAllMarkdownInNode(el); setEditInput(serializeToMarkdown(el)); } }}
-                      />
-                      <div className="edit-btns">
-                        <button type="submit" className="save-btn">Save</button>
-                        <button type="button" className="cancel-btn" onClick={() => setEditingId(null)}>Cancel</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      {!msg.asset && (msg.pending ? (
-                        <div className="encrypted-shimmer">
-                          <div className="shimmer-line" style={{width: '70%'}} />
-                          <div className="shimmer-line" style={{width: '45%'}} />
-                        </div>
-                      ) : msg.text && <div className="message-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) + (msg.edited === 1 ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>' : '') }} />)}
-                      {msg.reactions && msg.reactions !== '{}' && (
-                        <div className="message-reactions" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                          {Object.entries(JSON.parse(msg.reactions || '{}')).map(([emoji, usersArr]) => (
-                            <div key={emoji} onClick={() => handleReaction(msg.id, emoji)} title={usersArr.map(u => { const m = messages.find(mm => mm.sender === u); return m && m.first_name ? `${m.first_name} ${m.last_name || ''}`.trim() : u; }).join(', ')} style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: usersArr.includes(username) ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-variant)', color: usersArr.includes(username) ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)', padding: '2px 6px', borderRadius: '12px', fontSize: '0.8rem', cursor: 'pointer', border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`, userSelect: 'none' }}>
-                              <span>{emoji}</span>
-                              <span style={{ fontWeight: '600' }}>{usersArr.length}</span>
+                </header>
+
+                <main className="chat-window">
+                  {/* Incoming Call Ringing Banner */}
+                  {incomingCall &&
+                    !showVideoRoom &&
+                    (() => {
+                      const stopRing = () => {
+                        if (ringtoneRef.current) {
+                          clearInterval(ringtoneRef.current.interval);
+                          ringtoneRef.current.ctx.close().catch(() => {});
+                          ringtoneRef.current = null;
+                        }
+                        if (ringCountdownRef.current) {
+                          clearInterval(ringCountdownRef.current);
+                          ringCountdownRef.current = null;
+                        }
+                      };
+                      const acceptCall = (audioOnly) => {
+                        const targetSpace = spaces.find((s) => Number(s.id) === Number(incomingCall.spaceId));
+                        if (targetSpace) {
+                          handleSpaceSelect(targetSpace);
+                        }
+                        setVideoAudioOnly(audioOnly);
+                        setShowVideoRoom(true);
+                        stopRing();
+                        setIncomingCall(null);
+                      };
+                      const spaceName = (() => {
+                        const s = spaces.find((sp) => Number(sp.id) === Number(incomingCall.spaceId));
+                        if (!s) return '';
+                        if (s.is_dm === 1) return '';
+                        return s.name;
+                      })();
+                      return (
+                        <div className="call-ringing-banner">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                            {/* Caller Avatar */}
+                            {incomingCall.caller.avatar ? (
+                              <img
+                                src={incomingCall.caller.avatar}
+                                alt=""
+                                style={{
+                                  width: 42,
+                                  height: 42,
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  border: '2px solid rgba(76,175,80,0.5)',
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 42,
+                                  height: 42,
+                                  borderRadius: '50%',
+                                  background: 'var(--md-sys-color-primary)',
+                                  color: 'var(--md-sys-color-on-primary)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '1.1rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {(incomingCall.caller.first_name ||
+                                  incomingCall.caller.username ||
+                                  '?')[0].toUpperCase()}
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                                {incomingCall.caller.first_name || incomingCall.caller.username} is calling...
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '0.75rem',
+                                  color: 'var(--md-sys-color-outline)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                }}
+                              >
+                                {spaceName && <span>in #{spaceName}</span>}
+                                <span>{incomingCall.audioOnly ? 'Audio call' : 'Video call'}</span>
+                                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  0:{ringCountdown < 10 ? '0' : ''}
+                                  {ringCountdown}
+                                </span>
+                              </div>
                             </div>
-                          ))}
+                          </div>
+                          <div className="ring-icon">
+                            <svg
+                              width="24"
+                              height="24"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                            </svg>
+                          </div>
+                          <div className="ring-actions">
+                            <button className="ring-accept" onClick={() => acceptCall(false)} title="Join with video">
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                              </svg>
+                              Video
+                            </button>
+                            <button
+                              className="ring-accept ring-accept-audio"
+                              onClick={() => acceptCall(true)}
+                              title="Join with audio only"
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                              </svg>
+                              Audio
+                            </button>
+                            <button
+                              className="ring-decline"
+                              onClick={() => {
+                                stopRing();
+                                setIncomingCall(null);
+                              }}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </>
-                  )}
-                  {showTimestampId === msg.id && msg.timestamp && (
-                    <div style={{ fontSize: '0.7rem', opacity: 0.7, marginTop: '4px', textAlign: isMe ? 'right' : 'left', animation: 'fadeIn 0.2s ease-in' }}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      );
+                    })()}
+                  {messages.length === 0 && (
+                    <div
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: 0.8,
+                        color: 'var(--md-sys-color-outline)',
+                      }}
+                    >
+                      No messages in {currentSpace.is_dm === 1 ? '' : '#'}
+                      {getSpaceDisplayName()} yet.
                     </div>
                   )}
+                  <div style={{ flex: 1 }}></div> {/* Pushes messages to bottom if few */}
+                  <div ref={topAnchorRef} style={{ width: '100%', height: '1px', flexShrink: 0 }}></div>
+                  {isFetchingHistory && (
+                    <div style={{ textAlign: 'center', padding: '1rem', opacity: 0.8 }}>
+                      <div
+                        className="spinner"
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          margin: '0 auto',
+                          borderColor: 'var(--md-sys-color-outline)',
+                        }}
+                      ></div>
+                    </div>
+                  )}
+                  {messages.map((msg, idx) => {
+                    const isMe = msg.sender === username;
+
+                    let showDateDivider = false;
+                    let dateString = '';
+                    if (msg.timestamp) {
+                      const msgDate = new Date(msg.timestamp);
+                      dateString = msgDate.toLocaleDateString(undefined, {
+                        weekday: 'long',
+                        month: 'long',
+                        day: 'numeric',
+                      });
+                      if (idx === 0) {
+                        showDateDivider = true;
+                      } else {
+                        const prevMsg = messages[idx - 1];
+                        if (prevMsg && prevMsg.timestamp) {
+                          const prevDate = new Date(prevMsg.timestamp).toLocaleDateString(undefined, {
+                            weekday: 'long',
+                            month: 'long',
+                            day: 'numeric',
+                          });
+                          if (dateString !== prevDate) showDateDivider = true;
+                        }
+                      }
+                    }
+
+                    return (
+                      <React.Fragment key={msg.id || idx}>
+                        {showDateDivider && (
+                          <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', padding: '0 1rem' }}>
+                            <div
+                              style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}
+                            ></div>
+                            <div
+                              style={{
+                                padding: '4px 12px',
+                                fontSize: '0.85rem',
+                                fontWeight: 600,
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                                border: '1px solid var(--md-sys-color-surface-variant)',
+                                borderRadius: '16px',
+                                backgroundColor: 'var(--md-sys-color-surface)',
+                              }}
+                            >
+                              {dateString}
+                            </div>
+                            <div
+                              style={{ flex: 1, height: '1px', backgroundColor: 'var(--md-sys-color-surface-variant)' }}
+                            ></div>
+                          </div>
+                        )}
+                        <div
+                          className={`message-wrapper ${isMe ? 'me' : 'them'}${searchResults.some((r) => r.id === msg.id) ? ' search-highlight' : ''}${searchResults[searchHighlightIdx]?.id === msg.id ? ' search-active' : ''}`}
+                          id={`msg-${msg.id}`}
+                        >
+                          {!isMe &&
+                            (msg.avatar ? (
+                              <img
+                                loading="lazy"
+                                src={msg.avatar}
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  flexShrink: 0,
+                                  marginBottom: '2px',
+                                }}
+                                alt={msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                  color: 'var(--md-sys-color-on-background)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '1rem',
+                                  fontWeight: 'bold',
+                                  flexShrink: 0,
+                                  marginBottom: '2px',
+                                }}
+                              >
+                                {msg.first_name
+                                  ? msg.first_name.charAt(0).toUpperCase()
+                                  : msg.sender.charAt(0).toUpperCase()}
+                              </div>
+                            ))}
+                          <div
+                            className={`message ${isMe ? 'sent' : 'received'}`}
+                            onClick={() => setShowTimestampId(showTimestampId === msg.id ? null : msg.id)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            {Object.entries(readReceipts).filter(([u, id]) => id === msg.id && u !== username).length >
+                              0 && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '-6px',
+                                  right: '-6px',
+                                  display: 'flex',
+                                  gap: '2px',
+                                  zIndex: 10,
+                                }}
+                              >
+                                {Object.entries(readReceipts)
+                                  .filter(([u, id]) => id === msg.id && u !== username)
+                                  .map(([u]) => {
+                                    let av = null;
+                                    let displayName = u;
+                                    const ou = onlineUsers.find((o) => o.username === u);
+                                    if (ou) {
+                                      if (ou.avatar) av = ou.avatar;
+                                      if (ou.first_name) displayName = `${ou.first_name} ${ou.last_name || ''}`.trim();
+                                    }
+                                    if (!av || displayName === u) {
+                                      for (let i = messages.length - 1; i >= 0; i--) {
+                                        if (messages[i].sender === u) {
+                                          if (!av && messages[i].avatar) av = messages[i].avatar;
+                                          if (displayName === u && messages[i].first_name)
+                                            displayName =
+                                              `${messages[i].first_name} ${messages[i].last_name || ''}`.trim();
+                                          if (av && displayName !== u) break;
+                                        }
+                                      }
+                                    }
+                                    if (av) {
+                                      return (
+                                        <img
+                                          key={u}
+                                          src={av}
+                                          style={{
+                                            width: '16px',
+                                            height: '16px',
+                                            borderRadius: '50%',
+                                            objectFit: 'cover',
+                                            border: '1px solid var(--md-sys-color-background)',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                          }}
+                                          title={`Read by ${displayName}`}
+                                        />
+                                      );
+                                    }
+                                    return (
+                                      <div
+                                        key={u}
+                                        style={{
+                                          width: '16px',
+                                          height: '16px',
+                                          borderRadius: '50%',
+                                          backgroundColor: 'var(--md-sys-color-primary)',
+                                          color: 'var(--md-sys-color-on-primary)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '8px',
+                                          fontWeight: 'bold',
+                                          border: '1px solid var(--md-sys-color-background)',
+                                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }}
+                                        title={`Read by ${displayName}`}
+                                      >
+                                        {displayName.charAt(0).toUpperCase()}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                            {!isMe && (
+                              <div className="sender-name">
+                                {msg.first_name ? `${msg.first_name} ${msg.last_name || ''}`.trim() : msg.sender}
+                              </div>
+                            )}
+                            <div
+                              className="message-actions"
+                              style={{ display: 'flex', gap: '4px', opacity: reactingToMsgId === msg.id ? 1 : '' }}
+                            >
+                              <button
+                                onClick={() => setReactingToMsgId(reactingToMsgId === msg.id ? null : msg.id)}
+                                title="React"
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <circle cx="12" cy="12" r="10"></circle>
+                                  <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                  <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                  <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                </svg>
+                              </button>
+                              {(role === 'admin' || (currentSpace && currentSpace.created_by === username)) &&
+                                !msg.asset && (
+                                  <button
+                                    onClick={() => pinMessage(msg.id, msg.is_pinned === 1 ? 0 : 1)}
+                                    title={msg.is_pinned ? 'Unpin Message' : 'Pin Message'}
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill={msg.is_pinned ? 'currentColor' : 'none'}
+                                      stroke="currentColor"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                    >
+                                      <path d="M12 17v5" />
+                                      <path d="M5 17h14v-2l-3-4V6a4 4 0 0 0-8 0v5l-3 4z" />
+                                    </svg>
+                                  </button>
+                                )}
+                              {isMe && !msg.asset && (
+                                <button onClick={() => startEditing(msg)} title="Edit">
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                  </svg>
+                                </button>
+                              )}
+                              {(isMe || role === 'admin' || (currentSpace && currentSpace.created_by === username)) &&
+                                !msg.asset && (
+                                  <button onClick={() => setMsgToDelete(msg)} title="Delete" className="delete-action">
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                    >
+                                      <polyline points="3 6 5 6 21 6"></polyline>
+                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                  </button>
+                                )}
+                              {!isMe && (
+                                <button
+                                  onClick={() => {
+                                    const reason = prompt('Why are you reporting this message?');
+                                    if (reason && reason.trim()) {
+                                      fetch(`${socketUrl}/api/messages/${msg.id}/report`, {
+                                        method: 'POST',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          Authorization: `Bearer ${token}`,
+                                        },
+                                        body: JSON.stringify({ reason: reason.trim(), spaceId: selectedSpace }),
+                                      })
+                                        .then((r) => r.json())
+                                        .then((data) => {
+                                          if (data.error) alert(data.error);
+                                          else alert('Report submitted — an admin will review it.');
+                                        })
+                                        .catch(() => alert('Failed to submit report'));
+                                    }
+                                  }}
+                                  title="Report"
+                                  className="report-action"
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                                    <line x1="4" y1="22" x2="4" y2="15" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                            {reactingToMsgId === msg.id && (
+                              <>
+                                <div
+                                  style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 140 }}
+                                  onClick={() => setReactingToMsgId(null)}
+                                />
+                                <div
+                                  className="reaction-picker-overlay"
+                                  style={{
+                                    position: 'absolute',
+                                    zIndex: 150,
+                                    left: isMe ? 'auto' : 0,
+                                    right: isMe ? 0 : 'auto',
+                                    bottom: 'calc(100% + 4px)',
+                                    boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                                    borderRadius: '8px',
+                                  }}
+                                >
+                                  <EmojiPicker
+                                    onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
+                                    theme={theme === 'light' ? 'light' : 'dark'}
+                                    width={300}
+                                    height={400}
+                                  />
+                                </div>
+                              </>
+                            )}
+                            {msg.asset && (
+                              <div className="message-asset">
+                                {msg.asset.startsWith('data:image/') ||
+                                msg.asset.match(/\.(jpeg|jpg|gif|png|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
+                                  <img
+                                    src={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset}
+                                    alt="Attachment"
+                                    onLoad={() => scrollToBottom(isInitialLoad.current)}
+                                    style={{
+                                      maxWidth: '100%',
+                                      maxHeight: '400px',
+                                      borderRadius: '8px',
+                                      marginBottom: '8px',
+                                      display: 'block',
+                                      objectFit: 'contain',
+                                      cursor: 'pointer',
+                                    }}
+                                    onClick={() =>
+                                      setSelectedAsset(
+                                        msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
+                                      )
+                                    }
+                                  />
+                                ) : msg.asset.includes('voice-') ||
+                                  msg.asset.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) ? (
+                                  <div
+                                    className="voice-message-player"
+                                    ref={(el) => {
+                                      if (!el || el.dataset.audioInit) return;
+                                      el.dataset.audioInit = 'true';
+                                      const audio = document.createElement('audio');
+                                      const src = msg.asset.startsWith('/uploads/')
+                                        ? `${socketUrl}${msg.asset}`
+                                        : msg.asset;
+                                      audio.src = src;
+                                      audio.preload = 'auto';
+                                      audio.style.display = 'none';
+                                      el.appendChild(audio);
+                                      const updateDuration = () => {
+                                        const dur = el.querySelector('.voice-duration');
+                                        if (!dur) return;
+                                        const d = audio.duration;
+                                        if (d && isFinite(d) && !isNaN(d)) {
+                                          dur.textContent = `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, '0')}`;
+                                        }
+                                      };
+                                      audio.addEventListener('loadedmetadata', () => {
+                                        if (audio.duration === Infinity) {
+                                          audio.currentTime = 1e101;
+                                          audio.addEventListener(
+                                            'timeupdate',
+                                            function seekBack() {
+                                              audio.removeEventListener('timeupdate', seekBack);
+                                              audio.currentTime = 0;
+                                              updateDuration();
+                                            },
+                                            { once: true }
+                                          );
+                                        } else {
+                                          updateDuration();
+                                        }
+                                      });
+                                      audio.addEventListener('durationchange', updateDuration);
+                                      audio.addEventListener('timeupdate', () => {
+                                        const progress = el.querySelector('.voice-progress');
+                                        const dur = el.querySelector('.voice-duration');
+                                        const d = audio.duration;
+                                        if (progress && isFinite(d) && d > 0)
+                                          progress.style.width = `${(audio.currentTime / d) * 100}%`;
+                                        if (dur && (!isFinite(d) || isNaN(d))) {
+                                          const t = Math.floor(audio.currentTime);
+                                          dur.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+                                        }
+                                      });
+                                      audio.addEventListener('ended', () => {
+                                        const btn = el.querySelector('.voice-play-btn');
+                                        if (btn) btn.dataset.playing = 'false';
+                                        const progress = el.querySelector('.voice-progress');
+                                        if (progress) progress.style.width = '0%';
+                                        updateDuration();
+                                      });
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="voice-play-btn"
+                                      onClick={(e) => {
+                                        const container = e.currentTarget.closest('.voice-message-player');
+                                        const audio = container.querySelector('audio');
+                                        if (!audio) return;
+                                        const btn = e.currentTarget;
+                                        if (audio.paused) {
+                                          audio.play();
+                                          btn.dataset.playing = 'true';
+                                        } else {
+                                          audio.pause();
+                                          btn.dataset.playing = 'false';
+                                        }
+                                      }}
+                                      data-playing="false"
+                                    >
+                                      <svg
+                                        className="play-icon"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                      >
+                                        <polygon points="5 3 19 12 5 21 5 3" />
+                                      </svg>
+                                      <svg
+                                        className="pause-icon"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                      >
+                                        <rect x="6" y="4" width="4" height="16" />
+                                        <rect x="14" y="4" width="4" height="16" />
+                                      </svg>
+                                    </button>
+                                    <div className="voice-waveform">
+                                      {Array.from({ length: 24 }, (_, i) => (
+                                        <div
+                                          key={i}
+                                          className="voice-bar"
+                                          style={{ height: `${20 + Math.sin(i * 0.7) * 60 + Math.random() * 20}%` }}
+                                        />
+                                      ))}
+                                      <div className="voice-progress" />
+                                    </div>
+                                    <span className="voice-duration">0:00</span>
+                                  </div>
+                                ) : msg.asset.startsWith('data:video/') ||
+                                  msg.asset.match(/\.(mp4|webm|ogg|mov|qt|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) ||
+                                  msg.asset.includes('transcoded-') ? (
+                                  <VideoMessage src={msg.asset} />
+                                ) : msg.asset.match(/\.(pdf|txt)$/i) ? (
+                                  <div
+                                    style={{
+                                      position: 'relative',
+                                      cursor: 'pointer',
+                                      display: 'inline-block',
+                                      width: '100%',
+                                      marginBottom: '8px',
+                                    }}
+                                    onClick={() =>
+                                      setSelectedAsset(
+                                        msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset
+                                      )
+                                    }
+                                  >
+                                    <iframe
+                                      src={
+                                        msg.asset.startsWith('/uploads/')
+                                          ? `${socketUrl}${msg.asset}#toolbar=0`
+                                          : msg.asset
+                                      }
+                                      title="PDF Viewer"
+                                      style={{
+                                        width: '100%',
+                                        height: '300px',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        backgroundColor: '#fff',
+                                        pointerEvents: 'none',
+                                      }}
+                                    />
+                                    <div
+                                      style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        right: '10px',
+                                        backgroundColor: 'rgba(0,0,0,0.6)',
+                                        color: 'white',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.8rem',
+                                        pointerEvents: 'none',
+                                      }}
+                                    >
+                                      Click to Fullscreen
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <a
+                                    href={msg.asset.startsWith('/uploads/') ? `${socketUrl}${msg.asset}` : msg.asset}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    download="attachment"
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '12px',
+                                      marginBottom: '8px',
+                                      color: 'inherit',
+                                      textDecoration: 'none',
+                                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                      padding: '12px',
+                                      borderRadius: '12px',
+                                      border: '1px solid var(--md-sys-color-outline-variant)',
+                                      width: 'fit-content',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: '48px',
+                                        height: '56px',
+                                        backgroundColor: 'var(--md-sys-color-primary)',
+                                        borderRadius: '4px 14px 4px 4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        position: 'relative',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          position: 'absolute',
+                                          top: '-1px',
+                                          right: '-1px',
+                                          width: '16px',
+                                          height: '16px',
+                                          backgroundColor: 'var(--md-sys-color-surface-variant)',
+                                          borderBottomLeftRadius: '8px',
+                                          borderLeft: '1px solid rgba(0,0,0,0.1)',
+                                          borderBottom: '1px solid rgba(0,0,0,0.1)',
+                                        }}
+                                      ></div>
+                                      <span
+                                        style={{
+                                          color: 'var(--md-sys-color-on-primary)',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 'bold',
+                                          letterSpacing: '0.5px',
+                                          marginTop: '8px',
+                                          userSelect: 'none',
+                                        }}
+                                      >
+                                        {msg.asset.split('.').pop().toUpperCase().substring(0, 4)}
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                      <span
+                                        style={{
+                                          fontSize: '0.95rem',
+                                          fontWeight: 600,
+                                          color: 'var(--md-sys-color-on-surface)',
+                                          whiteSpace: 'nowrap',
+                                          textOverflow: 'ellipsis',
+                                          overflow: 'hidden',
+                                          maxWidth: '200px',
+                                        }}
+                                      >
+                                        {msg.asset
+                                          .split('/')
+                                          .pop()
+                                          .replace(/^[^-]+-/, '') || 'Document'}
+                                      </span>
+                                      <span
+                                        style={{
+                                          fontSize: '0.8rem',
+                                          color: 'var(--md-sys-color-outline)',
+                                          marginTop: '2px',
+                                        }}
+                                      >
+                                        Click to download
+                                      </span>
+                                    </div>
+                                  </a>
+                                )}
+                                {(isMe ||
+                                  role === 'admin' ||
+                                  (currentSpace && currentSpace.created_by === username)) && (
+                                  <button
+                                    onClick={() => setMsgToDelete(msg)}
+                                    title="Delete"
+                                    className="delete-asset-btn"
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                    >
+                                      <polyline points="3 6 5 6 21 6"></polyline>
+                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            <div className="message-content">
+                              {editingId === msg.id ? (
+                                <form onSubmit={saveEdit} className="edit-form">
+                                  <div
+                                    ref={editInputRef}
+                                    className="edit-input"
+                                    contentEditable
+                                    suppressContentEditableWarning
+                                    onInput={() => {
+                                      const el = editInputRef.current;
+                                      if (el) {
+                                        processMarkdownShortcuts(el);
+                                        setEditInput(serializeToMarkdown(el));
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        saveEdit(e);
+                                      }
+                                      if (e.key === 'Escape') setEditingId(null);
+                                    }}
+                                    onMouseUp={handleTextSelect}
+                                    onKeyUp={handleTextSelect}
+                                    onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
+                                    onPaste={(e) => {
+                                      e.preventDefault();
+                                      const text = e.clipboardData.getData('text/plain');
+                                      document.execCommand('insertText', false, text);
+                                      const el = editInputRef.current;
+                                      if (el) {
+                                        processAllMarkdownInNode(el);
+                                        setEditInput(serializeToMarkdown(el));
+                                      }
+                                    }}
+                                  />
+                                  <div className="edit-btns">
+                                    <button type="submit" className="save-btn">
+                                      Save
+                                    </button>
+                                    <button type="button" className="cancel-btn" onClick={() => setEditingId(null)}>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <>
+                                  {!msg.asset &&
+                                    (msg.pending ? (
+                                      <div className="encrypted-shimmer">
+                                        <div className="shimmer-line" style={{ width: '70%' }} />
+                                        <div className="shimmer-line" style={{ width: '45%' }} />
+                                      </div>
+                                    ) : (
+                                      msg.text && (
+                                        <div
+                                          className="message-text"
+                                          dangerouslySetInnerHTML={{
+                                            __html:
+                                              renderMarkdown(msg.text) +
+                                              (msg.edited === 1
+                                                ? ' <span class="edited-badge" style="font-size:0.7em;margin-left:6px;opacity:0.6">(edited)</span>'
+                                                : ''),
+                                          }}
+                                        />
+                                      )
+                                    ))}
+                                  {/* URL Link Preview */}
+                                  {unfurlData[msg.id] &&
+                                    (unfurlData[msg.id].description || unfurlData[msg.id].image) && (
+                                      <div style={{ position: 'relative', maxWidth: 400, marginTop: 6 }}>
+                                        <button
+                                          className="link-preview-toggle"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleUnfurl(msg.id);
+                                          }}
+                                          title={collapsedUnfurls[msg.id] ? 'Show preview' : 'Hide preview'}
+                                          aria-label="Toggle link preview"
+                                        >
+                                          <svg
+                                            width="10"
+                                            height="10"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          >
+                                            {collapsedUnfurls[msg.id] ? (
+                                              <polyline points="6 9 12 15 18 9" />
+                                            ) : (
+                                              <polyline points="18 15 12 9 6 15" />
+                                            )}
+                                          </svg>
+                                        </button>
+                                        {collapsedUnfurls[msg.id] ? (
+                                          <div
+                                            className="link-preview-collapsed"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleUnfurl(msg.id);
+                                            }}
+                                          >
+                                            {unfurlData[msg.id].favicon && (
+                                              <img
+                                                src={unfurlData[msg.id].favicon}
+                                                alt=""
+                                                style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0 }}
+                                                onError={(e) => {
+                                                  e.target.style.display = 'none';
+                                                }}
+                                              />
+                                            )}
+                                            <span>
+                                              {(() => {
+                                                try {
+                                                  return new URL(unfurlData[msg.id].url).hostname;
+                                                } catch {
+                                                  return unfurlData[msg.id].url;
+                                                }
+                                              })()}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <a
+                                            href={unfurlData[msg.id].url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="link-preview-card"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            {unfurlData[msg.id].image && (
+                                              <img
+                                                src={unfurlData[msg.id].image}
+                                                alt=""
+                                                className="link-preview-image"
+                                                onError={(e) => {
+                                                  e.target.style.display = 'none';
+                                                }}
+                                              />
+                                            )}
+                                            <div className="link-preview-body">
+                                              {unfurlData[msg.id].siteName && (
+                                                <span className="link-preview-site">
+                                                  {unfurlData[msg.id].favicon && (
+                                                    <img
+                                                      src={unfurlData[msg.id].favicon}
+                                                      alt=""
+                                                      style={{
+                                                        width: 12,
+                                                        height: 12,
+                                                        borderRadius: 2,
+                                                        marginRight: 4,
+                                                        verticalAlign: 'middle',
+                                                      }}
+                                                      onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                      }}
+                                                    />
+                                                  )}
+                                                  {unfurlData[msg.id].siteName}
+                                                </span>
+                                              )}
+                                              {unfurlData[msg.id].title && (
+                                                <span className="link-preview-title">{unfurlData[msg.id].title}</span>
+                                              )}
+                                              {unfurlData[msg.id].description && (
+                                                <span className="link-preview-desc">
+                                                  {unfurlData[msg.id].description}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </a>
+                                        )}
+                                      </div>
+                                    )}
+                                  {msg.reactions && msg.reactions !== '{}' && (
+                                    <div
+                                      className="message-reactions"
+                                      style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}
+                                    >
+                                      {Object.entries(JSON.parse(msg.reactions || '{}')).map(([emoji, usersArr]) => (
+                                        <div
+                                          key={emoji}
+                                          onClick={() => handleReaction(msg.id, emoji)}
+                                          title={usersArr
+                                            .map((u) => {
+                                              const m = messages.find((mm) => mm.sender === u);
+                                              return m && m.first_name
+                                                ? `${m.first_name} ${m.last_name || ''}`.trim()
+                                                : u;
+                                            })
+                                            .join(', ')}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            backgroundColor: usersArr.includes(username)
+                                              ? 'var(--md-sys-color-primary-container)'
+                                              : 'var(--md-sys-color-surface-variant)',
+                                            color: usersArr.includes(username)
+                                              ? 'var(--md-sys-color-on-primary-container)'
+                                              : 'var(--md-sys-color-on-surface-variant)',
+                                            padding: '2px 6px',
+                                            borderRadius: '12px',
+                                            fontSize: '0.8rem',
+                                            cursor: 'pointer',
+                                            border: `1px solid ${usersArr.includes(username) ? 'var(--md-sys-color-primary)' : 'transparent'}`,
+                                            userSelect: 'none',
+                                          }}
+                                        >
+                                          <span>{emoji}</span>
+                                          <span style={{ fontWeight: '600' }}>{usersArr.length}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {showTimestampId === msg.id && msg.timestamp && (
+                                <div
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    opacity: 0.7,
+                                    marginTop: '4px',
+                                    textAlign: isMe ? 'right' : 'left',
+                                    animation: 'fadeIn 0.2s ease-in',
+                                  }}
+                                >
+                                  {new Date(msg.timestamp).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                  {typingUsers
+                    .filter((u) => Number(u.spaceId) === Number(currentSpace.id))
+                    .map((typer) => (
+                      <div
+                        key={typer.username}
+                        className="message-wrapper them"
+                        style={{ animation: 'slideDownFade 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
+                      >
+                        {typer.avatar ? (
+                          <img
+                            src={typer.avatar}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                              marginBottom: '2px',
+                            }}
+                            alt={typer.username}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--md-sys-color-surface-variant)',
+                              color: 'var(--md-sys-color-on-background)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '1rem',
+                              fontWeight: 'bold',
+                              flexShrink: 0,
+                              marginBottom: '2px',
+                            }}
+                          >
+                            {typer.first_name
+                              ? typer.first_name.charAt(0).toUpperCase()
+                              : typer.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div
+                          className="message received typing-bubble"
+                          style={{
+                            padding: '12px 14px',
+                            display: 'flex',
+                            gap: '6px',
+                            alignItems: 'center',
+                            minHeight: '40px',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <div
+                            className="typing-dot"
+                            style={{
+                              width: '6px',
+                              height: '6px',
+                              minWidth: '6px',
+                              minHeight: '6px',
+                              backgroundColor: 'currentColor',
+                              borderRadius: '50%',
+                              opacity: 0.6,
+                              flexShrink: 0,
+                              display: 'block',
+                              animationDelay: '-0.32s',
+                            }}
+                          ></div>
+                          <div
+                            className="typing-dot"
+                            style={{
+                              width: '6px',
+                              height: '6px',
+                              minWidth: '6px',
+                              minHeight: '6px',
+                              backgroundColor: 'currentColor',
+                              borderRadius: '50%',
+                              opacity: 0.6,
+                              flexShrink: 0,
+                              display: 'block',
+                              animationDelay: '-0.16s',
+                            }}
+                          ></div>
+                          <div
+                            className="typing-dot"
+                            style={{
+                              width: '6px',
+                              height: '6px',
+                              minWidth: '6px',
+                              minHeight: '6px',
+                              backgroundColor: 'currentColor',
+                              borderRadius: '50%',
+                              opacity: 0.6,
+                              flexShrink: 0,
+                              display: 'block',
+                              animationDelay: '0s',
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))}
+                  <div ref={chatEndRef} />
+                </main>
+
+                {/* Absolute Slide-in Pinned Board Drawer */}
+                {showPinnedBoard && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '70px',
+                      right: 0,
+                      bottom: 0,
+                      width: '320px',
+                      backgroundColor: 'var(--md-sys-color-surface)',
+                      borderLeft: '1px solid var(--md-sys-color-surface-variant)',
+                      zIndex: 100,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      boxShadow: '-4px 0 16px rgba(0,0,0,0.1)',
+                      animation: 'slideInRight 0.2s ease-out',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '1rem',
+                        borderBottom: '1px solid var(--md-sys-color-surface-variant)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--md-sys-color-on-surface)' }}>
+                        Pinned Messages
+                      </h3>
+                      <button
+                        onClick={() => setShowPinnedBoard(false)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--md-sys-color-outline)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '1rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '1rem',
+                      }}
+                    >
+                      {pinnedMessages.length === 0 ? (
+                        <div style={{ textAlign: 'center', opacity: 0.6, marginTop: '2rem' }}>
+                          No pinned messages yet.
+                        </div>
+                      ) : (
+                        pinnedMessages.map((pm) => (
+                          <div
+                            key={`pin-${pm.id}`}
+                            className="pinned-card"
+                            style={{
+                              backgroundColor: 'var(--md-sys-color-surface-variant)',
+                              borderRadius: '12px',
+                              padding: '12px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                              {pm.avatar ? (
+                                <img
+                                  src={pm.avatar}
+                                  style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'var(--md-sys-color-primary)',
+                                    color: 'var(--md-sys-color-on-primary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  {pm.first_name
+                                    ? pm.first_name.charAt(0).toUpperCase()
+                                    : pm.sender.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                                {pm.first_name ? `${pm.first_name} ${pm.last_name || ''}`.trim() : pm.sender}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: 'auto' }}>
+                                {new Date(pm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            {pm.asset && pm.asset.endsWith('.mp4') ? (
+                              <video
+                                src={pm.asset}
+                                controls
+                                style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }}
+                              ></video>
+                            ) : pm.asset ? (
+                              <img
+                                src={pm.asset}
+                                style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }}
+                                alt="Pinned asset"
+                              />
+                            ) : null}
+                            <div
+                              style={{
+                                fontSize: '0.9rem',
+                                marginBottom: '10px',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'pre-wrap',
+                              }}
+                            >
+                              {pm.text}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() =>
+                                  socket.emit('pin message', { id: pm.id, spaceId: currentSpace.id, is_pinned: 0 })
+                                }
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: 'var(--md-sys-color-error)',
+                                  fontSize: '0.8rem',
+                                  cursor: 'pointer',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Unpin
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ position: 'relative' }}>
+                  {isUploadingMedia && (
+                    <div
+                      className="asset-preview"
+                      style={{ justifyContent: 'center', padding: '1.5rem', opacity: 0.8 }}
+                    >
+                      <div className="spinner" style={{ width: '24px', height: '24px', marginRight: '1rem' }}></div>
+                      <div style={{ color: 'var(--md-sys-color-primary)', fontWeight: 'bold' }}>
+                        Processing Media...
+                      </div>
+                    </div>
+                  )}
+                  {!isUploadingMedia && pendingAsset && (
+                    <div className="asset-preview">
+                      {pendingAsset.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)/i) ? (
+                        <img
+                          src={pendingAsset.startsWith('/uploads') ? `${socketUrl}${pendingAsset}` : pendingAsset}
+                          alt="Preview"
+                        />
+                      ) : pendingAsset.match(/\.(mp4|webm|ogg|mov|qt|3gp)/i) ? (
+                        <video
+                          src={
+                            pendingAsset.startsWith('/uploads') ? `${socketUrl}${pendingAsset}#t=0.001` : pendingAsset
+                          }
+                          style={{ maxWidth: '100%', maxHeight: '100px', borderRadius: '4px' }}
+                          preload="metadata"
+                          muted
+                          playsInline
+                        />
+                      ) : pendingAsset.match(/\.(pdf)/i) ? (
+                        <div className="file-preview">PDF Document Ready</div>
+                      ) : (
+                        <div className="file-preview">File Attachment Ready</div>
+                      )}
+                      <button className="cancel-asset" onClick={() => setPendingAsset(null)}>
+                        &times;
+                      </button>
+                    </div>
+                  )}
+
+                  <form
+                    className="input-area"
+                    onSubmit={sendMessage}
+                    style={{ overflow: 'visible', position: 'relative' }}
+                  >
+                    {!isRecording && (
+                      <>
+                        <div
+                          className="media-menu-container"
+                          ref={mediaMenuRef}
+                          style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+                        >
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => setShowMediaMenu(!showMediaMenu)}
+                            title="Add Media"
+                            style={{
+                              backgroundColor: showMediaMenu ? 'var(--md-sys-color-surface-variant)' : 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '8px',
+                              borderRadius: '50%',
+                              color: 'var(--md-sys-color-on-surface)',
+                            }}
+                          >
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="12" cy="12" r="2"></circle>
+                              <circle cx="19" cy="12" r="2"></circle>
+                              <circle cx="5" cy="12" r="2"></circle>
+                            </svg>
+                          </button>
+
+                          {showMediaMenu && (
+                            <div
+                              className="media-popover"
+                              style={{
+                                position: 'absolute',
+                                bottom: 'calc(100% + 12px)',
+                                left: 0,
+                                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                                borderRadius: '12px',
+                                padding: '8px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px',
+                                boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                                zIndex: 100,
+                                minWidth: '160px',
+                                border: '1px solid var(--md-sys-color-outline-variant)',
+                              }}
+                            >
+                              <label
+                                className="media-option"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  color: 'var(--md-sys-color-on-surface)',
+                                  transition: 'background-color 0.2s',
+                                  margin: 0,
+                                }}
+                              >
+                                <svg
+                                  width="20"
+                                  height="20"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                                </svg>
+                                <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Upload File</span>
+                                <input
+                                  type="file"
+                                  style={{ display: 'none' }}
+                                  onChange={(e) => {
+                                    handleAssetUpload(e);
+                                    setShowMediaMenu(false);
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="media-option"
+                                onClick={() => {
+                                  setShowGifPicker(!showGifPicker);
+                                  setShowEmojiPicker(false);
+                                  setShowMediaMenu(false);
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  background: 'none',
+                                  color: 'var(--md-sys-color-on-surface)',
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  transition: 'background-color 0.2s',
+                                }}
+                              >
+                                <svg
+                                  width="20"
+                                  height="20"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                  <polyline points="21 15 16 10 5 21"></polyline>
+                                </svg>
+                                <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Search GIF</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="media-option"
+                                onClick={() => {
+                                  setShowEmojiPicker(!showEmojiPicker);
+                                  setShowGifPicker(false);
+                                  setShowMediaMenu(false);
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  background: 'none',
+                                  color: 'var(--md-sys-color-on-surface)',
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  transition: 'background-color 0.2s',
+                                }}
+                              >
+                                <svg
+                                  width="20"
+                                  height="20"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <circle cx="12" cy="12" r="10"></circle>
+                                  <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                  <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                  <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                </svg>
+                                <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Insert Emoji</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {showEmojiPicker && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                bottom: 'calc(100% + 12px)',
+                                left: 0,
+                                zIndex: 200,
+                                boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                                borderRadius: '8px',
+                              }}
+                            >
+                              <EmojiPicker
+                                onEmojiClick={(emojiData) => {
+                                  const el = richInputRef.current;
+                                  if (el) {
+                                    el.focus();
+                                    document.execCommand('insertText', false, emojiData.emoji);
+                                    setInput(serializeToMarkdown(el));
+                                  }
+                                  setShowEmojiPicker(false);
+                                }}
+                                theme={theme === 'dark' ? 'dark' : 'light'}
+                                width={300}
+                                height={400}
+                              />
+                            </div>
+                          )}
+
+                          {showGifPicker && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                bottom: 'calc(100% + 12px)',
+                                left: 0,
+                                zIndex: 200,
+                                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                                border: '1px solid var(--md-sys-color-outline-variant)',
+                                borderRadius: '12px',
+                                padding: '12px',
+                                width: '320px',
+                                boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span
+                                  style={{
+                                    fontWeight: '600',
+                                    fontSize: '0.95rem',
+                                    color: 'var(--md-sys-color-on-surface)',
+                                  }}
+                                >
+                                  GIF Search (Giphy)
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowGifPicker(false)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--md-sys-color-on-surface)',
+                                    cursor: 'pointer',
+                                    padding: '4px',
+                                  }}
+                                >
+                                  <svg
+                                    width="20"
+                                    height="20"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                  </svg>
+                                </button>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="Search..."
+                                value={gifSearch}
+                                onChange={(e) => setGifSearch(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && searchGiphy()}
+                                className="material-input"
+                                autoFocus
+                                style={{
+                                  width: '100%',
+                                  marginBottom: '8px',
+                                  boxSizing: 'border-box',
+                                  padding: '8px 12px',
+                                }}
+                              />
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr 1fr',
+                                  gap: '8px',
+                                  maxHeight: '250px',
+                                  overflowY: 'auto',
+                                  paddingRight: '4px',
+                                }}
+                              >
+                                {gifs.map((g) => (
+                                  <img
+                                    key={g.id}
+                                    src={g.images?.fixed_height_small?.url || g.images?.original?.url}
+                                    onClick={() => sendGif(g.images?.original?.url)}
+                                    alt={g.title}
+                                    style={{
+                                      width: '100%',
+                                      height: '100px',
+                                      objectFit: 'cover',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                    }}
+                                  />
+                                ))}
+                                {gifs.length === 0 && gifSearch.trim() && (
+                                  <div
+                                    style={{
+                                      gridColumn: '1 / -1',
+                                      textAlign: 'center',
+                                      padding: '1rem',
+                                      color: 'var(--md-sys-color-on-surface-variant)',
+                                      fontSize: '0.85rem',
+                                    }}
+                                  >
+                                    {gifSearch.trim().length < 2 ? 'Type to search...' : 'Searching...'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* @Mention Dropdown */}
+                        {showMentionDropdown &&
+                          (() => {
+                            const filtered = getFilteredMentionUsers();
+                            if (filtered.length === 0) return null;
+                            return (
+                              <div className="mention-dropdown">
+                                {filtered.slice(0, 8).map((u, i) => (
+                                  <div
+                                    key={u.username}
+                                    className={`mention-item${i === mentionIdx ? ' active' : ''}`}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      insertMention(u);
+                                    }}
+                                  >
+                                    {u.avatar ? (
+                                      <img
+                                        src={u.avatar}
+                                        alt={getMentionDisplayName(u)}
+                                        style={{
+                                          width: '28px',
+                                          height: '28px',
+                                          borderRadius: '50%',
+                                          objectFit: 'cover',
+                                        }}
+                                      />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          width: '28px',
+                                          height: '28px',
+                                          borderRadius: '50%',
+                                          backgroundColor: 'var(--md-sys-color-primary)',
+                                          color: '#fff',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '0.8rem',
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        {(u.first_name || u.username).charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div
+                                        style={{
+                                          fontWeight: 500,
+                                          fontSize: '0.9rem',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {getMentionDisplayName(u)}
+                                      </div>
+                                    </div>
+                                    <div
+                                      style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: onlineUsers.some((o) => o.username === u.username)
+                                          ? '#4CAF50'
+                                          : 'var(--md-sys-color-outline-variant)',
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+
+                        <div
+                          ref={richInputRef}
+                          className="rich-input"
+                          contentEditable
+                          role="textbox"
+                          aria-multiline="true"
+                          data-placeholder={`Message ${currentSpace.is_dm === 1 ? '' : '#'}${getSpaceDisplayName()}...`}
+                          onInput={handleTyping}
+                          onKeyDown={handleKeyDown}
+                          onMouseUp={handleTextSelect}
+                          onKeyUp={handleTextSelect}
+                          onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
+                          onPaste={(e) => {
+                            e.preventDefault();
+                            const text = e.clipboardData.getData('text/plain');
+                            document.execCommand('insertText', false, text);
+                            const el = richInputRef.current;
+                            if (el) {
+                              processAllMarkdownInNode(el);
+                              setInput(serializeToMarkdown(el));
+                            }
+                          }}
+                          suppressContentEditableWarning
+                        />
+                        {formatToolbar && (
+                          <div
+                            className="format-toolbar"
+                            style={{
+                              position: 'fixed',
+                              top: formatToolbar.top,
+                              left: formatToolbar.left,
+                              transform: 'translateX(-50%)',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                applyFormat('bold');
+                              }}
+                              title="Bold"
+                            >
+                              <strong>B</strong>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                applyFormat('italic');
+                              }}
+                              title="Italic"
+                            >
+                              <em>I</em>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                applyFormat('strikeThrough');
+                              }}
+                              title="Strikethrough"
+                            >
+                              <s>S</s>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                applyFormat('code');
+                              }}
+                              title="Code"
+                              style={{ fontFamily: 'monospace' }}
+                            >
+                              &lt;/&gt;
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Send or Mic button */}
+                        {input.trim() || pendingAsset ? (
+                          <button type="submit" className="send-fab" aria-label="Send">
+                            <svg
+                              width="24"
+                              height="24"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="send-fab mic-btn"
+                            aria-label="Record voice message"
+                            onClick={async () => {
+                              try {
+                                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                const recorder = new MediaRecorder(stream, {
+                                  mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                                    ? 'audio/webm;codecs=opus'
+                                    : 'audio/webm',
+                                });
+                                audioChunksRef.current = [];
+                                recorder.ondataavailable = (e) => {
+                                  if (e.data.size > 0) audioChunksRef.current.push(e.data);
+                                };
+                                recorder.onstop = async () => {
+                                  stream.getTracks().forEach((t) => t.stop());
+                                  clearInterval(recordingTimerRef.current);
+                                  setIsRecording(false);
+                                  setRecordingTime(0);
+                                  if (audioChunksRef.current.length === 0) return;
+                                  const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+                                  const formData = new FormData();
+                                  formData.append('asset', blob, `voice-${Date.now()}.webm`);
+                                  try {
+                                    const res = await fetch(`${socketUrl}/api/upload`, {
+                                      method: 'POST',
+                                      headers: { Authorization: `Bearer ${token}` },
+                                      body: formData,
+                                    });
+                                    if (res.ok) {
+                                      const data = await res.json();
+                                      const spaceObj = currentSpace;
+                                      socket.emit('chat message', { text: '', spaceId: spaceObj.id, asset: data.url });
+                                    }
+                                  } catch (e) {
+                                    console.error('Voice upload failed', e);
+                                  }
+                                };
+                                recorder.start(100);
+                                mediaRecorderRef.current = recorder;
+                                setIsRecording(true);
+                                setRecordingTime(0);
+                                recordingTimerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
+                              } catch (e) {
+                                console.error('Mic access denied', e);
+                              }
+                            }}
+                          >
+                            <svg
+                              width="24"
+                              height="24"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                              <line x1="12" y1="19" x2="12" y2="23" />
+                              <line x1="8" y1="23" x2="16" y2="23" />
+                            </svg>
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {/* Voice Recording UI - replaces input when recording */}
+                    {isRecording && (
+                      <>
+                        <div className="recording-pulse" />
+                        <span className="recording-timer">
+                          {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}
+                        </span>
+                        <div
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '3px',
+                            height: '32px',
+                          }}
+                        >
+                          {Array.from({ length: 24 }, (_, i) => (
+                            <div key={i} className="recording-bar" style={{ animationDelay: `${i * 0.07}s` }} />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => {
+                            if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+                            clearInterval(recordingTimerRef.current);
+                            setIsRecording(false);
+                            setRecordingTime(0);
+                            audioChunksRef.current = [];
+                          }}
+                          title="Cancel"
+                        >
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="var(--md-sys-color-error)"
+                            strokeWidth="2"
+                          >
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="send-fab"
+                          onClick={() => {
+                            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                              mediaRecorderRef.current.requestData();
+                              mediaRecorderRef.current.stop();
+                            }
+                          }}
+                          aria-label="Send voice message"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </form>
                 </div>
-              </div>
-            </div>
-            </React.Fragment>
-          );
-        })}
-        {typingUsers.filter(u => Number(u.spaceId) === Number(currentSpace.id)).map(typer => (
-          <div key={typer.username} className="message-wrapper them" style={{ animation: 'slideDownFade 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}>
-            {typer.avatar ? (
-              <img src={typer.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: '2px' }} alt={typer.username} />
+              </>
             ) : (
-              <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', color: 'var(--md-sys-color-on-background)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 'bold', flexShrink: 0, marginBottom: '2px' }}>
-                {typer.first_name ? typer.first_name.charAt(0).toUpperCase() : typer.username.charAt(0).toUpperCase()}
+              <div
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  color: 'var(--md-sys-color-outline)',
+                }}
+              >
+                <svg
+                  width="64"
+                  height="64"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ opacity: 0.5, marginBottom: '16px' }}
+                >
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </svg>
+                <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>Select a space to start messaging</p>
               </div>
             )}
-            <div className="message received typing-bubble" style={{ padding: '12px 14px', display: 'flex', gap: '6px', alignItems: 'center', minHeight: '40px', boxSizing: 'border-box' }}>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', minWidth: '6px', minHeight: '6px', backgroundColor: 'currentColor', borderRadius: '50%', opacity: 0.6, flexShrink: 0, display: 'block', animationDelay: '-0.32s' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', minWidth: '6px', minHeight: '6px', backgroundColor: 'currentColor', borderRadius: '50%', opacity: 0.6, flexShrink: 0, display: 'block', animationDelay: '-0.16s' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', minWidth: '6px', minHeight: '6px', backgroundColor: 'currentColor', borderRadius: '50%', opacity: 0.6, flexShrink: 0, display: 'block', animationDelay: '0s' }}></div>
-            </div>
           </div>
-        ))}
-        <div ref={chatEndRef} />
-      </main>
 
-      {/* Absolute Slide-in Pinned Board Drawer */}
-      {showPinnedBoard && (
-        <div style={{
-          position: 'absolute', top: '70px', right: 0, bottom: 0, width: '320px', backgroundColor: 'var(--md-sys-color-surface)',
-          borderLeft: '1px solid var(--md-sys-color-surface-variant)', zIndex: 100, display: 'flex', flexDirection: 'column',
-          boxShadow: '-4px 0 16px rgba(0,0,0,0.1)', animation: 'slideInRight 0.2s ease-out'
-        }}>
-          <div style={{ padding: '1rem', borderBottom: '1px solid var(--md-sys-color-surface-variant)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--md-sys-color-on-surface)' }}>Pinned Messages</h3>
-            <button onClick={() => setShowPinnedBoard(false)} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-outline)', cursor: 'pointer' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {pinnedMessages.length === 0 ? (
-              <div style={{ textAlign: 'center', opacity: 0.6, marginTop: '2rem' }}>No pinned messages yet.</div>
-            ) : pinnedMessages.map(pm => (
-              <div key={`pin-${pm.id}`} className="pinned-card" style={{ backgroundColor: 'var(--md-sys-color-surface-variant)', borderRadius: '12px', padding: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  {pm.avatar ? <img src={pm.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{pm.first_name ? pm.first_name.charAt(0).toUpperCase() : pm.sender.charAt(0).toUpperCase()}</div>}
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{pm.first_name ? `${pm.first_name} ${pm.last_name || ''}`.trim() : pm.sender}</span>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: 'auto' }}>{new Date(pm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-                {pm.asset && pm.asset.endsWith('.mp4') ? (
-                  <video src={pm.asset} controls style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }}></video>
-                ) : pm.asset ? (
-                  <img src={pm.asset} style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} alt="Pinned asset" />
-                ) : null}
-                <div style={{ fontSize: '0.9rem', marginBottom: '10px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{pm.text}</div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button onClick={() => socket.emit('pin message', { id: pm.id, spaceId: currentSpace.id, is_pinned: 0 })} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-error)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>Unpin</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-    <div style={{ position: 'relative' }}>
-        {isUploadingMedia && (
-          <div className="asset-preview" style={{ justifyContent: 'center', padding: '1.5rem', opacity: 0.8 }}>
-             <div className="spinner" style={{ width: '24px', height: '24px', marginRight: '1rem' }}></div>
-             <div style={{ color: 'var(--md-sys-color-primary)', fontWeight: 'bold' }}>Processing Media...</div>
-          </div>
-        )}
-        {!isUploadingMedia && pendingAsset && (
-          <div className="asset-preview">
-            {pendingAsset.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)/i) ? (
-              <img src={pendingAsset.startsWith('/uploads') ? `${socketUrl}${pendingAsset}` : pendingAsset} alt="Preview" />
-            ) : pendingAsset.match(/\.(mp4|webm|ogg|mov|qt|3gp)/i) ? (
-              <video src={pendingAsset.startsWith('/uploads') ? `${socketUrl}${pendingAsset}#t=0.001` : pendingAsset} style={{ maxWidth: '100%', maxHeight: '100px', borderRadius: '4px' }} preload="metadata" muted playsInline />
-            ) : pendingAsset.match(/\.(pdf)/i) ? (
-              <div className="file-preview">PDF Document Ready</div>
-            ) : (
-              <div className="file-preview">File Attachment Ready</div>
-            )}
-            <button className="cancel-asset" onClick={() => setPendingAsset(null)}>&times;</button>
-          </div>
-        )}
-
-        <form className="input-area" onSubmit={sendMessage} style={{ overflow: 'visible' }}>
-          <div className="media-menu-container" ref={mediaMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => setShowMediaMenu(!showMediaMenu)}
-              title="Add Media"
-              style={{ backgroundColor: showMediaMenu ? 'var(--md-sys-color-surface-variant)' : 'transparent', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '50%', color: 'var(--md-sys-color-on-surface)' }}
+          {/* Delete Space Confirm Modal */}
+          {spaceToDelete && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.4)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1100,
+                padding: '1rem',
+                boxSizing: 'border-box',
+              }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="12" r="2"></circle>
-                <circle cx="19" cy="12" r="2"></circle>
-                <circle cx="5" cy="12" r="2"></circle>
-              </svg>
-            </button>
-            
-            {showMediaMenu && (
-              <div className="media-popover" style={{ position: 'absolute', bottom: 'calc(100% + 12px)', left: 0, backgroundColor: 'var(--md-sys-color-surface-container-high)', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)', zIndex: 100, minWidth: '160px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-                <label className="media-option" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', color: 'var(--md-sys-color-on-surface)', transition: 'background-color 0.2s', margin: 0 }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                  <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Upload File</span>
-                  <input type="file" style={{ display: 'none' }} onChange={(e) => { handleAssetUpload(e); setShowMediaMenu(false); }} />
-                </label>
-                <button type="button" className="media-option" onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowMediaMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', border: 'none', background: 'none', color: 'var(--md-sys-color-on-surface)', width: '100%', textAlign: 'left', transition: 'background-color 0.2s' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                  <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Search GIF</span>
-                </button>
-                <button type="button" className="media-option" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); setShowMediaMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', border: 'none', background: 'none', color: 'var(--md-sys-color-on-surface)', width: '100%', textAlign: 'left', transition: 'background-color 0.2s' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-                  <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Insert Emoji</span>
-                </button>
+              <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
+                <h2
+                  style={{
+                    marginBottom: '1rem',
+                    color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a',
+                    fontSize: '1.5rem',
+                    textAlign: 'center',
+                  }}
+                >
+                  Delete Space?
+                </h2>
+                <p
+                  style={{
+                    marginBottom: '2rem',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    fontSize: '0.95rem',
+                    lineHeight: '1.4',
+                    textAlign: 'center',
+                  }}
+                >
+                  Are you sure you want to permanently delete <strong>#{spaceToDelete.name}</strong>? All messages
+                  inside this space will be wiped forever.
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                  <button type="button" className="btn-secondary" onClick={() => setSpaceToDelete(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{
+                      backgroundColor: theme === 'dark' ? '#ffb4ab' : '#ba1a1a',
+                      color: theme === 'dark' ? '#690005' : '#ffffff',
+                    }}
+                    onClick={() => deleteSpace(spaceToDelete.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-            )}
-            
-            {showEmojiPicker && (
-               <div style={{ position: 'absolute', bottom: 'calc(100% + 12px)', left: 0, zIndex: 200, boxShadow: '0 8px 16px rgba(0,0,0,0.5)', borderRadius: '8px' }}>
-                 <EmojiPicker 
-                   onEmojiClick={(emojiData) => { 
-                     const el = richInputRef.current;
-                     if (el) { el.focus(); document.execCommand('insertText', false, emojiData.emoji); setInput(serializeToMarkdown(el)); }
-                     setShowEmojiPicker(false); 
-                   }} 
-                   theme={theme === 'dark' ? 'dark' : 'light'} 
-                   width={300}
-                   height={400}
-                 />
-               </div>
-            )}
-            
-            {showGifPicker && (
-               <div style={{ position: 'absolute', bottom: 'calc(100% + 12px)', left: 0, zIndex: 200, backgroundColor: 'var(--md-sys-color-surface-container-high)', border: '1px solid var(--md-sys-color-outline-variant)', borderRadius: '12px', padding: '12px', width: '320px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)' }}>GIF Search (Giphy)</span>
-                    <button type="button" onClick={() => setShowGifPicker(false)} style={{ background: 'none', border: 'none', color: 'var(--md-sys-color-on-surface)', cursor: 'pointer', padding: '4px' }}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                    </button>
-                 </div>
-                 <input 
-                   type="text" 
-                   placeholder="Search..." 
-                   value={gifSearch} 
-                   onChange={(e) => setGifSearch(e.target.value)} 
-                   onKeyDown={(e) => e.key === 'Enter' && searchGiphy()} 
-                   className="material-input" 
-                   autoFocus
-                   style={{ width: '100%', marginBottom: '8px', boxSizing: 'border-box', padding: '8px 12px' }} 
-                 />
-                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
-                   {gifs.map(g => (
-                      <img 
-                        key={g.id} 
-                        src={g.images?.fixed_height_small?.url || g.images?.original?.url} 
-                        onClick={() => sendGif(g.images?.original?.url)} 
-                        alt={g.title}
-                        style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }} 
-                      />
-                   ))}
-                   {gifs.length === 0 && gifSearch.trim() && (
-                     <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '1rem', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.85rem' }}>
-                       {gifSearch.trim().length < 2 ? 'Type to search...' : 'Searching...'}
-                     </div>
-                   )}
-                 </div>
-               </div>
-            )}
-          </div>
-          <div
-            ref={richInputRef}
-            className="rich-input"
-            contentEditable
-            role="textbox"
-            aria-multiline="true"
-            data-placeholder={`Message ${currentSpace.is_dm === 1 ? '' : '#'}${getSpaceDisplayName()}...`}
-            onInput={handleTyping}
-            onKeyDown={handleKeyDown}
-            onMouseUp={handleTextSelect}
-            onKeyUp={handleTextSelect}
-            onBlur={() => setTimeout(() => setFormatToolbar(null), 200)}
-            onPaste={(e) => { e.preventDefault(); const text = e.clipboardData.getData('text/plain'); document.execCommand('insertText', false, text); const el = richInputRef.current; if (el) { processAllMarkdownInNode(el); setInput(serializeToMarkdown(el)); } }}
-            suppressContentEditableWarning
-          />
-          {formatToolbar && (
-            <div className="format-toolbar" style={{ position: 'fixed', top: formatToolbar.top, left: formatToolbar.left, transform: 'translateX(-50%)' }}>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('bold'); }} title="Bold"><strong>B</strong></button>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('italic'); }} title="Italic"><em>I</em></button>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('strikeThrough'); }} title="Strikethrough"><s>S</s></button>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat('code'); }} title="Code" style={{ fontFamily: 'monospace' }}>&lt;/&gt;</button>
             </div>
           )}
-          <button type="submit" className="send-fab" aria-label="Send">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor" />
-            </svg>
-          </button>
-        </form>
-      </div>
-      </>
-        ) : (
-           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: 'var(--md-sys-color-outline)' }}>
-             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, marginBottom: '16px' }}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-             <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>Select a space to start messaging</p>
-           </div>
-        )}
-      </div>
 
-      {/* Delete Space Confirm Modal */}
-      {spaceToDelete && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem',
-          boxSizing: 'border-box'
-        }}>
-          <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
-            <h2 style={{ marginBottom: '1rem', color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', fontSize: '1.5rem', textAlign: 'center' }}>Delete Space?</h2>
-            <p style={{ marginBottom: '2rem', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.95rem', lineHeight: '1.4', textAlign: 'center' }}>
-              Are you sure you want to permanently delete <strong>#{spaceToDelete.name}</strong>? All messages inside this space will be wiped forever.
-            </p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button type="button" className="btn-secondary" onClick={() => setSpaceToDelete(null)}>Cancel</button>
-              <button type="button" className="btn-primary" style={{ backgroundColor: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', color: theme === 'dark' ? '#690005' : '#ffffff' }} onClick={() => deleteSpace(spaceToDelete.id)}>Delete</button>
+          {/* Delete Message Confirm Modal */}
+          {msgToDelete && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.4)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1100,
+                padding: '1rem',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
+                <h2
+                  style={{
+                    marginBottom: '1rem',
+                    color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a',
+                    fontSize: '1.5rem',
+                    textAlign: 'center',
+                  }}
+                >
+                  Delete Message?
+                </h2>
+                <p
+                  style={{
+                    marginBottom: '2rem',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    fontSize: '0.95rem',
+                    lineHeight: '1.4',
+                    textAlign: 'center',
+                  }}
+                >
+                  Are you sure you want to delete this message? This action cannot be undone.
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                  <button type="button" className="btn-secondary" onClick={() => setMsgToDelete(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{
+                      backgroundColor: theme === 'dark' ? '#ffb4ab' : '#ba1a1a',
+                      color: theme === 'dark' ? '#690005' : '#ffffff',
+                    }}
+                    onClick={() => deleteMessage(msgToDelete.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Message Confirm Modal */}
-      {msgToDelete && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '1rem',
-          boxSizing: 'border-box'
-        }}>
-          <div className="auth-card" style={{ maxWidth: '400px', margin: 0 }}>
-            <h2 style={{ marginBottom: '1rem', color: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', fontSize: '1.5rem', textAlign: 'center' }}>Delete Message?</h2>
-            <p style={{ marginBottom: '2rem', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.95rem', lineHeight: '1.4', textAlign: 'center' }}>
-              Are you sure you want to delete this message? This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button type="button" className="btn-secondary" onClick={() => setMsgToDelete(null)}>Cancel</button>
-              <button type="button" className="btn-primary" style={{ backgroundColor: theme === 'dark' ? '#ffb4ab' : '#ba1a1a', color: theme === 'dark' ? '#690005' : '#ffffff' }} onClick={() => deleteMessage(msgToDelete.id)}>Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Settings Modal */}
-      {showSettings && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: '1rem',
-          boxSizing: 'border-box'
-        }}>
-          <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+          )}
+          {/* Settings Modal */}
+          {showSettings && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 100,
+                padding: '1rem',
+                boxSizing: 'border-box',
+              }}
+            >
+              <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
             .settings-section { background: var(--md-sys-color-surface-variant); border-radius: 16px; padding: 1rem 1.15rem; }
             .settings-section-title { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 600; color: var(--md-sys-color-outline); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.85rem; }
             .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -5574,757 +12728,2085 @@ function App() {
             .settings-grid .settings-col { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; overflow: hidden; }
             @media (max-width: 680px) { .settings-grid { grid-template-columns: 1fr; } }
           `}</style>
-          <div className="no-scrollbar" style={{
-            maxWidth: '660px', width: '100%', maxHeight: '90vh', overflowY: 'auto', overflowX: 'hidden',
-            background: 'var(--md-sys-color-surface)', borderRadius: '24px', padding: '1.5rem',
-            boxShadow: '0 8px 40px rgba(0,0,0,0.3)', border: '1px solid var(--md-sys-color-surface-variant)',
-            boxSizing: 'border-box'
-          }}>
+              <div
+                className="no-scrollbar"
+                style={{
+                  maxWidth: '660px',
+                  width: '100%',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  background: 'var(--md-sys-color-surface)',
+                  borderRadius: '24px',
+                  padding: '1.5rem',
+                  boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+                  border: '1px solid var(--md-sys-color-surface-variant)',
+                  boxSizing: 'border-box',
+                }}
+              >
+                {/* Header */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '1.25rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--md-sys-color-primary)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="3"></circle>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <h1
+                      style={{
+                        margin: 0,
+                        fontSize: '1.3rem',
+                        color: 'var(--md-sys-color-on-surface)',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Settings
+                    </h1>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSettings(false)}
+                    style={{
+                      background: 'var(--md-sys-color-surface-variant)',
+                      border: 'none',
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                      width: '34px',
+                      height: '34px',
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.2s',
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
 
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                <h1 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 700 }}>Settings</h1>
-              </div>
-              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'var(--md-sys-color-surface-variant)', border: 'none', color: 'var(--md-sys-color-on-surface-variant)', width: '34px', height: '34px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            </div>
-
-            {/* ═══ 2-COLUMN GRID ═══ */}
-            <div className="settings-grid">
-              {/* Left Column: Profile + Notifications */}
-              <div className="settings-col">
-                {/* ═══ PROFILE ═══ */}
-                <div className="settings-section">
-                  <div className="settings-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    Profile
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1rem' }}>
-                    <div style={{ position: 'relative', marginBottom: '8px' }}>
-                      {avatar ? (
-                        <img src={avatar} style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--md-sys-color-primary)', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} alt="Profile" />
-                      ) : (
-                        <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '2rem', fontWeight: 'bold', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
-                          {profileData.first_name ? profileData.first_name.charAt(0).toUpperCase() : username.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <label style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '28px', height: '28px', borderRadius: '50%', background: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid var(--md-sys-color-surface-variant)', transition: 'transform 0.15s', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-on-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                        <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
-                      </label>
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--md-sys-color-on-surface)', textAlign: 'center' }}>
-                      {profileData.first_name ? `${profileData.first_name} ${profileData.last_name || ''}`.trim() : username}
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    <div>
-                      <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>First Name</label>
-                      <input className="settings-input" type="text" value={profileData.first_name || ''} onChange={(e) => setProfileData({...profileData, first_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="First" />
-                    </div>
-                    <div>
-                      <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Last Name</label>
-                      <input className="settings-input" type="text" value={profileData.last_name || ''} onChange={(e) => setProfileData({...profileData, last_name: e.target.value})} onBlur={() => saveProfileSettings()} placeholder="Last" />
-                    </div>
-                  </div>
-                  <div style={{ position: 'relative', zIndex: showSuggestions ? 100 : 1 }}>
-                    <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Location</label>
-                    <input className="settings-input" type="text" value={profileData.location || ''} onChange={(e) => handleLocationChange(e.target.value)} onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); saveProfileSettings(); }} onFocus={() => { if (profileData.location?.length >= 2) setShowSuggestions(true); }} placeholder="City, State" />
-                    {showSuggestions && locationSuggestions.length > 0 && (
-                      <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
-                        {locationSuggestions.map((s, idx) => (
-                          <div key={idx} className="suggestion-item" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => { const tz = !profileData.timezone ? inferTimezone(s) : null; const updates = { location: s, ...(tz ? { timezone: tz } : {}) }; setProfileData({ ...profileData, ...updates }); saveProfileSettings(updates); setShowSuggestions(false); }}>{s}</div>
-                        ))}
+                {/* ═══ 2-COLUMN GRID ═══ */}
+                <div className="settings-grid">
+                  {/* Left Column: Profile + Notifications */}
+                  <div className="settings-col">
+                    {/* ═══ PROFILE ═══ */}
+                    <div className="settings-section">
+                      <div className="settings-section-title">
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        Profile
                       </div>
-                    )}
-                  </div>
-
-                  {/* Status */}
-                  <div style={{ marginTop: '12px' }}>
-                    <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>Status</label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        {STATUS_ICONS.map(icon => (
-                          <button
-                            key={icon.id}
-                            type="button"
-                            title={icon.label}
-                            onClick={() => {
-                              const newEmoji = icon.id === 'none' ? 'available' : icon.id;
-                              setProfileData({ ...profileData, status_emoji: newEmoji, status_text: icon.id === 'none' ? '' : profileData.status_text });
-                              saveProfileSettings({ status_emoji: newEmoji, status_text: icon.id === 'none' ? '' : undefined });
-                            }}
+                      <div
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1rem' }}
+                      >
+                        <div style={{ position: 'relative', marginBottom: '8px' }}>
+                          {avatar ? (
+                            <img
+                              src={avatar}
+                              style={{
+                                width: '80px',
+                                height: '80px',
+                                borderRadius: '50%',
+                                objectFit: 'cover',
+                                border: '3px solid var(--md-sys-color-primary)',
+                                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+                              }}
+                              alt="Profile"
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '80px',
+                                height: '80px',
+                                borderRadius: '50%',
+                                backgroundColor: 'var(--md-sys-color-primary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--md-sys-color-on-primary)',
+                                fontSize: '2rem',
+                                fontWeight: 'bold',
+                                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+                              }}
+                            >
+                              {profileData.first_name
+                                ? profileData.first_name.charAt(0).toUpperCase()
+                                : username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <label
                             style={{
-                              width: '30px', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: profileData.status_emoji === icon.id ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface)',
-                              color: icon.color || 'var(--md-sys-color-on-surface-variant)',
-                              transition: 'all 0.15s',
-                              outline: profileData.status_emoji === icon.id ? '2px solid var(--md-sys-color-primary)' : '1px solid var(--md-sys-color-outline-variant)',
-                              outlineOffset: '-1px'
+                              position: 'absolute',
+                              bottom: '-2px',
+                              right: '-2px',
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              background: 'var(--md-sys-color-primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              border: '2px solid var(--md-sys-color-surface-variant)',
+                              transition: 'transform 0.15s',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
                             }}
                           >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" dangerouslySetInnerHTML={{ __html: icon.svg }} />
-                          </button>
-                        ))}
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="var(--md-sys-color-on-primary)"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                              <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleAvatarChange}
+                              style={{ display: 'none' }}
+                            />
+                          </label>
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: '1.05rem',
+                            color: 'var(--md-sys-color-on-surface)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {profileData.first_name
+                            ? `${profileData.first_name} ${profileData.last_name || ''}`.trim()
+                            : username}
+                        </div>
                       </div>
-                    </div>
-                    {profileData.status_emoji && profileData.status_emoji !== 'none' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <StatusIcon statusId={profileData.status_emoji} size={18} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        <div>
+                          <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>
+                            First Name
+                          </label>
+                          <input
+                            className="settings-input"
+                            type="text"
+                            value={profileData.first_name || ''}
+                            onChange={(e) => setProfileData({ ...profileData, first_name: e.target.value })}
+                            onBlur={() => saveProfileSettings()}
+                            placeholder="First"
+                          />
+                        </div>
+                        <div>
+                          <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>
+                            Last Name
+                          </label>
+                          <input
+                            className="settings-input"
+                            type="text"
+                            value={profileData.last_name || ''}
+                            onChange={(e) => setProfileData({ ...profileData, last_name: e.target.value })}
+                            onBlur={() => saveProfileSettings()}
+                            placeholder="Last"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ position: 'relative', zIndex: showSuggestions ? 100 : 1 }}>
+                        <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>
+                          Location
+                        </label>
                         <input
                           className="settings-input"
                           type="text"
-                          value={profileData.status_text || ''}
-                          onChange={(e) => setProfileData({ ...profileData, status_text: e.target.value })}
+                          value={profileData.location || ''}
+                          onChange={(e) => handleLocationChange(e.target.value)}
+                          onBlur={() => {
+                            setTimeout(() => setShowSuggestions(false), 200);
+                            saveProfileSettings();
+                          }}
+                          onFocus={() => {
+                            if (profileData.location?.length >= 2) setShowSuggestions(true);
+                          }}
+                          placeholder="City, State"
+                        />
+                        {showSuggestions && locationSuggestions.length > 0 && (
+                          <div className="location-suggestions" style={{ top: 'calc(100% + 4px)', padding: '4px' }}>
+                            {locationSuggestions.map((s, idx) => (
+                              <div
+                                key={idx}
+                                className="suggestion-item"
+                                style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                                onClick={() => {
+                                  const tz = !profileData.timezone ? inferTimezone(s) : null;
+                                  const updates = { location: s, ...(tz ? { timezone: tz } : {}) };
+                                  setProfileData({ ...profileData, ...updates });
+                                  saveProfileSettings(updates);
+                                  setShowSuggestions(false);
+                                }}
+                              >
+                                {s}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Status */}
+                      <div style={{ marginTop: '12px' }}>
+                        <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>
+                          Status
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {STATUS_ICONS.map((icon) => (
+                              <button
+                                key={icon.id}
+                                type="button"
+                                title={icon.label}
+                                onClick={() => {
+                                  const newEmoji = icon.id === 'none' ? 'available' : icon.id;
+                                  setProfileData({
+                                    ...profileData,
+                                    status_emoji: newEmoji,
+                                    status_text: icon.id === 'none' ? '' : profileData.status_text,
+                                  });
+                                  saveProfileSettings({
+                                    status_emoji: newEmoji,
+                                    status_text: icon.id === 'none' ? '' : undefined,
+                                  });
+                                }}
+                                style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '8px',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background:
+                                    profileData.status_emoji === icon.id
+                                      ? 'var(--md-sys-color-primary-container)'
+                                      : 'var(--md-sys-color-surface)',
+                                  color: icon.color || 'var(--md-sys-color-on-surface-variant)',
+                                  transition: 'all 0.15s',
+                                  outline:
+                                    profileData.status_emoji === icon.id
+                                      ? '2px solid var(--md-sys-color-primary)'
+                                      : '1px solid var(--md-sys-color-outline-variant)',
+                                  outlineOffset: '-1px',
+                                }}
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  dangerouslySetInnerHTML={{ __html: icon.svg }}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {profileData.status_emoji && profileData.status_emoji !== 'none' && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <StatusIcon statusId={profileData.status_emoji} size={18} />
+                            <input
+                              className="settings-input"
+                              type="text"
+                              value={profileData.status_text || ''}
+                              onChange={(e) => setProfileData({ ...profileData, status_text: e.target.value })}
+                              onBlur={() => saveProfileSettings()}
+                              placeholder={
+                                STATUS_ICONS.find((s) => s.id === profileData.status_emoji)?.label ||
+                                "What's your status?"
+                              }
+                              maxLength={80}
+                              style={{ flex: 1 }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bio */}
+                      <div style={{ marginTop: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <label className="settings-label">Bio</label>
+                          <span
+                            style={{
+                              fontSize: '0.7rem',
+                              color:
+                                (profileData.bio || '').length > 180
+                                  ? 'var(--md-sys-color-error)'
+                                  : 'var(--md-sys-color-outline)',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {(profileData.bio || '').length}/200
+                          </span>
+                        </div>
+                        <textarea
+                          className="settings-input"
+                          value={profileData.bio || ''}
+                          onChange={(e) => {
+                            if (e.target.value.length <= 200) setProfileData({ ...profileData, bio: e.target.value });
+                          }}
                           onBlur={() => saveProfileSettings()}
-                          placeholder={STATUS_ICONS.find(s => s.id === profileData.status_emoji)?.label || 'What\'s your status?'}
-                          maxLength={80}
-                          style={{ flex: 1 }}
+                          placeholder="Tell people a bit about yourself..."
+                          rows={3}
+                          style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }}
                         />
                       </div>
-                    )}
-                  </div>
 
-                  {/* Bio */}
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <label className="settings-label">Bio</label>
-                      <span style={{ fontSize: '0.7rem', color: (profileData.bio || '').length > 180 ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)', fontVariantNumeric: 'tabular-nums' }}>
-                        {(profileData.bio || '').length}/200
-                      </span>
-                    </div>
-                    <textarea
-                      className="settings-input"
-                      value={profileData.bio || ''}
-                      onChange={(e) => { if (e.target.value.length <= 200) setProfileData({ ...profileData, bio: e.target.value }); }}
-                      onBlur={() => saveProfileSettings()}
-                      placeholder="Tell people a bit about yourself..."
-                      rows={3}
-                      style={{ resize: 'vertical', minHeight: '60px', lineHeight: 1.45 }}
-                    />
-                  </div>
-
-                  {/* Timezone */}
-                  <div style={{ marginTop: '12px' }}>
-                    <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>Timezone</label>
-                    <div className="settings-row" style={{ gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--md-sys-color-on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {(profileData.timezone || 'Not set').replace(/_/g, ' ')}
-                        </span>
+                      {/* Timezone */}
+                      <div style={{ marginTop: '12px' }}>
+                        <label className="settings-label" style={{ display: 'block', marginBottom: '4px' }}>
+                          Timezone
+                        </label>
+                        <div className="settings-row" style={{ gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="var(--md-sys-color-primary)"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{ flexShrink: 0 }}
+                            >
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <span
+                              style={{
+                                fontSize: '0.85rem',
+                                color: 'var(--md-sys-color-on-surface)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {(profileData.timezone || 'Not set').replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <select
+                            className="settings-input"
+                            value={profileData.timezone || ''}
+                            onChange={(e) => {
+                              setProfileData({ ...profileData, timezone: e.target.value });
+                              saveProfileSettings({ timezone: e.target.value });
+                            }}
+                            style={{
+                              width: 'auto',
+                              flex: '0 0 auto',
+                              maxWidth: '160px',
+                              padding: '6px 8px',
+                              fontSize: '0.78rem',
+                            }}
+                          >
+                            <option value="">Auto-detect</option>
+                            {[
+                              'America/New_York',
+                              'America/Chicago',
+                              'America/Denver',
+                              'America/Los_Angeles',
+                              'America/Anchorage',
+                              'Pacific/Honolulu',
+                              'America/Phoenix',
+                              'America/Toronto',
+                              'America/Vancouver',
+                              'America/Mexico_City',
+                              'America/Sao_Paulo',
+                              'America/Argentina/Buenos_Aires',
+                              'Europe/London',
+                              'Europe/Paris',
+                              'Europe/Berlin',
+                              'Europe/Madrid',
+                              'Europe/Rome',
+                              'Europe/Amsterdam',
+                              'Europe/Stockholm',
+                              'Europe/Moscow',
+                              'Africa/Cairo',
+                              'Africa/Johannesburg',
+                              'Africa/Lagos',
+                              'Asia/Dubai',
+                              'Asia/Kolkata',
+                              'Asia/Shanghai',
+                              'Asia/Tokyo',
+                              'Asia/Seoul',
+                              'Asia/Singapore',
+                              'Asia/Hong_Kong',
+                              'Australia/Sydney',
+                              'Australia/Melbourne',
+                              'Australia/Perth',
+                              'Pacific/Auckland',
+                              'Pacific/Fiji',
+                            ].map((tz) => (
+                              <option key={tz} value={tz}>
+                                {tz.replace(/_/g, ' ')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <select
-                        className="settings-input"
-                        value={profileData.timezone || ''}
-                        onChange={(e) => { setProfileData({ ...profileData, timezone: e.target.value }); saveProfileSettings({ timezone: e.target.value }); }}
-                        style={{ width: 'auto', flex: '0 0 auto', maxWidth: '160px', padding: '6px 8px', fontSize: '0.78rem' }}
-                      >
-                        <option value="">Auto-detect</option>
-                        {['America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','America/Phoenix','America/Toronto','America/Vancouver','America/Mexico_City','America/Sao_Paulo','America/Argentina/Buenos_Aires','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Stockholm','Europe/Moscow','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Asia/Singapore','Asia/Hong_Kong','Australia/Sydney','Australia/Melbourne','Australia/Perth','Pacific/Auckland','Pacific/Fiji'].map(tz => (
-                          <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
-                        ))}
-                      </select>
+                    </div>
+
+                    {/* ═══ NOTIFICATIONS ═══ */}
+                    <div className="settings-section">
+                      <div className="settings-row">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                          </svg>
+                          <span
+                            className="settings-label"
+                            style={{
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              fontWeight: 600,
+                              fontSize: '0.8rem',
+                              color: 'var(--md-sys-color-outline)',
+                            }}
+                          >
+                            Push Notifications
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={togglePushNotifications}
+                          disabled={isSubscribing}
+                          style={{
+                            padding: '6px 16px',
+                            borderRadius: '20px',
+                            border: pushEnabled ? 'none' : '1px solid var(--md-sys-color-outline-variant)',
+                            cursor: 'pointer',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            fontFamily: 'inherit',
+                            transition: 'all 0.2s',
+                            background: pushEnabled ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface)',
+                            color: pushEnabled
+                              ? 'var(--md-sys-color-on-primary)'
+                              : 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          {isSubscribing ? 'Wait...' : pushEnabled ? 'Enabled' : 'Turn On'}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* ═══ NOTIFICATIONS ═══ */}
-                <div className="settings-section">
-                  <div className="settings-row">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                      <span className="settings-label" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, fontSize: '0.8rem', color: 'var(--md-sys-color-outline)' }}>Push Notifications</span>
+                  {/* Right Column: Appearance + Security */}
+                  <div className="settings-col">
+                    {/* ═══ APPEARANCE ═══ */}
+                    <div className="settings-section">
+                      <div className="settings-section-title">
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="13.5" cy="6.5" r=".5"></circle>
+                          <circle cx="17.5" cy="10.5" r=".5"></circle>
+                          <circle cx="8.5" cy="7.5" r=".5"></circle>
+                          <circle cx="6.5" cy="12.5" r=".5"></circle>
+                          <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path>
+                        </svg>
+                        Appearance
+                      </div>
+                      <div className="settings-row" style={{ marginBottom: '1rem' }}>
+                        <span className="settings-label">Theme</span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            background: 'var(--md-sys-color-surface)',
+                            borderRadius: '24px',
+                            padding: '3px',
+                            border: '1px solid var(--md-sys-color-outline-variant)',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleThemeChange('light')}
+                            style={{
+                              padding: '5px 14px',
+                              borderRadius: '20px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              fontSize: '0.78rem',
+                              fontWeight: 500,
+                              fontFamily: 'inherit',
+                              background: theme === 'light' ? 'var(--md-sys-color-primary-container)' : 'transparent',
+                              color:
+                                theme === 'light'
+                                  ? 'var(--md-sys-color-on-primary-container)'
+                                  : 'var(--md-sys-color-outline)',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <circle cx="12" cy="12" r="5"></circle>
+                            </svg>
+                            Light
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleThemeChange('dark')}
+                            style={{
+                              padding: '5px 14px',
+                              borderRadius: '20px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              fontSize: '0.78rem',
+                              fontWeight: 500,
+                              fontFamily: 'inherit',
+                              background: theme === 'dark' ? 'var(--md-sys-color-primary-container)' : 'transparent',
+                              color:
+                                theme === 'dark'
+                                  ? 'var(--md-sys-color-on-primary-container)'
+                                  : 'var(--md-sys-color-outline)',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                            </svg>
+                            Dark
+                          </button>
+                        </div>
+                      </div>
+                      <div className="settings-row" style={{ marginBottom: '1rem' }}>
+                        <span className="settings-label">Accent Color</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="color"
+                            className="color-picker-input"
+                            value={colorPalette}
+                            onChange={(e) => handlePaletteChange(e.target.value)}
+                          />
+                          <span
+                            style={{
+                              fontSize: '0.78rem',
+                              fontFamily: 'monospace',
+                              opacity: 0.6,
+                              color: 'var(--md-sys-color-on-surface)',
+                            }}
+                          >
+                            {colorPalette.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: '1rem', position: 'relative', zIndex: 90 }}>
+                        <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>
+                          Typeface
+                        </label>
+                        <FontPicker
+                          value={profileData.font_family || globalFont || 'Inter'}
+                          onApply={(val) => {
+                            setProfileData({ ...profileData, font_family: val });
+                            saveProfileSettings({ font_family: val });
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span className="settings-label">UI Scaling</span>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--md-sys-color-primary)' }}>
+                            {Math.round(uiScale * 100)}%
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            color: 'var(--md-sys-color-on-surface)',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
+                          <input
+                            type="range"
+                            min="0.8"
+                            max="1.5"
+                            step="0.05"
+                            value={uiScale}
+                            onChange={(e) => setUiScale(parseFloat(e.target.value))}
+                            style={{ flex: 1, accentColor: 'var(--md-sys-color-primary)', cursor: 'pointer' }}
+                          />
+                          <span style={{ fontSize: '1.1rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
+                        </div>
+                      </div>
                     </div>
-                    <button type="button" onClick={togglePushNotifications} disabled={isSubscribing} style={{
-                      padding: '6px 16px', borderRadius: '20px', border: pushEnabled ? 'none' : '1px solid var(--md-sys-color-outline-variant)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
-                      background: pushEnabled ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface)',
-                      color: pushEnabled ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'
-                    }}>
-                      {isSubscribing ? 'Wait...' : pushEnabled ? 'Enabled' : 'Turn On'}
-                    </button>
+
+                    {/* ═══ SECURITY ═══ */}
+                    <div className="settings-section">
+                      <div className="settings-section-title">
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                        Change Password
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        <input
+                          className="settings-input"
+                          type="password"
+                          placeholder="Current password"
+                          value={pwChange.current}
+                          onChange={(e) => setPwChange((p) => ({ ...p, current: e.target.value, msg: null }))}
+                        />
+                        <input
+                          className="settings-input"
+                          type="password"
+                          placeholder="New password"
+                          value={pwChange.next}
+                          onChange={(e) => setPwChange((p) => ({ ...p, next: e.target.value, msg: null }))}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        style={{ width: '100%', padding: '0.6rem', borderRadius: '10px', fontSize: '0.85rem' }}
+                        onClick={async () => {
+                          if (!pwChange.current || !pwChange.next)
+                            return setPwChange((p) => ({ ...p, msg: { ok: false, text: 'Both fields are required' } }));
+                          try {
+                            const res = await fetch(`${socketUrl}/api/profile/password`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                              body: JSON.stringify({ currentPassword: pwChange.current, newPassword: pwChange.next }),
+                            });
+                            const data = await res.json();
+                            setPwChange(
+                              res.ok
+                                ? {
+                                    current: '',
+                                    next: '',
+                                    confirm: '',
+                                    msg: { ok: true, text: 'Password updated successfully!' },
+                                  }
+                                : (p) => ({ ...p, msg: { ok: false, text: data.error } })
+                            );
+                            if (res.ok) setTimeout(() => setPwChange((p) => ({ ...p, msg: null })), 3000);
+                          } catch {
+                            setPwChange((p) => ({ ...p, msg: { ok: false, text: 'Network error' } }));
+                          }
+                        }}
+                      >
+                        Update Password
+                      </button>
+                      {pwChange.msg && (
+                        <p
+                          style={{
+                            margin: '0.5rem 0 0',
+                            fontSize: '0.78rem',
+                            textAlign: 'center',
+                            color: pwChange.msg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)',
+                          }}
+                        >
+                          {pwChange.msg.text}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+          {croppingImage && (
+            <AvatarCropper image={croppingImage} onComplete={onCropComplete} onCancel={() => setCroppingImage(null)} />
+          )}
 
-              {/* Right Column: Appearance + Security */}
-              <div className="settings-col">
-                {/* ═══ APPEARANCE ═══ */}
-                <div className="settings-section">
-                  <div className="settings-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
-                    Appearance
-                  </div>
-                  <div className="settings-row" style={{ marginBottom: '1rem' }}>
-                    <span className="settings-label">Theme</span>
-                    <div style={{ display: 'flex', background: 'var(--md-sys-color-surface)', borderRadius: '24px', padding: '3px', border: '1px solid var(--md-sys-color-outline-variant)' }}>
-                      <button type="button" onClick={() => handleThemeChange('light')} style={{ padding: '5px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', fontWeight: 500, fontFamily: 'inherit', background: theme === 'light' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'light' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"></circle></svg>
-                        Light
-                      </button>
-                      <button type="button" onClick={() => handleThemeChange('dark')} style={{ padding: '5px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', fontWeight: 500, fontFamily: 'inherit', background: theme === 'dark' ? 'var(--md-sys-color-primary-container)' : 'transparent', color: theme === 'dark' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)', transition: 'all 0.2s' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
-                        Dark
-                      </button>
-                    </div>
-                  </div>
-                  <div className="settings-row" style={{ marginBottom: '1rem' }}>
-                    <span className="settings-label">Accent Color</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input type="color" className="color-picker-input" value={colorPalette} onChange={(e) => handlePaletteChange(e.target.value)} />
-                      <span style={{ fontSize: '0.78rem', fontFamily: 'monospace', opacity: 0.6, color: 'var(--md-sys-color-on-surface)' }}>{colorPalette.toUpperCase()}</span>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: '1rem', position: 'relative', zIndex: 90 }}>
-                    <label className="settings-label" style={{ display: 'block', marginBottom: '6px' }}>Typeface</label>
-                    <FontPicker value={profileData.font_family || globalFont || 'Inter'} onApply={(val) => { setProfileData({ ...profileData, font_family: val }); saveProfileSettings({ font_family: val }); }} />
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <span className="settings-label">UI Scaling</span>
-                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--md-sys-color-primary)' }}>{Math.round(uiScale * 100)}%</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--md-sys-color-on-surface)' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
-                      <input type="range" min="0.8" max="1.5" step="0.05" value={uiScale} onChange={(e) => setUiScale(parseFloat(e.target.value))} style={{ flex: 1, accentColor: 'var(--md-sys-color-primary)', cursor: 'pointer' }} />
-                      <span style={{ fontSize: '1.1rem', fontWeight: 'bold', opacity: 0.5 }}>A</span>
-                    </div>
-                  </div>
+          {/* Call Invite Modal */}
+          {showCallInvite && currentSpace && (
+            <div
+              className="space-modal-overlay"
+              onClick={(e) => {
+                if (e.target.className === 'space-modal-overlay') setShowCallInvite(null);
+              }}
+            >
+              <div
+                className="space-modal-content"
+                style={{
+                  maxWidth: '400px',
+                  width: '90%',
+                  background: 'var(--md-sys-color-surface)',
+                  borderRadius: '16px',
+                  padding: '1.5rem',
+                  boxShadow: '0 24px 48px rgba(0,0,0,0.3)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {showCallInvite.audioOnly ? (
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-primary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                      </svg>
+                    ) : (
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--md-sys-color-primary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                      </svg>
+                    )}
+                    {showCallInvite.audioOnly ? 'Audio Call' : 'Video Call'}
+                  </h2>
+                  <button
+                    onClick={() => setShowCallInvite(null)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--md-sys-color-outline)',
+                      padding: '4px',
+                    }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
                 </div>
 
-                {/* ═══ SECURITY ═══ */}
-                <div className="settings-section">
-                  <div className="settings-section-title">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    Change Password
+                <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', margin: '0 0 1rem' }}>
+                  Select members to ring in{' '}
+                  <strong>{currentSpace.is_dm === 1 ? getSpaceDisplayName() : '#' + currentSpace.name}</strong>
+                </p>
+
+                {/* Select All / None toggle */}
+                {callInviteMembers.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginBottom: '0.75rem',
+                      padding: '6px 0',
+                      borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={callInviteSelected.length === callInviteMembers.length}
+                        onChange={(e) =>
+                          setCallInviteSelected(e.target.checked ? callInviteMembers.map((m) => m.id) : [])
+                        }
+                        style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
+                      />
+                      Ring all ({callInviteMembers.length})
+                    </label>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    <input className="settings-input" type="password" placeholder="Current password" value={pwChange.current} onChange={(e) => setPwChange(p => ({ ...p, current: e.target.value, msg: null }))} />
-                    <input className="settings-input" type="password" placeholder="New password" value={pwChange.next} onChange={(e) => setPwChange(p => ({ ...p, next: e.target.value, msg: null }))} />
-                  </div>
-                  <button type="button" className="btn-primary" style={{ width: '100%', padding: '0.6rem', borderRadius: '10px', fontSize: '0.85rem' }} onClick={async () => {
-                    if (!pwChange.current || !pwChange.next) return setPwChange(p => ({ ...p, msg: { ok: false, text: 'Both fields are required' } }));
-                    try {
-                      const res = await fetch(`${socketUrl}/api/profile/password`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ currentPassword: pwChange.current, newPassword: pwChange.next }) });
-                      const data = await res.json();
-                      setPwChange(res.ok ? { current: '', next: '', confirm: '', msg: { ok: true, text: 'Password updated successfully!' } } : (p => ({ ...p, msg: { ok: false, text: data.error } })));
-                      if (res.ok) setTimeout(() => setPwChange(p => ({ ...p, msg: null })), 3000);
-                    } catch { setPwChange(p => ({ ...p, msg: { ok: false, text: 'Network error' } })); }
-                  }}>Update Password</button>
-                  {pwChange.msg && (
-                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', textAlign: 'center', color: pwChange.msg.ok ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)' }}>{pwChange.msg.text}</p>
+                )}
+
+                {/* Member list */}
+                <div
+                  style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                  }}
+                >
+                  {callInviteMembers.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--md-sys-color-outline)' }}>
+                      Loading members...
+                    </div>
+                  ) : (
+                    callInviteMembers.map((member) => {
+                      const isOnline = onlineUsers.some((u) => u.username === member.username);
+                      const isSelected = callInviteSelected.includes(member.id);
+                      return (
+                        <label
+                          key={member.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '8px 10px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'background 0.15s',
+                            background: isSelected
+                              ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)'
+                              : 'transparent',
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.background = isSelected
+                              ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.12)'
+                              : 'var(--md-sys-color-surface-variant)')
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.background = isSelected
+                              ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)'
+                              : 'transparent')
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() =>
+                              setCallInviteSelected((prev) =>
+                                isSelected ? prev.filter((id) => id !== member.id) : [...prev, member.id]
+                              )
+                            }
+                            style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
+                          />
+                          <div style={{ position: 'relative' }}>
+                            {member.avatar ? (
+                              <img
+                                src={member.avatar}
+                                alt=""
+                                style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: '50%',
+                                  background: 'var(--md-sys-color-secondary-container)',
+                                  color: 'var(--md-sys-color-on-secondary-container)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.9rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {(member.first_name || member.username)[0].toUpperCase()}
+                              </div>
+                            )}
+                            {/* Online dot */}
+                            <div
+                              style={{
+                                position: 'absolute',
+                                bottom: 0,
+                                right: 0,
+                                width: 10,
+                                height: 10,
+                                borderRadius: '50%',
+                                background: isOnline ? '#22c55e' : '#9ca3af',
+                                border: '2px solid var(--md-sys-color-surface)',
+                              }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>
+                              {member.first_name
+                                ? `${member.first_name}${member.last_name ? ' ' + member.last_name : ''}`
+                                : member.username}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '0.72rem',
+                                color: isOnline ? '#22c55e' : 'var(--md-sys-color-outline)',
+                              }}
+                            >
+                              {isOnline ? 'Online' : 'Offline'}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '1rem', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => {
+                      if (callInviteSelected.length > 0 && socket) {
+                        socket.emit('call-invite', {
+                          spaceId: Number(currentSpace.id),
+                          targetUserIds: callInviteSelected,
+                          audioOnly: showCallInvite.audioOnly,
+                        });
+                      }
+                      if (!showCallInvite.midCall) {
+                        setVideoAudioOnly(showCallInvite.audioOnly);
+                        setShowVideoRoom(true);
+                      }
+                      setShowCallInvite(null);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'var(--md-sys-color-primary)',
+                      color: 'var(--md-sys-color-on-primary)',
+                      fontWeight: 600,
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                    </svg>
+                    {showCallInvite.midCall
+                      ? `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''}`
+                      : `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''} & Join`}
+                  </button>
+                  {!showCallInvite.midCall && (
+                    <button
+                      onClick={() => {
+                        setVideoAudioOnly(showCallInvite.audioOnly);
+                        setShowVideoRoom(true);
+                        setShowCallInvite(null);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        borderRadius: '12px',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        background: 'transparent',
+                        color: 'var(--md-sys-color-on-surface)',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Join Quietly
+                    </button>
                   )}
                 </div>
               </div>
             </div>
-
-          </div>
-        </div>
-      )}
-      {croppingImage && (
-        <AvatarCropper 
-          image={croppingImage} 
-          onComplete={onCropComplete} 
-          onCancel={() => setCroppingImage(null)} 
-        />
-      )}
-
-      {/* Call Invite Modal */}
-      {showCallInvite && currentSpace && (
-        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowCallInvite(null); }}>
-          <div className="space-modal-content" style={{ maxWidth: '400px', width: '90%', background: 'var(--md-sys-color-surface)', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 24px 48px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {showCallInvite.audioOnly ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-                )}
-                {showCallInvite.audioOnly ? 'Audio Call' : 'Video Call'}
-              </h2>
-              <button onClick={() => setShowCallInvite(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--md-sys-color-outline)', padding: '4px' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.85rem', margin: '0 0 1rem' }}>
-              Select members to ring in <strong>{currentSpace.is_dm === 1 ? getSpaceDisplayName() : '#' + currentSpace.name}</strong>
-            </p>
-
-            {/* Select All / None toggle */}
-            {callInviteMembers.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                  <input
-                    type="checkbox"
-                    checked={callInviteSelected.length === callInviteMembers.length}
-                    onChange={(e) => setCallInviteSelected(e.target.checked ? callInviteMembers.map(m => m.id) : [])}
-                    style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
-                  />
-                  Ring all ({callInviteMembers.length})
-                </label>
-              </div>
-            )}
-
-            {/* Member list */}
-            <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              {callInviteMembers.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--md-sys-color-outline)' }}>Loading members...</div>
-              ) : callInviteMembers.map(member => {
-                const isOnline = onlineUsers.some(u => u.username === member.username);
-                const isSelected = callInviteSelected.includes(member.id);
-                return (
-                  <label key={member.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '10px', cursor: 'pointer', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)' : 'transparent' }}
-                    onMouseEnter={e => e.currentTarget.style.background = isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.12)' : 'var(--md-sys-color-surface-variant)'}
-                    onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'rgba(var(--md-sys-color-primary-rgb, 103,80,164), 0.08)' : 'transparent'}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => setCallInviteSelected(prev => isSelected ? prev.filter(id => id !== member.id) : [...prev, member.id])}
-                      style={{ accentColor: 'var(--md-sys-color-primary)', width: 16, height: 16 }}
-                    />
-                    <div style={{ position: 'relative' }}>
-                      {member.avatar ? (
-                        <img src={member.avatar} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
-                      ) : (
-                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
-                          {(member.first_name || member.username)[0].toUpperCase()}
-                        </div>
-                      )}
-                      {/* Online dot */}
-                      <div style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: isOnline ? '#22c55e' : '#9ca3af', border: '2px solid var(--md-sys-color-surface)' }} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.88rem', fontWeight: 500 }}>{member.first_name ? `${member.first_name}${member.last_name ? ' ' + member.last_name : ''}` : member.username}</div>
-                      <div style={{ fontSize: '0.72rem', color: isOnline ? '#22c55e' : 'var(--md-sys-color-outline)' }}>{isOnline ? 'Online' : 'Offline'}</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '1rem', flexWrap: 'wrap' }}>
-              <button onClick={() => {
-                if (callInviteSelected.length > 0 && socket) {
-                  socket.emit('call-invite', { spaceId: Number(currentSpace.id), targetUserIds: callInviteSelected, audioOnly: showCallInvite.audioOnly });
-                }
-                if (!showCallInvite.midCall) {
-                  setVideoAudioOnly(showCallInvite.audioOnly);
-                  setShowVideoRoom(true);
-                }
-                setShowCallInvite(null);
-              }} style={{ flex: 1, padding: '10px', borderRadius: '12px', border: 'none', background: 'var(--md-sys-color-primary)', color: 'var(--md-sys-color-on-primary)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                {showCallInvite.midCall ? `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''}` : `Ring ${callInviteSelected.length > 0 ? `(${callInviteSelected.length})` : ''} & Join`}
-              </button>
-              {!showCallInvite.midCall && (
-                <button onClick={() => {
-                  setVideoAudioOnly(showCallInvite.audioOnly);
-                  setShowVideoRoom(true);
-                  setShowCallInvite(null);
-                }} style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--md-sys-color-outline-variant)', background: 'transparent', color: 'var(--md-sys-color-on-surface)', fontSize: '0.82rem', cursor: 'pointer' }}>
-                  Join Quietly
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {!appReady && (
-        <div className={`loading-screen ${appReady ? 'fade-out' : ''}`}>
-          <img src={appLogo || '/icon.png'} alt="Logo" style={{ width: '120px', height: '120px', marginBottom: '2rem', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }} />
-          <div className="loading-logo">{appName}</div>
-          <div className="spinner"></div>
-          <div style={{ marginTop: '1rem', color: 'var(--md-sys-color-outline)', fontSize: '0.9rem' }}>
-            {isConnected ? 'Syncing your data...' : 'Connecting to server...'}
-          </div>
-        </div>
-      )}
-
-      {showAdminPanel && (
-        <AdminPanel
-          socket={socket}
-          token={token}
-          socketUrl={socketUrl}
-          onClose={() => setShowAdminPanel(false)}
-          globalFont={globalFont}
-          currentUserId={profileData.id}
-          onSelfUpdate={() => fetchProfile()}
-          appLogo={appLogo}
-          setAppLogo={setAppLogo}
-          setAppName={setAppName}
-          onPreviewAsset={(asset) => setSelectedAsset(
-            asset.file.startsWith('http') ? asset.file :
-            asset.file.startsWith('/uploads/') ? `${socketUrl}${asset.file}` :
-            `${socketUrl}/uploads/${asset.file}`
           )}
-        />
-      )}
-
-      {showVideoRoom && (
-        <VideoRoom
-          socket={socket}
-          spaceId={currentSpace.id}
-          onClose={() => { setShowVideoRoom(false); setIncomingCall(null); }}
-          audioOnly={videoAudioOnly}
-          profileData={profileData}
-          avatar={avatar}
-          e2eeKey={activeKeys[currentSpace.id]}
-          iceServers={iceServers}
-          onInvite={() => {
-            fetch(`${socketUrl}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } })
-              .then(res => res.json())
-              .then(data => {
-                const members = (Array.isArray(data) ? data : []).filter(m => m.username !== username);
-                setCallInviteMembers(members);
-                setCallInviteSelected(members.map(m => m.id));
-              }).catch(() => setCallInviteMembers([]));
-            setShowCallInvite({ audioOnly: videoAudioOnly, midCall: true });
-          }}
-        />
-      )}
-
-      {selectedAsset && (
-        <div 
-          style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 99999, display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'auto' }}
-          onClick={() => setSelectedAsset(null)}
-        >
-          {selectedAsset.match(/\.(mp4|mov|webm|mkv|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) || selectedAsset.includes('transcoded-') ? (
-            <video src={selectedAsset} controls autoPlay style={{ maxWidth: '95%', maxHeight: '95%', borderRadius: '8px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()} />
-          ) : selectedAsset.match(/\.(pdf|txt)$/i) ? (
-            <iframe src={selectedAsset} style={{ width: '90%', height: '90%', border: 'none', borderRadius: '8px', backgroundColor: '#fff' }} onClick={(e) => e.stopPropagation()} />
-          ) : selectedAsset.match(/\.(jpg|jpeg|png|gif|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
-            <img src={selectedAsset} alt="Full Size" style={{ maxWidth: '95%', maxHeight: '95%', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', cursor: 'zoom-out' }} onClick={(e) => { e.stopPropagation(); setSelectedAsset(null); }} />
-          ) : (
-            <div style={{ padding: '2.5rem', backgroundColor: 'var(--md-sys-color-surface)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', border: '1px solid var(--md-sys-color-outline-variant)' }} onClick={(e) => e.stopPropagation()}>
-               <div style={{ fontSize: '3.5rem', marginBottom: '1rem', color: 'var(--md-sys-color-on-surface-variant)' }}>📄</div>
-               <h3 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem', fontSize: '1.2rem' }}>Preview Not Available</h3>
-               <p style={{ color: 'var(--md-sys-color-on-surface-variant)', fontSize: '0.9rem', marginBottom: '2rem', maxWidth: '300px' }}>This document type cannot be natively previewed in the browser. Please download it to view.</p>
-               <a href={selectedAsset} target="_blank" rel="noopener noreferrer" download className="btn-primary" style={{ textDecoration: 'none', display: 'inline-block', padding: '0.75rem 1.5rem', borderRadius: '8px' }}>Download File</a>
+          {!appReady && (
+            <div className={`loading-screen ${appReady ? 'fade-out' : ''}`}>
+              <img
+                src={appLogo || '/icon.png'}
+                alt="Logo"
+                style={{
+                  width: '120px',
+                  height: '120px',
+                  marginBottom: '2rem',
+                  borderRadius: '24px',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+                }}
+              />
+              <div className="loading-logo">{appName}</div>
+              <div className="spinner"></div>
+              <div style={{ marginTop: '1rem', color: 'var(--md-sys-color-outline)', fontSize: '0.9rem' }}>
+                {isConnected ? 'Syncing your data...' : 'Connecting to server...'}
+              </div>
             </div>
           )}
-          <button onClick={() => setSelectedAsset(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', fontSize: '2rem', cursor: 'pointer', borderRadius: '50%', width: '50px', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&times;</button>
-        </div>
-      )}
 
-
-
-      {showRoomSettingsModal && (
-        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowRoomSettingsModal(false); }}>
-          <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '450px', margin: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ marginTop: 0, color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              Room Settings
-            </h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Select members to directly invite to <strong>#{currentSpace.name}</strong>.</p>
-            
-            <form onSubmit={inviteToRoom} style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-              {allUsers.length > 0 ? (
-                <div className="user-select-list" style={{ marginBottom: '1.5rem', flex: 1 }}>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>Workspace Users</label>
-                  <div style={{ maxHeight: '250px', overflowY: 'auto', marginTop: '0.5rem', border: '1px solid var(--md-sys-color-outline-variant)', borderRadius: '8px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--md-sys-color-background)' }}>
-                    {allUsers.map(u => {
-                      const isInvited = alreadyInvited.includes(u.id);
-                      return (
-                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', borderRadius: '4px', transition: 'background 0.2s', opacity: isInvited ? 0.6 : 1 }} className="user-invite-item">
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: isInvited ? 'default' : 'pointer', flex: 1 }}>
-                            <input 
-                              type="checkbox" 
-                              checked={isInvited || roomSettingsInvitedUsers.includes(u.id)}
-                              disabled={isInvited}
-                              onChange={(e) => {
-                                if (isInvited) return;
-                                if (e.target.checked) setRoomSettingsInvitedUsers(prev => [...prev, u.id]);
-                                else setRoomSettingsInvitedUsers(prev => prev.filter(id => id !== u.id));
-                              }}
-                              style={{ width: '16px', height: '16px', cursor: isInvited ? 'default' : 'pointer' }}
-                            />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}</div>}
-                              <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)', textDecoration: isInvited ? 'line-through' : 'none' }}>{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
-                            </div>
-                          </label>
-                          {isInvited && (role === 'admin' || username === currentSpace.created_by) && (
-                            <button type="button" onClick={() => removeUserFromSpace(u.id)} className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--md-sys-color-error)', border: 'none', background: 'var(--md-sys-color-surface-variant)' }}>Remove</button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <div className="spinner"></div>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: '12px', marginTop: 'auto' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowRoomSettingsModal(false)} style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={isUpdatingRoom || roomSettingsInvitedUsers.length === 0} style={{ flex: 1, padding: '0.75rem' }}>
-                  {isUpdatingRoom ? 'Inviting...' : 'Add Users'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showSpaceModal && (
-        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowSpaceModal(false); }}>
-          <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '450px', margin: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ marginTop: 0, color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              Create a Space
-            </h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Spaces are where your team communicates. They're best when organized around a topic.</p>
-            
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              setIsCreatingSpace(true);
-              try {
-                let exactUserId = profileData.id;
-                try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
-
-                const roomKey = await generateRoomKey();
-                const keyShares = {};
-                
-                if (profileData && profileData.public_key && exactUserId) {
-                   keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
-                }
-                
-                await Promise.all(invitedUsers.map(async (uId) => {
-                   const uObj = allUsers.find(u => u.id === Number(uId));
-                   if (uObj && uObj.public_key) {
-                      keyShares[uId] = await encryptRoomKeyWithPublicKey(roomKey, uObj.public_key);
-                   }
-                }));
-
-                const response = await fetch(`${socketUrl}/api/spaces`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({ name: newSpaceName, is_private: isNewSpacePrivate, invited_users: invitedUsers, keyShares }),
-                });
-                const newSpace = await response.json();
-                if (response.ok) {
-                  setActiveKeys(prev => ({ ...prev, [newSpace.id]: roomKey }));
-                  await escrowRoomKey(newSpace.id, roomKey, token, socketUrl);
-                  setSpaces(prev => { if (!prev.find(s => s.id === newSpace.id)) return [...prev, newSpace]; return prev; });
-                  setCurrentSpace(newSpace);
-                  setShowSpaceModal(false);
-                  setNewSpaceName('');
-                  setIsNewSpacePrivate(false);
-                  setInvitedUsers([]);
-                } else {
-                  console.error('Failed to create space:', newSpace.error);
-                }
-              } catch (error) {
-                console.error('Error creating space:', error);
-              } finally {
-                setIsCreatingSpace(false);
+          {showAdminPanel && (
+            <AdminPanel
+              socket={socket}
+              token={token}
+              socketUrl={socketUrl}
+              onClose={() => setShowAdminPanel(false)}
+              globalFont={globalFont}
+              currentUserId={profileData.id}
+              onSelfUpdate={() => fetchProfile()}
+              appLogo={appLogo}
+              setAppLogo={setAppLogo}
+              setAppName={setAppName}
+              onPreviewAsset={(asset) =>
+                setSelectedAsset(
+                  asset.file.startsWith('http')
+                    ? asset.file
+                    : asset.file.startsWith('/uploads/')
+                      ? `${socketUrl}${asset.file}`
+                      : `${socketUrl}/uploads/${asset.file}`
+                )
               }
-            }}>
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label>Name</label>
-                <input type="text" className="text-input" style={{ width: '100%' }} placeholder="e.g. project-apollo" value={newSpaceName} onChange={(e) => setNewSpaceName(e.target.value)} required autoFocus disabled={isCreatingSpace} />
-              </div>
-              
-              <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '1rem', backgroundColor: 'var(--md-sys-color-surface-variant)', borderRadius: '8px' }}>
-                <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px', flexShrink: 0 }}>
-                  <input type="checkbox" id="private-toggle" checked={isNewSpacePrivate} onChange={(e) => { setIsNewSpacePrivate(e.target.checked); if (!e.target.checked) setInvitedUsers([]); }} disabled={isCreatingSpace} style={{ opacity: 0, width: 0, height: 0 }} />
-                  <span className="toggle-slider" style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: isNewSpacePrivate ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)', transition: '.4s', borderRadius: '24px' }}>
-                    <span className="toggle-circle" style={{ position: 'absolute', content: '""', height: '16px', width: '16px', left: isNewSpacePrivate ? '24px' : '4px', bottom: '4px', backgroundColor: 'white', transition: '.4s', borderRadius: '50%' }}></span>
-                  </span>
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <label htmlFor="private-toggle" style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)' }}>Make Private</label>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--md-sys-color-outline)', marginTop: '4px' }}>
-                    {isNewSpacePrivate ? 'Only invited members can view and join this space.' : 'Anyone in your workspace can view and join this space.'}
-                  </span>
-                </div>
-              </div>
+            />
+          )}
 
+          {showVideoRoom && (
+            <VideoRoom
+              socket={socket}
+              spaceId={currentSpace.id}
+              onClose={() => {
+                setShowVideoRoom(false);
+                setIncomingCall(null);
+              }}
+              audioOnly={videoAudioOnly}
+              profileData={profileData}
+              avatar={avatar}
+              e2eeKey={activeKeys[currentSpace.id]}
+              iceServers={iceServers}
+              onInvite={() => {
+                fetch(`${socketUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } })
+                  .then((res) => res.json())
+                  .then((data) => {
+                    const members = (Array.isArray(data) ? data : []).filter((m) => m.username !== username);
+                    setCallInviteMembers(members);
+                    setCallInviteSelected(members.map((m) => m.id));
+                  })
+                  .catch(() => setCallInviteMembers([]));
+                setShowCallInvite({ audioOnly: videoAudioOnly, midCall: true });
+              }}
+            />
+          )}
 
-              {isNewSpacePrivate && allUsers.length > 0 && (
-                <div className="user-select-list" style={{ marginBottom: '1.5rem' }}>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>Invite Members</label>
-                  <div style={{ maxHeight: '180px', overflowY: 'auto', marginTop: '0.5rem', border: '1px solid var(--md-sys-color-outline-variant)', borderRadius: '8px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--md-sys-color-background)' }}>
-                    {allUsers.map(u => (
-                      <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.5rem 0.75rem', cursor: 'pointer', borderRadius: '4px', transition: 'background 0.2s' }} className="user-invite-item">
-                        <input 
-                          type="checkbox" 
-                          checked={invitedUsers.includes(u.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setInvitedUsers(prev => [...prev, u.id]);
-                            else setInvitedUsers(prev => prev.filter(id => id !== u.id));
-                          }}
-                          style={{ width: '16px', height: '16px' }}
-                        />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          {u.avatar ? <img src={u.avatar} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '11px', fontWeight: 'bold' }}>{u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}</div>}
-                          <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)' }}>{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
-                        </div>
-                      </label>
-                    ))}
+          {selectedAsset && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: 'rgba(0,0,0,0.9)',
+                zIndex: 99999,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                cursor: 'auto',
+              }}
+              onClick={() => setSelectedAsset(null)}
+            >
+              {selectedAsset.match(/\.(mp4|mov|webm|mkv|3gp|avi|wmv|flv|m4v|mpg|mpeg)$/i) ||
+              selectedAsset.includes('transcoded-') ? (
+                <video
+                  src={selectedAsset}
+                  controls
+                  autoPlay
+                  style={{
+                    maxWidth: '95%',
+                    maxHeight: '95%',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : selectedAsset.match(/\.(pdf|txt)$/i) ? (
+                <iframe
+                  src={selectedAsset}
+                  style={{ width: '90%', height: '90%', border: 'none', borderRadius: '8px', backgroundColor: '#fff' }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : selectedAsset.match(/\.(jpg|jpeg|png|gif|webp|heic|heif|bmp|svg|tiff|tif|ico)$/i) ? (
+                <img
+                  src={selectedAsset}
+                  alt="Full Size"
+                  style={{
+                    maxWidth: '95%',
+                    maxHeight: '95%',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                    cursor: 'zoom-out',
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedAsset(null);
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: '2.5rem',
+                    backgroundColor: 'var(--md-sys-color-surface)',
+                    borderRadius: '12px',
+                    textAlign: 'center',
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    style={{
+                      fontSize: '3.5rem',
+                      marginBottom: '1rem',
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  >
+                    📄
                   </div>
+                  <h3 style={{ color: 'var(--md-sys-color-on-surface)', margin: '0 0 0.5rem', fontSize: '1.2rem' }}>
+                    Preview Not Available
+                  </h3>
+                  <p
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                      fontSize: '0.9rem',
+                      marginBottom: '2rem',
+                      maxWidth: '300px',
+                    }}
+                  >
+                    This document type cannot be natively previewed in the browser. Please download it to view.
+                  </p>
+                  <a
+                    href={selectedAsset}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    className="btn-primary"
+                    style={{
+                      textDecoration: 'none',
+                      display: 'inline-block',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    Download File
+                  </a>
                 </div>
               )}
-
-              <div style={{ display: 'flex', gap: '12px', marginTop: '2rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowSpaceModal(false)} style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={isCreatingSpace || !newSpaceName.trim()} style={{ flex: 1, padding: '0.75rem' }}>
-                  {isCreatingSpace ? 'Creating...' : 'Create Room'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showDMModal && (
-        <div className="space-modal-overlay" onClick={(e) => { if (e.target.className === 'space-modal-overlay') setShowDMModal(false); }}>
-          <div className="space-modal-content auth-card modal-compact" style={{ width: '90%', maxWidth: '400px', margin: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ marginTop: 0, color: 'var(--md-sys-color-on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              Direct Messages
-            </h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1rem' }}>Select a team member to start a 1:1 conversation.</p>
-            
-            <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--md-sys-color-outline-variant)', borderRadius: '8px', padding: '0.5rem', backgroundColor: 'var(--md-sys-color-background)', marginBottom: '1rem' }}>
-              <div 
-                className="user-invite-item" 
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.5rem 0.75rem', cursor: 'pointer', borderRadius: '4px', borderBottom: '1px solid var(--md-sys-color-surface-variant)' }}
-                onClick={async () => {
-                  setIsCreatingDM(true);
-                  try {
-                     const dmObj = { targetUserId: profileData.id || 0 }; // Sending own ID spawns 'self_' if handled right, actually backend uses req.user.userId anyway!
-                     // Actually /api/dms uses req.body.targetUserId
-                     // Just fetch /api/dms where target = their own ID
-                     const res = await fetch(`${socketUrl}/api/dms`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ targetUserId: (spaces.find(s => s.name.startsWith('self_'))?.dm_username !== undefined ? 0 /* mock */ : 0) }) }); // We'll just map the target directly! Wait, profileData.id doesn't exist? Yes it does? Actually we can just find 'self_' in spaces!
-                     const currentSelfDm = spaces.find(s => s.is_dm === 1 && s.name.startsWith('self_'));
-                     if(currentSelfDm) { setCurrentSpace(currentSelfDm); setShowSidebar(false); setMobileView('chat'); }
-                     setShowDMModal(false);
-                  } finally { setIsCreatingDM(false); }
+              <button
+                onClick={() => setSelectedAsset(null)}
+                style={{
+                  position: 'absolute',
+                  top: '20px',
+                  right: '20px',
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  color: 'white',
+                  fontSize: '2rem',
+                  cursor: 'pointer',
+                  borderRadius: '50%',
+                  width: '50px',
+                  height: '50px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                 <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-primary)', fontSize: '14px', fontWeight: 'bold' }}>{profileData.first_name ? profileData.first_name[0].toUpperCase() : username[0].toUpperCase()}</div>
-                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                   <span style={{ fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 600 }}>{profileData.first_name ? `${profileData.first_name} ${profileData.last_name || ''}`.trim() : username} (You)</span>
-                   <span style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)' }}>Notes to Self space</span>
-                 </div>
+                &times;
+              </button>
+            </div>
+          )}
+
+          {showRoomSettingsModal && (
+            <div
+              className="space-modal-overlay"
+              onClick={(e) => {
+                if (e.target.className === 'space-modal-overlay') setShowRoomSettingsModal(false);
+              }}
+            >
+              <div
+                className="space-modal-content auth-card modal-compact"
+                style={{ width: '90%', maxWidth: '450px', margin: 'auto', display: 'flex', flexDirection: 'column' }}
+              >
+                <h2
+                  style={{
+                    marginTop: 0,
+                    color: 'var(--md-sys-color-on-surface)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--md-sys-color-primary)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                  Room Settings
+                </h2>
+                <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                  Select members to directly invite to <strong>#{currentSpace.name}</strong>.
+                </p>
+
+                <form onSubmit={inviteToRoom} style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  {allUsers.length > 0 ? (
+                    <div className="user-select-list" style={{ marginBottom: '1.5rem', flex: 1 }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>
+                        Workspace Users
+                      </label>
+                      <div
+                        style={{
+                          maxHeight: '250px',
+                          overflowY: 'auto',
+                          marginTop: '0.5rem',
+                          border: '1px solid var(--md-sys-color-outline-variant)',
+                          borderRadius: '8px',
+                          padding: '0.5rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          backgroundColor: 'var(--md-sys-color-background)',
+                        }}
+                      >
+                        {allUsers.map((u) => {
+                          const isInvited = alreadyInvited.includes(u.id);
+                          return (
+                            <div
+                              key={u.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '0.5rem 0.75rem',
+                                borderRadius: '4px',
+                                transition: 'background 0.2s',
+                                opacity: isInvited ? 0.6 : 1,
+                              }}
+                              className="user-invite-item"
+                            >
+                              <label
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  cursor: isInvited ? 'default' : 'pointer',
+                                  flex: 1,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isInvited || roomSettingsInvitedUsers.includes(u.id)}
+                                  disabled={isInvited}
+                                  onChange={(e) => {
+                                    if (isInvited) return;
+                                    if (e.target.checked) setRoomSettingsInvitedUsers((prev) => [...prev, u.id]);
+                                    else setRoomSettingsInvitedUsers((prev) => prev.filter((id) => id !== u.id));
+                                  }}
+                                  style={{ width: '16px', height: '16px', cursor: isInvited ? 'default' : 'pointer' }}
+                                />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  {u.avatar ? (
+                                    <img
+                                      src={u.avatar}
+                                      style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: '24px',
+                                        height: '24px',
+                                        borderRadius: '50%',
+                                        backgroundColor: 'var(--md-sys-color-primary)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: 'var(--md-sys-color-on-primary)',
+                                        fontSize: '11px',
+                                        fontWeight: 'bold',
+                                      }}
+                                    >
+                                      {u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span
+                                    style={{
+                                      fontSize: '0.9rem',
+                                      color: 'var(--md-sys-color-on-surface)',
+                                      textDecoration: isInvited ? 'line-through' : 'none',
+                                    }}
+                                  >
+                                    {u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}
+                                  </span>
+                                </div>
+                              </label>
+                              {isInvited && (role === 'admin' || username === currentSpace.created_by) && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeUserFromSpace(u.id)}
+                                  className="btn-secondary"
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '0.75rem',
+                                    color: 'var(--md-sys-color-error)',
+                                    border: 'none',
+                                    background: 'var(--md-sys-color-surface-variant)',
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div className="spinner"></div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '12px', marginTop: 'auto' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowRoomSettingsModal(false)}
+                      style={{ flex: 1, padding: '0.75rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={isUpdatingRoom || roomSettingsInvitedUsers.length === 0}
+                      style={{ flex: 1, padding: '0.75rem' }}
+                    >
+                      {isUpdatingRoom ? 'Inviting...' : 'Add Users'}
+                    </button>
+                  </div>
+                </form>
               </div>
-              
-              {allUsers.length > 0 ? allUsers.map(u => (
-                <div 
-                  key={u.id} 
-                  className="user-invite-item" 
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.5rem 0.75rem', cursor: 'pointer', borderRadius: '4px' }}
-                  onClick={async () => {
-                    setIsCreatingDM(true);
+            </div>
+          )}
+
+          {showSpaceModal && (
+            <div
+              className="space-modal-overlay"
+              onClick={(e) => {
+                if (e.target.className === 'space-modal-overlay') setShowSpaceModal(false);
+              }}
+            >
+              <div
+                className="space-modal-content auth-card modal-compact"
+                style={{ width: '90%', maxWidth: '450px', margin: 'auto', display: 'flex', flexDirection: 'column' }}
+              >
+                <h2
+                  style={{
+                    marginTop: 0,
+                    color: 'var(--md-sys-color-on-surface)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--md-sys-color-primary)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  Create a Space
+                </h2>
+                <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                  Spaces are where your team communicates. They're best when organized around a topic.
+                </p>
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setIsCreatingSpace(true);
                     try {
                       let exactUserId = profileData.id;
-                      try { exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId; } catch(e){}
+                      try {
+                        exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId;
+                      } catch (e) {}
 
                       const roomKey = await generateRoomKey();
                       const keyShares = {};
+
                       if (profileData && profileData.public_key && exactUserId) {
-                         keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
-                      }
-                      if (u && u.public_key) {
-                         keyShares[u.id] = await encryptRoomKeyWithPublicKey(roomKey, u.public_key);
+                        keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(roomKey, profileData.public_key);
                       }
 
-                      const response = await fetch(`${socketUrl}/api/dms`, {
+                      await Promise.all(
+                        invitedUsers.map(async (uId) => {
+                          const uObj = allUsers.find((u) => u.id === Number(uId));
+                          if (uObj && uObj.public_key) {
+                            keyShares[uId] = await encryptRoomKeyWithPublicKey(roomKey, uObj.public_key);
+                          }
+                        })
+                      );
+
+                      const response = await fetch(`${socketUrl}/api/spaces`, {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${token}`,
+                          Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ targetUserId: u.id, keyShares }),
+                        body: JSON.stringify({
+                          name: newSpaceName,
+                          is_private: isNewSpacePrivate,
+                          invited_users: invitedUsers,
+                          keyShares,
+                        }),
                       });
-                      const data = await response.json();
+                      const newSpace = await response.json();
                       if (response.ok) {
-                        setActiveKeys(prev => ({ ...prev, [data.spaceId]: roomKey }));
-                        await escrowRoomKey(data.spaceId, roomKey, token, socketUrl);
-                        const targetSpace = spaces.find(s => s.id === data.spaceId);
-                        if (targetSpace) {
-                          setCurrentSpace(targetSpace);
-                        } else {
-                          // The space created socket event will pull it into the menu, but we can gracefully navigate by mutating instantly
-                          const fetchRes = await fetch(`${socketUrl}/api/spaces`, { headers: { 'Authorization': `Bearer ${token}` } });
-                          const allS = await fetchRes.json();
-                          setSpaces(allS);
-                          const ns = allS.find(s => s.id === data.spaceId);
-                          if(ns) setCurrentSpace(ns);
-                        }
-                        setShowDMModal(false);
-                        setShowSidebar(false);
-                        setMobileView('chat');
+                        setActiveKeys((prev) => ({ ...prev, [newSpace.id]: roomKey }));
+                        await escrowRoomKey(newSpace.id, roomKey, token, socketUrl);
+                        setSpaces((prev) => {
+                          if (!prev.find((s) => s.id === newSpace.id)) return [...prev, newSpace];
+                          return prev;
+                        });
+                        setCurrentSpace(newSpace);
+                        setShowSpaceModal(false);
+                        setNewSpaceName('');
+                        setIsNewSpacePrivate(false);
+                        setInvitedUsers([]);
                       } else {
-                        console.error('Failed to create DM:', data.error);
+                        console.error('Failed to create space:', newSpace.error);
                       }
                     } catch (error) {
-                      console.error('Error creating DM:', error);
+                      console.error('Error creating space:', error);
                     } finally {
-                      setIsCreatingDM(false);
+                      setIsCreatingSpace(false);
                     }
                   }}
                 >
-                  {u.avatar ? <img src={u.avatar} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--md-sys-color-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--md-sys-color-on-surface-variant)', fontSize: '14px', fontWeight: 'bold' }}>{u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}</div>}
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                     <span style={{ fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)' }}>{u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}</span>
+                  <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                    <label>Name</label>
+                    <input
+                      type="text"
+                      className="text-input"
+                      style={{ width: '100%' }}
+                      placeholder="e.g. project-apollo"
+                      value={newSpaceName}
+                      onChange={(e) => setNewSpaceName(e.target.value)}
+                      required
+                      autoFocus
+                      disabled={isCreatingSpace}
+                    />
                   </div>
+
+                  <div
+                    style={{
+                      marginBottom: '1.5rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '12px',
+                      padding: '1rem',
+                      backgroundColor: 'var(--md-sys-color-surface-variant)',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <label
+                      className="toggle-switch"
+                      style={{
+                        position: 'relative',
+                        display: 'inline-block',
+                        width: '44px',
+                        height: '24px',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        id="private-toggle"
+                        checked={isNewSpacePrivate}
+                        onChange={(e) => {
+                          setIsNewSpacePrivate(e.target.checked);
+                          if (!e.target.checked) setInvitedUsers([]);
+                        }}
+                        disabled={isCreatingSpace}
+                        style={{ opacity: 0, width: 0, height: 0 }}
+                      />
+                      <span
+                        className="toggle-slider"
+                        style={{
+                          position: 'absolute',
+                          cursor: 'pointer',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: isNewSpacePrivate
+                            ? 'var(--md-sys-color-primary)'
+                            : 'var(--md-sys-color-outline-variant)',
+                          transition: '.4s',
+                          borderRadius: '24px',
+                        }}
+                      >
+                        <span
+                          className="toggle-circle"
+                          style={{
+                            position: 'absolute',
+                            content: '""',
+                            height: '16px',
+                            width: '16px',
+                            left: isNewSpacePrivate ? '24px' : '4px',
+                            bottom: '4px',
+                            backgroundColor: 'white',
+                            transition: '.4s',
+                            borderRadius: '50%',
+                          }}
+                        ></span>
+                      </span>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <label
+                        htmlFor="private-toggle"
+                        style={{
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          fontSize: '0.95rem',
+                          color: 'var(--md-sys-color-on-surface)',
+                        }}
+                      >
+                        Make Private
+                      </label>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--md-sys-color-outline)', marginTop: '4px' }}>
+                        {isNewSpacePrivate
+                          ? 'Only invited members can view and join this space.'
+                          : 'Anyone in your workspace can view and join this space.'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isNewSpacePrivate && allUsers.length > 0 && (
+                    <div className="user-select-list" style={{ marginBottom: '1.5rem' }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--md-sys-color-on-surface)' }}>
+                        Invite Members
+                      </label>
+                      <div
+                        style={{
+                          maxHeight: '180px',
+                          overflowY: 'auto',
+                          marginTop: '0.5rem',
+                          border: '1px solid var(--md-sys-color-outline-variant)',
+                          borderRadius: '8px',
+                          padding: '0.5rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          backgroundColor: 'var(--md-sys-color-background)',
+                        }}
+                      >
+                        {allUsers.map((u) => (
+                          <label
+                            key={u.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px',
+                              padding: '0.5rem 0.75rem',
+                              cursor: 'pointer',
+                              borderRadius: '4px',
+                              transition: 'background 0.2s',
+                            }}
+                            className="user-invite-item"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={invitedUsers.includes(u.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setInvitedUsers((prev) => [...prev, u.id]);
+                                else setInvitedUsers((prev) => prev.filter((id) => id !== u.id));
+                              }}
+                              style={{ width: '16px', height: '16px' }}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {u.avatar ? (
+                                <img
+                                  src={u.avatar}
+                                  style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'var(--md-sys-color-primary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'var(--md-sys-color-on-primary)',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  {u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}
+                                </div>
+                              )}
+                              <span style={{ fontSize: '0.9rem', color: 'var(--md-sys-color-on-surface)' }}>
+                                {u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}
+                              </span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '2rem' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowSpaceModal(false)}
+                      style={{ flex: 1, padding: '0.75rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={isCreatingSpace || !newSpaceName.trim()}
+                      style={{ flex: 1, padding: '0.75rem' }}
+                    >
+                      {isCreatingSpace ? 'Creating...' : 'Create Room'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showDMModal && (
+            <div
+              className="space-modal-overlay"
+              onClick={(e) => {
+                if (e.target.className === 'space-modal-overlay') setShowDMModal(false);
+              }}
+            >
+              <div
+                className="space-modal-content auth-card modal-compact"
+                style={{ width: '90%', maxWidth: '400px', margin: 'auto', display: 'flex', flexDirection: 'column' }}
+              >
+                <h2
+                  style={{
+                    marginTop: 0,
+                    color: 'var(--md-sys-color-on-surface)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  Direct Messages
+                </h2>
+                <p style={{ color: 'var(--md-sys-color-outline)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                  Select a team member to start a 1:1 conversation.
+                </p>
+
+                <div
+                  style={{
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                    border: '1px solid var(--md-sys-color-outline-variant)',
+                    borderRadius: '8px',
+                    padding: '0.5rem',
+                    backgroundColor: 'var(--md-sys-color-background)',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  <div
+                    className="user-invite-item"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '0.5rem 0.75rem',
+                      cursor: 'pointer',
+                      borderRadius: '4px',
+                      borderBottom: '1px solid var(--md-sys-color-surface-variant)',
+                    }}
+                    onClick={async () => {
+                      setIsCreatingDM(true);
+                      try {
+                        const dmObj = { targetUserId: profileData.id || 0 }; // Sending own ID spawns 'self_' if handled right, actually backend uses req.user.userId anyway!
+                        // Actually /api/dms uses req.body.targetUserId
+                        // Just fetch /api/dms where target = their own ID
+                        const res = await fetch(`${socketUrl}/api/dms`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            targetUserId:
+                              spaces.find((s) => s.name.startsWith('self_'))?.dm_username !== undefined
+                                ? 0 /* mock */
+                                : 0,
+                          }),
+                        }); // We'll just map the target directly! Wait, profileData.id doesn't exist? Yes it does? Actually we can just find 'self_' in spaces!
+                        const currentSelfDm = spaces.find((s) => s.is_dm === 1 && s.name.startsWith('self_'));
+                        if (currentSelfDm) {
+                          setCurrentSpace(currentSelfDm);
+                          setShowSidebar(false);
+                          setMobileView('chat');
+                        }
+                        setShowDMModal(false);
+                      } finally {
+                        setIsCreatingDM(false);
+                      }
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--md-sys-color-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--md-sys-color-on-primary)',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {profileData.first_name ? profileData.first_name[0].toUpperCase() : username[0].toUpperCase()}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)', fontWeight: 600 }}>
+                        {profileData.first_name
+                          ? `${profileData.first_name} ${profileData.last_name || ''}`.trim()
+                          : username}{' '}
+                        (You)
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--md-sys-color-outline)' }}>
+                        Notes to Self space
+                      </span>
+                    </div>
+                  </div>
+
+                  {allUsers.length > 0 ? (
+                    allUsers.map((u) => (
+                      <div
+                        key={u.id}
+                        className="user-invite-item"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          padding: '0.5rem 0.75rem',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                        }}
+                        onClick={async () => {
+                          setIsCreatingDM(true);
+                          try {
+                            let exactUserId = profileData.id;
+                            try {
+                              exactUserId = exactUserId || JSON.parse(atob(token.split('.')[1])).userId;
+                            } catch (e) {}
+
+                            const roomKey = await generateRoomKey();
+                            const keyShares = {};
+                            if (profileData && profileData.public_key && exactUserId) {
+                              keyShares[exactUserId] = await encryptRoomKeyWithPublicKey(
+                                roomKey,
+                                profileData.public_key
+                              );
+                            }
+                            if (u && u.public_key) {
+                              keyShares[u.id] = await encryptRoomKeyWithPublicKey(roomKey, u.public_key);
+                            }
+
+                            const response = await fetch(`${socketUrl}/api/dms`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({ targetUserId: u.id, keyShares }),
+                            });
+                            const data = await response.json();
+                            if (response.ok) {
+                              setActiveKeys((prev) => ({ ...prev, [data.spaceId]: roomKey }));
+                              await escrowRoomKey(data.spaceId, roomKey, token, socketUrl);
+                              const targetSpace = spaces.find((s) => s.id === data.spaceId);
+                              if (targetSpace) {
+                                setCurrentSpace(targetSpace);
+                              } else {
+                                // The space created socket event will pull it into the menu, but we can gracefully navigate by mutating instantly
+                                const fetchRes = await fetch(`${socketUrl}/api/spaces`, {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                const allS = await fetchRes.json();
+                                setSpaces(allS);
+                                const ns = allS.find((s) => s.id === data.spaceId);
+                                if (ns) setCurrentSpace(ns);
+                              }
+                              setShowDMModal(false);
+                              setShowSidebar(false);
+                              setMobileView('chat');
+                            } else {
+                              console.error('Failed to create DM:', data.error);
+                            }
+                          } catch (error) {
+                            console.error('Error creating DM:', error);
+                          } finally {
+                            setIsCreatingDM(false);
+                          }
+                        }}
+                      >
+                        {u.avatar ? (
+                          <img
+                            src={u.avatar}
+                            style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--md-sys-color-surface-variant)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--md-sys-color-on-surface-variant)',
+                              fontSize: '14px',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.95rem', color: 'var(--md-sys-color-on-surface)' }}>
+                            {u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>
+                      No other users joined yet
+                    </div>
+                  )}
                 </div>
-              )) : (
-                 <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--md-sys-color-outline)' }}>No other users joined yet</div>
-              )}
-            </div>
 
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button type="button" className="btn-secondary" onClick={() => setShowDMModal(false)} style={{ width: '100%', padding: '0.75rem' }}>Cancel</button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setShowDMModal(false)}
+                    style={{ width: '100%', padding: '0.75rem' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {spaceToDelete && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 10000,
+              }}
+            >
+              <div className="auth-card modal-compact" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete Space?</h2>
+                <p>
+                  Are you sure you want to delete{' '}
+                  <strong>
+                    {spaceToDelete.is_dm === 1 ? '' : '#'}
+                    {getSpaceDisplayName(spaceToDelete)}
+                  </strong>
+                  ? All messages will be lost.
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setSpaceToDelete(null)}
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => deleteSpace(spaceToDelete.id)}
+                    style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {spaceToLeave && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 10000,
+              }}
+            >
+              <div className="auth-card modal-compact" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                <h2>Leave Space?</h2>
+                <p style={{ color: 'var(--md-sys-color-outline)', marginTop: '0.5rem' }}>
+                  Are you sure you want to securely exit{' '}
+                  <strong>
+                    {spaceToLeave.is_dm === 1 ? '' : '#'}
+                    {getSpaceDisplayName(spaceToLeave)}
+                  </strong>
+                  ?
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setSpaceToLeave(null)}
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => leaveSpace(spaceToLeave.id)}
+                    style={{ flex: 1 }}
+                  >
+                    Leave
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-
-      {spaceToDelete && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
-          <div className="auth-card modal-compact" style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h2 style={{ color: 'var(--md-sys-color-error)' }}>Delete Space?</h2>
-            <p>Are you sure you want to delete <strong>{spaceToDelete.is_dm === 1 ? '' : '#'}{getSpaceDisplayName(spaceToDelete)}</strong>? All messages will be lost.</p>
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-              <button type="button" className="btn-secondary" onClick={() => setSpaceToDelete(null)} style={{ flex: 1 }}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={() => deleteSpace(spaceToDelete.id)} style={{ flex: 1, backgroundColor: 'var(--md-sys-color-error)', color: '#fff' }}>Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {spaceToLeave && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
-          <div className="auth-card modal-compact" style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h2>Leave Space?</h2>
-            <p style={{ color: 'var(--md-sys-color-outline)', marginTop: '0.5rem' }}>Are you sure you want to securely exit <strong>{spaceToLeave.is_dm === 1 ? '' : '#'}{getSpaceDisplayName(spaceToLeave)}</strong>?</p>
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-              <button type="button" className="btn-secondary" onClick={() => setSpaceToLeave(null)} style={{ flex: 1 }}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={() => leaveSpace(spaceToLeave.id)} style={{ flex: 1 }}>Leave</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
       )}
     </>
   );
 }
 
-export default App
+export default App;
