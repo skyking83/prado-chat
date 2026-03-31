@@ -434,24 +434,6 @@ app.get('/api/config/public', (req, res) => {
   });
 });
 
-// Logo upload endpoint (admin only)
-app.post('/api/config/logo', authenticateToken, upload.single('logo'), (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  
-  const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
-  const newName = `custom_logo${ext}`;
-  const newPath = path.join(UPLOADS_DIR, newName);
-  
-  // Remove old logo if exists
-  try { fs.renameSync(req.file.path, newPath); } catch(e) { /* ignore */ }
-  
-  const logoUrl = `/uploads/${newName}`;
-  db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['custom_logo', logoUrl], (err) => {
-    if (err) return res.status(500).json({ error: 'Database error' });
-    res.json({ logo: logoUrl });
-  });
-});
 
 app.post('/api/register', async (req, res) => {
   const { password, email, publicKey, wrappedPrivateKey } = req.body;
@@ -690,6 +672,24 @@ const authenticateToken = (req, res, next) => {
     });
   });
 };
+
+// Logo upload endpoint (admin only)
+app.post('/api/config/logo', authenticateToken, upload.single('logo'), (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  
+  const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
+  const newName = `custom_logo${ext}`;
+  const newPath = path.join(UPLOADS_DIR, newName);
+  
+  try { fs.renameSync(req.file.path, newPath); } catch(e) { /* ignore */ }
+  
+  const logoUrl = `/uploads/${newName}`;
+  db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['custom_logo', logoUrl], (err) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json({ logo: logoUrl });
+  });
+});
 
 app.get('/api/profile', authenticateToken, (req, res) => {
   db.get('SELECT id, username, role, theme, color_palette, avatar, first_name, last_name, email, location, font_family, bio, status_text, status_emoji, timezone, public_key FROM users WHERE id = ?', [req.user.userId], (err, user) => {
