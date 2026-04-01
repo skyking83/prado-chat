@@ -32,6 +32,8 @@ Completely invisible encryption — no passkey prompts, no lock icons, no "[Encr
 
 ### 💬 Real-Time Communication
 Instant messaging powered by ultra-low-latency WebSockets via `Socket.io` with resilient reconnection handling, real-time typing indicators, and online/offline presence detection.
+- **Threaded Messaging**: Reply to any message to start a collapsible thread. Thread reply toasts notify all participants — even across different spaces — with click-to-navigate deep linking. Thread unread badges on collapsed threads
+- **New Message Pill**: Webex-style floating pill appears above the input area when new messages arrive while scrolled up, showing sender name, preview text, and stacking count badge. Click to jump to latest, auto-dismisses on scroll
 - **Message Search**: `Ctrl+F` or search icon opens slide-down search bar in chat header. Client-side full-text search with highlighted results, result counter, and jump-to-message navigation. Separate global search across all spaces
 - **Voice Messages**: Mic button (appears when input is empty) records audio via MediaRecorder API (`audio/webm;codecs=opus`). Inline waveform player with play/pause toggle and progress bar
 - **@Mentions & Alerts**: Type `@` for auto-complete user dropdown. Mentioned users receive a 2-note audio chime + orange sidebar notification dot. Push notifications include "mentioned you" alerts
